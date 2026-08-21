@@ -1,0 +1,909 @@
+Kimi: Here is your **single, final, hardened master prompt**. It preserves every feature, color, lock, and survival rule from your original 32-phase specification, merged with the foundation-hardening audit directives. No code. No files. Just the frozen directive.
+
+---
+
+# CODECONCLAVE PRO — MASTER IMPLEMENTATION PROMPT (FOUNDATION-HARDENED)
+
+## 0. IDENTITY & NON-NEGOTIABLES
+You are building **CodeConClave**. The system promise is: *"Tell CodeConClave what you want. It understands. It remembers. It plans. It works. It verifies. It preserves the result. It keeps cloud-side work running while you are away. When you return, you continue instead of starting over."*
+
+**The Five Pillars are invariant:** MEMORY, EXECUTION, CONTINUITY, TEAM, CONTROL.
+
+**Brand Lock:**
+- Name must be exactly `CodeConClave` (C-o-d-e-C-o-n-C-l-a-v-e). Forbidden variants: `CodeConclave`, `CodeConCLAVE`, `codeconclave`.
+- Logo wordmark is **YELLOW** only. Structure is black/white striped. No robots, mascots, or alternate moons.
+- Colors are locked:
+  - Primary accent: `#C15F3C` (terracotta)
+  - Surface: `#FFFFFF`
+  - App background: `#F4F3EE`
+  - Secondary text/borders/inactive: `#B1ADA1`
+  - Body text/dark terminal/moon: `#111111`
+  - Danger: `#B3261E`
+- Typography: Inter / SF Pro for UI. JetBrains Mono for code.
+- **NEVER** use yellow for buttons, active states, or backgrounds. Yellow is logo-only.
+- **NEVER** make the AI Thinking Moon orange, large, or aggressive. It is black, small, and subtle.
+- **NEVER** make the Free Limit Moon terracotta or permanent.
+
+**Do-Not Rules (invariant):**
+- Do not cut any feature from v3.0.
+- Do not simplify by deleting features or replacing with mocks.
+- Do not trust client-side for payments, entitlements, or permissions.
+- Do not put every feature on the homepage/dashboard.
+- Do not leave the AI Thinking Moon visible after response completes.
+- Do not replay the Free Limit Moon on every refresh.
+- Do not claim production-ready until all tests pass.
+- Do not silently overwrite local files without diff and approval.
+- Do not allow local agent unrestricted access to SSH keys, cloud credentials, or system secrets.
+- Do not display every model side-by-side permanently. Use dropdown.
+- Do not make Cowork mode a separate unrelated page. Keep it inside Chat workspace.
+- Do not use fake data, fake progress, or placeholder implementations.
+- Do not skip security testing, failure testing, or load testing.
+- Do not modify the payment system architecture. Implement exactly as specified.
+- Do not fake payments, entitlements, or progress.
+- Do not claim local work happened while laptop was off.
+- Do not bypass high-risk approval in Fast Mode.
+- Do not rely solely on AI instruction for security. Enforce deny-by-default.
+- Do not make Local Agent mandatory for cloud functionality.
+- Do not create separate database architectures for different tiers.
+- Do not stop product development for months perfecting every future table.
+- Do not use event sourcing everywhere.
+- Do not permanently hide features under progressive disclosure.
+- Do not fake the first-session continuity demonstration.
+- Do not write fake Razorpay polling workers without actual credentials.
+- Do not allow raw model output to directly become shell commands.
+- Do not let untrusted content bypass the deterministic policy engine.
+- Do not silently overwrite shared team DNA.
+- Do not force Docker on every user for Local Agent.
+- Do not require self-hosted 70B models at launch.
+- Do not create unnecessary embeddings or repeated model calls.
+- Do not make the interface noisy with cost indicators.
+
+---
+
+## 1. FOUNDATION HARDENING PHILOSOPHY
+Before any new feature phase begins, the existing foundation must pass **AUDIT → FIX → TEST → VERIFY**.
+
+**Current Real Capabilities (do not invent beyond these):**
+- Razorpay Payment Link: AVAILABLE
+- Authenticated Razorpay API: NOT AVAILABLE
+- Razorpay Webhooks: NOT AVAILABLE
+- Real embedding provider: CONFIGURABLE (may be unavailable)
+- Local Agent: OPTIONAL (cloud must work without it)
+
+**Foundation Correction Priority:**
+1. Compile/runtime correctness
+2. Database correctness
+3. Payment correctness
+4. Security correctness
+5. Memory correctness
+6. Execution/terminal correctness
+7. Task lifecycle correctness
+8. Persistence
+9. Tests
+10. Architecture consistency
+
+**Do NOT add the next feature phase until the foundation report reads PASS.**
+
+---
+
+## 2. SURVIVAL ARCHITECTURE
+The system must survive on six axes. If any budget is exceeded, the system must fail loudly with a `SURVIVAL LOCK` error.
+
+- **FAST_ENOUGH:** p50 < 300ms, p95 < 800ms, p99 < 1500ms for reads.
+- **AFFORDABLE_ENOUGH:** Cost per outcome stays within plan budget. Route to cheapest qualified model first. Premium only when justified.
+- **SECURE_ENOUGH:** Enterprise security lock never degrades. Deny-by-default for secrets, paths, and commands.
+- **TRUSTWORTHY_ENOUGH:** Every artifact verified before claim. Diffs before apply. Tests required.
+- **POWERFUL_ENOUGH:** Full AI OS capability retained. All 18 feature areas implemented.
+- **SIMPLE_ENOUGH_TO_USE:** Core loop usable without training. Progressive disclosure, not feature removal.
+
+---
+
+## 3. LAYERED ARCHITECTURE
+Layers (in order): PRESENTATION → API_GATEWAY → APPLICATION_SERVICES → DATA → WORKER → EXTERNAL_INTEGRATIONS.
+
+- **Presentation** never holds security authority.
+- **Authority** lives only in API_GATEWAY and APPLICATION_SERVICES.
+- **Deployment:** Start as MODULAR_MONOLITH. Public behavior must not change when services are later extracted.
+- **App Services (17 total, all required):** identity, sessions, mfa, devices, tenancy, rbac, plans, entitlements, usage, payments, approval, tasks, executions, memory, storage, modelGateway, audit.
+
+---
+
+## 4. DATABASE CONTRACT (HARDENED)
+**One logical database architecture.** No SQLite/PostgreSQL split by tier. PostgreSQL with RLS on every tenant-scoped table.
+
+**Before any migration is accepted, audit every table for:**
+- Primary key existence and correctness
+- Foreign key references to real tables/columns
+- Ownership column (tenant_id, user_id)
+- Tenant scope enforcement
+- Nullability accuracy
+- Default values
+- Unique constraints (no duplicates)
+- Indexes (no missing query support)
+- RLS expression referencing real columns
+- CHECK constraints matching enums
+- State machine annotation where applicable
+- Retention policy
+- Audit mode (APPEND_ONLY or TRACE)
+
+**Priority Schema Order:**
+1. IDENTITY (users, sessions, devices, recovery_credentials)
+2. COLLABORATION (teams, team_members, projects, project_members)
+3. CONVERSATION (conversations, messages, threads, reactions, mentions)
+4. MEMORY (memories, memory_sources, memory_relationships, dna, dna_versions, dna_conflicts)
+5. FILES (files, file_versions, file_permissions, file_references)
+6. EXECUTION (tasks, task_attempts, task_steps, tool_calls, approvals, artifacts)
+7. COWORKERS (coworker_runs, coworker_handoffs, coworker_artifacts)
+8. AI (ai_model_registry, model_usage_logs, provider_health)
+9. PAYMENTS (orders, payments, entitlements, payment_events, payment_audit)
+10. PLUGINS (plugins, plugin_connections, plugin_scopes, plugin_events)
+11. WORKSPACE (workspace_state, user_preferences, feature_flags, usage_counters)
+12. AUDIT/EVENTS (audit_logs, events, outbox_events)
+
+**Critical Hardened Tables:**
+- `tenant`: Root isolation. RLS forced. Audit APPEND_ONLY. Retention indefinite. The tenant table must not reference a nonexistent tenant_id column in its own RLS.
+- `app_user`: RBAC subject. Plan enum: `('free','pro','team','enterprise')`. RLS forced. Audit TRACE. Retention 28 years.
+- `audit_log`: Append-only. 7-year retention. RLS forced. **Never mutated after write. Never stored in an in-memory array as the authoritative source. Must persist to PostgreSQL.**
+- `workspace_state`: Restores exact workspace on return. RLS. Audit TRACE.
+- `project_dna`: Versioned project state. RLS. Audit APPEND_ONLY. Retention indefinite.
+- `memory_entry`: Kind enum `('episodic','semantic','procedural','project','team')`. Embedding column exists but **must not contain deterministic hash fakes**. Store NULL if no real embedding exists. RLS. Audit APPEND_ONLY.
+- `payments`: Ledger. State machine enforced. Idempotency key unique. Provider payment ID unique. RLS. Audit APPEND_ONLY. Retention 7 years.
+- `entitlements`: One per verified payment. Unique on payment_id. Activated only after server-verified payment. RLS.
+- `outbox_events`: Reliable delivery. Idempotency key unique. Published_at NULL until sent.
+- `feature_flags`: flag_name unique. kill_switch default false.
+
+**RLS Policy Pattern:** `tenant_id = current_setting('app.tenant_id')::uuid` for both USING and WITH CHECK. Every RLS expression must reference a real column.
+
+**Migrations must validate against actual PostgreSQL before acceptance.**
+
+---
+
+## 5. SECURITY & SAFETY PIPELINE (HARDENED)
+**Execution Safety Pipeline (invariant order):**
+`USER_INTENT → PLAN → POLICY → APPROVAL_IF_REQUIRED → EXECUTION → OBSERVATION → VERIFICATION → ARTIFACT → PERSISTENCE → MEMORY_DNA_UPDATE → AUDIT`
+
+**Deterministic Policy Engine (never an LLM):**
+- Evaluate every proposed action against: tool, resource, path, command, network destination, scope, user permission, tenant, risk class, capability grant, expiration, revocation.
+- Protected paths denied by default: `.env`, `.ssh/**`, `id_rsa*`, `*.pem`, `*.key`, `.aws/credentials`, `/etc/**`, `/var/run/**`, `C:/Windows/**`.
+- Risk classes: LOW, MEDIUM, HIGH, CRITICAL.
+- HIGH/CRITICAL actions require approval unless `PRIVILEGED_OVERRIDE`.
+- Empty scope or permission = DENY.
+- **The policy engine must be a deterministic class/module, not an LLM call.**
+
+**Prompt Injection Defense Pipeline:**
+`UNTRUSTED_CONTENT → PARSER/SANITIZER → STRUCTURED_REPRESENTATION → LLM → PROPOSED_ACTION → TYPED_TOOL_SCHEMA → DETERMINISTIC_POLICY_ENGINE → ALLOW/DENY/APPROVAL → EXECUTION`
+
+**Tool Separation:**
+- Raw model output must never become shell commands directly.
+- Use typed tool schemas with runtime validation.
+- JSON parse → schema validate → policy evaluate → execute.
+
+**Local Agent Security:**
+- Capability grants: scoped, expiring, auditable.
+- Max 3 paired devices.
+- 6-digit pair code, 10-minute expiry.
+- 8-hour session timeout.
+- Device fingerprinting (UA hash, screen, timezone, locale, CPU threads).
+- Path traversal defense: `..` denied. Symlink escape denied.
+- Command deny-by-default: `rm -rf /`, `dd`, `mkfs`, `format`, `shutdown`, `mv /etc` blocked.
+- Sandbox policy per plugin: network opt-in, root-prefixed FS, CPU quantum 50ms, memory ceiling 256MB.
+
+**Auth:**
+- TOTP + recovery codes (10 codes, hashed with HMAC-SHA256).
+- Rate limiting per user per endpoint (Redis).
+- CSRF tokens bound to user+session.
+- AES-256-GCM for data at rest.
+- TLS 1.3 minimum.
+- Secret rotation every 90 days.
+- Audit retention 7 years.
+
+**Security Tests Required:**
+- Prompt injection attempts
+- Tool schema validation failures
+- Unauthorized commands
+- Unauthorized paths
+- Expired capability rejection
+- Revoked capability rejection
+- Tenant boundary violation
+- High-risk approval requirement
+
+---
+
+## 6. PAYMENT SYSTEM (HARDENED — EXACT ARCHITECTURE, DO NOT MODIFY)
+**Current Real Capability:**
+- Payment Link: AVAILABLE
+- Authenticated Razorpay API: NOT AVAILABLE
+- Webhook capability: NOT AVAILABLE
+
+**Therefore:**
+- Mode A (Payment Link) is the ONLY active mode.
+- Mode B (Enhanced API) and Mode C (Webhook) are future adapters. Their interfaces may exist, but they must be DISABLED until real credentials and verified endpoints are configured.
+- **Do NOT invent a fake HMAC scheme pretending to be Razorpay verification.**
+
+**Payment States:**
+`CREATED → PENDING → DETECTED → VERIFYING → VERIFIED → ENTITLEMENT_ACTIVE → COMPLETED`
+Failures: `EXPIRED, FAILED, CANCELLED, REJECTED, ACTIVATION_FAILED`
+
+**Critical Behavior:**
+- Server-side verification is authoritative. Client claims never alter state.
+- `NEVER_VERIFICATION_INPUTS` (browser redirect, success page, localStorage, cookies, screenshots, user assertions, URL params, frontend state) must never advance state.
+- When a user pays via Payment Link and returns: state becomes `PENDING` or records `USER_RETURNED`. It does NOT become `VERIFIED`.
+- **PENDING remains PENDING without independently verifiable provider evidence.**
+- Only VERIFIED payment activates exactly one entitlement.
+- Duplicate detection must not duplicate activation.
+- No fake polling workers without actual credentials.
+- Do not tell user Pro is active unless server has actually verified.
+
+**Payment Evidence Sources (configuration-driven):**
+- `RAZORPAY_API_LOOKUP` (authenticated API call) — DISABLED until real API credentials exist.
+- `RAZORPAY_SIGNED_WEBHOOK` (signature verified) — DISABLED until real webhook delivery verified.
+
+**If neither detector is enabled:** Payment MUST remain PENDING. No polling worker may exist.
+
+**Server-Side Verification (when real evidence exists):**
+- HMAC-SHA256 hex digest of payload using server secret.
+- Verify Razorpay status is `paid`.
+- Signature mismatch = verification failed.
+
+**Subscription Mode:** Currently unavailable. Do not pretend automatic recurring renewal exists.
+
+**Plans:**
+- FREE: ₹0. 20 messages/day. 2GB. 1 project. Claude Haiku only.
+- PRO: ₹999/mo. Unlimited messages. 100GB. 10 projects. 10 team members. 3 paired devices. All 9 coworkers. 24/7 work. 50+ plugins.
+- TEAM: ₹4999/mo. Unlimited team members. 1000GB. 100 projects. Admin console. Priority support.
+
+**Entitlement Authority:** Server-only. Client cannot override.
+
+**Required Automated Tests:**
+- Client claim does NOT activate Pro.
+- Browser return does NOT activate Pro.
+- Payment screenshot does NOT activate Pro.
+- Missing provider evidence → remains PENDING.
+- Duplicate provider ID → does NOT duplicate entitlement.
+
+---
+
+## 7. AI GATEWAY & MODEL SYSTEM (HARDENED)
+**Registry-Driven:** `ai_model_registry` table is the source of truth. Never hardcode provider selection in application logic.
+
+**Model Registry Fields (config-driven, no hardcoded availability claims):**
+- model_id, provider, display_name, tier (PREMIUM/CAPABLE/EFFICIENT), context_window, vision_supported, tool_support, function_calling, input_price, output_price, plan_eligibility (JSONB), privacy_class, target_latency, health_status, priority, fallback_models (JSONB), enabled, effective_date, deprecated_date.
+
+**Selectable Models (locked tiers):**
+- PREMIUM: Claude Opus, GPT-4 Turbo, Gemini Pro (Pro+ and above)
+- CAPABLE: Claude Sonnet, Mistral Large (Free/Pro)
+- EFFICIENT: Claude Haiku, Llama 3 (Free/Pro)
+
+**Routing Logic:**
+1. Filter by plan entitlement.
+2. Filter by context window requirement.
+3. Filter by vision/tool support if requested.
+4. Sort by health (down last), then by cost (cheapest first), then by priority.
+5. Fallback chain: primary → secondary → tertiary. Graceful degradation with error aggregation.
+6. **Never silently claim a model is available. Check the registry.**
+
+**Compute Policy:**
+- Compute classes: A_CHEAP (Haiku/Llama), B_STANDARD (Sonnet/Mistral), C_PREMIUM (Opus/GPT-4/Gemini).
+- Free plan: max 8K tokens/task, 2K output, 0 premium calls, 1 parallel coworker, 1 long-running task.
+- Pro: max 24K tokens, 6K output, 20 premium calls/period, 3 parallel, 3 long-running.
+- Team: max 60K tokens, 12K output, 200 premium calls, 6 parallel, 6 long-running.
+- Enterprise: max 200K tokens, 30K output, unlimited premium, 12 parallel, 20 long-running.
+
+**Cost Control:**
+- Route to cheapest qualified model first.
+- If premium quota exhausted: fallback to qualified cheaper model if policy allows.
+- If fallback not allowed: request Extended Compute approval with estimated cost.
+- Never silently spend expensive compute merely because a coworker exists.
+
+---
+
+## 8. INTENT ROUTING & WORKFLOW PIPELINES
+**Intent Classification:**
+- **FAST Path:** Simple questions, explanations, summarization, single file fixes, quick lookups, lightweight commands.
+- **DEEP Path:** Refactoring, architecture, multi-file tasks, planning, security reviews, implementation, test running.
+- Triggers: Regex-based scoring. Deep triggers weighted heavier. Multiple attachments auto-trigger DEEP. Cowork mode auto-triggers DEEP.
+
+**Fast Path Pipeline:**
+`USER → AI_GATEWAY → FAST_MODEL → STREAM_RESPONSE → DONE`
+
+**Deep Work Pipeline:**
+`USER → PLANNER → COWORKER_GRAPH → PARALLEL_OR_SEQUENTIAL_EXECUTION → TEST → VERIFY → ARTIFACT → DONE`
+
+**Parallel Safety Rules:**
+- ARCHITECT + RESEARCH: safe parallel (no dependencies)
+- TESTER + PERFORMANCE: safe only after implementation complete
+- SECURITY + REVIEWER: safe only when inputs stable
+- All other pairs: sequential only.
+- Never parallelize operations that can corrupt state (two coworkers writing same file).
+
+**Execution Targets:**
+- `FIRST_MEANINGFUL_TOKEN` (for streaming UX)
+- `VERIFIED_ARTIFACT` (for completion)
+
+---
+
+## 9. COWORKER SYSTEM (THE CORE DIFFERENTIATOR)
+**Nine Specialized Coworkers (all required, all profiled):**
+
+1. **ARCHITECT** — Systems-first, decisive. Designs before code. Artifacts: ADRs, system maps, risk matrices, cost analysis. Model policy: PREMIUM_ALLOWED. Memory: READ_WRITE. Constraint: no implementation without approved design.
+2. **CODER** — Pragmatic, precise. Implementation, refactoring, diffs. Artifacts: code diffs, commit messages. Model policy: CAPABLE. Memory: READ_WRITE. Constraint: diffs before apply, tests required.
+3. **SECURITY** — Paranoid, evidence-driven. Threat modeling, vulnerability reports, secrets scanning. Artifacts: security reports. Model policy: PREMIUM_ALLOWED. Memory: READ_ONLY. Constraint: never mute findings.
+4. **TESTER** — Adversarial, exhaustive. Unit, integration, e2e, coverage. Artifacts: test plans, test suites, QA reports. Model policy: CAPABLE. Memory: READ_ONLY. Constraint: no green without assertion.
+5. **PERFORMANCE** — Metric-obsessed. Profiling, latency, budgets. Artifacts: benchmark reports, bottleneck analysis. Model policy: CAPABLE. Memory: READ_ONLY. Constraint: claims require measurements.
+6. **RESEARCH** — Curious, cited. Investigation, summaries, sources. Artifacts: research docs, source lists. Model policy: CAPABLE. Memory: EPISODIC_ONLY. Constraint: no invented sources.
+7. **DOCS** — Clear, thorough. READMEs, OpenAPI specs, changelogs. Artifacts: documentation. Model policy: EFFICIENT. Memory: READ_ONLY. Constraint: docs must match code.
+8. **REVIEWER** — Critical, fair. Code review, risk, style. Artifacts: reviews, quality gates, sign-offs. Model policy: CAPABLE. Memory: READ_ONLY. Constraint: blocking issues labeled.
+9. **PLANNER** — Structured, realistic. Roadmaps, sprint plans, dependencies. Artifacts: plans, roadmaps, risk assessments. Model policy: CAPABLE. Memory: READ_WRITE. Constraint: no fantasy dates.
+
+**Coworker Selection:**
+- Default: AUTO (CodeConClave chooses based on intent).
+- User can override to any specific coworker.
+- Cowork mode lives INSIDE the Chat workspace, not a separate page.
+
+**Handoff Protocol:**
+- Every handoff includes: from, to, context, artifacts.
+- Self-handoff is invalid.
+- Context transfer must preserve: requirements, files, artifacts, previous results, acceptance criteria, limitations, verification status.
+- Handoff record stored in `coworker_handoffs` table.
+
+**Pipeline Orchestration:**
+- Canonical pipeline: ARCHITECT → CODER → TESTER → SECURITY → REVIEWER.
+- Topological ordering enforced. Dependency cycles throw `PIPELINE LOCK`.
+- Parallel execution only where explicitly allowed.
+- Step failures: PAUSE_PIPELINE or SKIP_WITH_FALLBACK (requires fallback coworker).
+- Timeout per step: default 10 minutes.
+
+**Execution Dashboard:**
+- Real-time streaming of DeepWorkStatus: actor, message, stage, timestamp.
+- Show active coworker, model in use, files changed, tests passed/failed, warnings, elapsed time.
+- Server verification badge: "Data not yet verified by server" when pending.
+
+**Compute Tracking per Coworker:**
+- Track input/output tokens, estimated cost, actual cost, task duration, fallback used.
+- Display compact compute indicator: model in use, usage tokens, cost, remaining budget, reset time.
+
+---
+
+## 10. MEMORY SYSTEM (HARDENED)
+**Five Kinds:** episodic (what happened), semantic (what is known), procedural (how we work), project (context-specific), team (shared).
+
+**Dimensions:** Configurable by embedding provider. Default 1536 for OpenAI-compatible providers. **Validate dimensions on storage. Do not store fake vectors.**
+
+**Embedding Provider Interface:**
+- `EmbeddingProvider` with provider adapters.
+- Real embedding provider when configured.
+- If unavailable: store source content, queue embedding job, set `embeddingQueued = true`, do NOT fake the vector.
+- Continue non-semantic operations (FTS, keyword, recent context).
+
+**Retrieval Modes (all must be real):**
+- **VECTOR:** pgvector cosine similarity. Only when real embeddings exist.
+- **FTS:** PostgreSQL full-text search. Always available.
+- **HYBRID:** Combine vector + FTS with weighted scoring.
+
+**Memory Record v2 Fields:**
+- id, kind, content, sourceType (OBSERVED / USER_STATED / AI_INFERRED / RECOMMENDATION), provenance (conversation, message, file, task, timestamp, project), confidence (0-100), confidenceLevel (VERIFIED/CONFIDENT/INFERRED/UNVERIFIED/CONTRADICTED), contradictionState (NONE/FLAGGED/CONTRADICTED/CORRECTED), embedding, embeddingQueued, userConfirmed, deletedAt, mergedInto.
+
+**Safety Rules:**
+- Cross-tenant or cross-user retrieval denied.
+- Default retrieval is CURRENT PROJECT ONLY unless explicitly authorized.
+- Never silently rewrite user-confirmed memories.
+- Observed facts labeled as OBSERVED. AI inferences labeled as INFERRED. Never store inference as observed fact.
+- Cold start: read `package.json`, `tsconfig.json`, `requirements.txt`, `README.md` to establish observed facts.
+- Contradicted memories: do not automatically use in critical actions.
+
+**User Operations:** INSPECT, CREATE_MANUAL, CORRECT, MERGE, DELETE, RESTORE, SEARCH, INSPECT_SOURCE, REVIEW_CONFIDENCE.
+
+**Tests Required:**
+- Vector dimension validation
+- Tenant isolation
+- Project isolation
+- FTS fallback when embeddings missing
+- Hybrid search
+- Missing embedding provider behavior
+- Provenance tracking
+
+---
+
+## 11. DNA (PROJECT STATE VERSIONING)
+**Purpose:** Complete versioned project state so users never start over.
+
+**Snapshot Contents:**
+- projectId, version, baseVersion, filesReferenced (max 50), decisions (key-value with rationale), unresolvedTasks, nextActions, environmentState, testResults.
+
+**Features:**
+- Auto-create on task completion.
+- Manual save with naming/description.
+- Cross-conversation restore.
+- Version comparison.
+- Conflict detection + resolution (OURS/THEIRS/MANUAL/MOST_RECENT_WINS).
+- Branching: MAIN + branches.
+- Merge protection: only OWNER may merge to MAIN. Shared truth never silently overwritten.
+- Trash retention: 30 days.
+- Export: JSONL.
+
+**DNA Role Permissions:**
+- VIEWER: READ only.
+- EDITOR: READ + SUGGEST.
+- OWNER: READ + SUGGEST + MERGE.
+
+**Tests Required:**
+- Branch creation
+- Conflicting decision detection
+- Successful merge
+- Manual resolution
+- Unchanged decision preservation
+- Concurrent version mismatch handling
+
+---
+
+## 12. TASK ENGINE & 24/7 AUTONOMY (HARDENED)
+**Task Timeline (invariant order):**
+`CREATED → PLANNED → WAITING_APPROVAL → RUNNING → TOOLS_USED → ARTIFACTS → TESTING → VERIFIED → COMPLETED`
+
+**Terminal States (additional):**
+`FAILED, TIMED_OUT, CANCELLED, BLOCKED, WAITING_FOR_LOCAL_AGENT, REQUIRES_REVIEW`
+
+**Transitions:** Enforced by state machine. Illegal transitions throw `TASK LOCK`.
+
+**Required Implementation:**
+- Timeout per task.
+- Heartbeat from executing worker.
+- Watchdog: fail task if heartbeat lost.
+- Cancellation by user or system.
+- Retry with exponential backoff: `min(1000 * 2^attempt, 300000)`.
+- Dead letter queue after max attempts (default 5).
+- Attempt count persisted.
+- Failure reason persisted.
+- Recovery attempt tracked.
+
+**Autonomy Rules:**
+- Cloud tasks continue while user is offline. Laptop powered off = cloud still works.
+- Local tasks: if device offline, state becomes `WAITING_FOR_LOCAL_AGENT`. **Never fake completion.**
+- When agent reconnects, local task resumes from last checkpoint.
+- Work Center controls: PAUSE_ALL, RESUME, SCHEDULE_NEW, VIEW_HISTORY.
+- Work Center sections: ACTIVE, QUEUED, SCHEDULED, COMPLETED, FAILED, PENDING_APPROVALS, WAITING_FOR_LOCAL_AGENT.
+
+**24/7 Execution Venues:**
+- **CLOUD:** research, planning, reports, indexing, memory processing, scheduled jobs, notifications, orchestration. Runs when laptop is off.
+- **LOCAL:** local files, local terminal, localhost, local tests, local Git, local dev servers. Requires Local Agent.
+- **HYBRID:** Cloud prepares work and waits for Local Agent. No fake execution.
+
+**Away Summary (Return-to-Work):**
+- Triggered after absence (configurable: DAILY / WEEKLY / OFF).
+- Shows: completed tasks, files modified, pending approvals, research findings, failures, auto-recovered failures.
+- Actions: Continue Work, View Summary, Open Approvals.
+- First session must demonstrate REAL continuity, not faked.
+
+---
+
+## 13. LOCAL AGENT & EXECUTION (HARDENED)
+**Platform Support:** Windows, macOS, Linux. No forced Docker.
+
+**Installation:** `npx codeconclave-agent@latest init`
+
+**Install Steps:**
+1. DETECT_OS
+2. CHECK_REQUIREMENTS
+3. CREATE_AGENT_CONFIG
+4. AUTHENTICATE_AND_PAIR
+5. SELECT_ALLOWED_WORKSPACE
+6. RUN_SECURITY_SELF_TEST
+7. SHOW_CONNECTED_STATUS
+
+**Capabilities (granted, not assumed):**
+- READ_WORKSPACE: scoped to workspace/**
+- WRITE_WORKSPACE: scoped to workspace/src/**
+- EXECUTE_COMMAND: scoped, audited
+- NETWORK_ACCESS: opt-in per plugin
+
+**Execution Safety:**
+- File ops: read, create, modify, rename, delete. All hashed (SHA-256) before/after.
+- Risk classification: LOW (reads only), MEDIUM (modifications), HIGH (deletes, destructive commands, force push, publish).
+- Auto-approve policy: ALWAYS_APPROVE_LOW or REQUIRE_APPROVAL.
+- Diff generation mandatory before file modification.
+- Rollback points: capture git head + ops + stored content before execution.
+
+**Rollback (HARDENED — must actually restore):**
+- CHANGE → VERSION/CHECKPOINT → APPLY → VERIFY → ROLLBACK REQUEST → RESTORE → HASH VERIFY → AUDIT
+- Must restore exact previous content, not just return the rollback point object.
+- Tests proving: before content → change → rollback → exact previous content restored.
+
+**Protected Paths (deny-by-default):**
+`.env`, `.env.*`, `.ssh/**`, `id_rsa*`, `*.pem`, `*.key`, cloud credential files, token files, OS-sensitive directories.
+
+**Workspace allowlist, path traversal defense, symlink escape defense, command allow/deny policy, scoped capability grants with expiration and revocation, audit trail.**
+
+---
+
+## 14. TERMINAL (HARDENED — REAL EXECUTION)
+**The terminal must not fake execution.** A tab with `status = running` and `pid = null` is unacceptable.
+
+**Required Execution Abstraction:**
+- Process start with actual PID.
+- stdout capture.
+- stderr capture.
+- Exit code capture.
+- States: PLANNED, STARTING, RUNNING, COMPLETED, FAILED, KILLED, TIMED_OUT.
+- Restart.
+- Cancellation.
+- Timeout.
+- Process failure detection.
+
+**Use a server-side or local-agent execution adapter.** The UI itself does not execute processes.
+
+**Terminal Features:**
+- Shells: bash, zsh, node, python, powershell.
+- Tabs with real process controls.
+- Virtualization threshold: 10,000 lines.
+- History limit: 1,000 commands.
+- Search output.
+
+**Tests Required:**
+- A process cannot be reported as successfully running without actual process evidence.
+- Timeout kills process correctly.
+- Exit code captured.
+
+---
+
+## 15. APPROVAL CENTER (HARDENED — SERVER AUTHORITY)
+**Server-side authority is required.** The frontend may DISPLAY approval state, but it cannot authorize the operation itself.
+
+**Risk Levels:** LOW, MEDIUM, HIGH, CRITICAL.
+
+**Approval Action Types:**
+- DESTRUCTIVE_FILE_CHANGE
+- EXTERNAL_PUBLISHING
+- PLUGIN_ACTION
+- SENSITIVE_TERMINAL_COMMAND
+- PRODUCTION_DEPLOYMENT
+- EXPENSIVE_MODEL_USAGE
+- EXTERNAL_MESSAGE_ON_BEHALF_OF_USER
+- ADMINISTRATIVE_PAYMENT_ACTION
+
+**Approval Flow:**
+ACTION PROPOSED → SERVER POLICY → APPROVAL CREATED → USER APPROVES → SERVER VALIDATES APPROVAL → EXECUTION → RESULT → AUDIT
+
+**Approval Card Fields:**
+id, actionTitle, actionType, riskLevel, affectedResources, proposedCommand, justification, coworker, modelUsed, createdAt, expiresAt (30 min TTL), status.
+
+**Batch Approval:**
+- Consolidate multiple file changes + tests into single approval.
+- Risk auto-calculated: ≤1 file = LOW, >1 file = MEDIUM.
+
+**Status Transitions (enforced):**
+PENDING → [APPROVED, REJECTED, EXPIRED]
+APPROVED → [EXECUTED]
+Others are terminal.
+
+**Fast Mode Lock:** Never bypasses high-risk approval, tenant isolation, or payment verification.
+
+---
+
+## 16. WORKSPACE & UI ARCHITECTURE
+**Layout:**
+- Desktop: sidebar (248px) + main + contextual panel (320px)
+- Tablet: sidebar (64px collapsed) + main
+- Mobile: main only, bottom sheet surfaces
+
+**Progressive Disclosure:**
+- Primary nav emphasis: Chat, Projects, Files, Settings.
+- Advanced group label: "More".
+- Features promoted to primary based on usage.
+- Progressive disclosure changes presentation only. It never removes features, APIs, entitlements, or persistence.
+
+**18 Feature Areas (all implemented, all navigable):**
+Home, Chat, Projects, Memory, DNA Load, Files, Local Terminal, 24/7 Work, Coworkers, Teams, Plugins, Remote Control, Ideas, Data Centre, Gain Trash, History, Settings, Approvals.
+
+**Sidebar:**
+- All 18 items present.
+- Active state: warm neutral background (`#B1ADA126`), terracotta left border (`2px solid #C15F3C`), semibold text.
+- Approvals badge shows pending count.
+- Remote Control disabled state when no paired device.
+
+**Header:**
+- Global search (Ctrl/Cmd+K)
+- Command palette (⌘K)
+- Notifications bell
+- Theme toggle (light/dark)
+- Avatar
+
+**Composer (Chat Input):**
+- Mode switch: Chat / Cowork (tab toggle, inside workspace)
+- Model selector: dropdown, categorized by Premium/Capable/Efficient. Lock icon for unavailable. Health status indicated.
+- Drag & drop files. Paste files. Image upload. Voice input button.
+- Command mode indicator when text starts with `/`.
+- Send button disabled when empty.
+
+**Context Inspector (Right Panel):**
+- Active memories (titles only, contents private)
+- Loaded DNA summary
+- Relevant files list
+- Project context
+- One-click open.
+
+**Safe Execution Preview Modal:**
+- Files to modify (with paths)
+- Commands to run
+- Risk badge with color
+- Estimated time
+- Actions: Approve, Edit Plan, Cancel
+
+---
+
+## 17. MOON EXPERIENCES
+**Thinking Moon:**
+- Appears during actual AI processing only.
+- Black crescent, 72px, CSS 3D rotation animation.
+- `prefers-reduced-motion`: reduces to slow fade rotation (12s).
+- Pauses when document.hidden.
+- Opacity 0.55 during streaming, 1 during thinking.
+- **Disappears when response completes.** Never lingers.
+- Accessible: `aria-live="polite"`, screen reader text "CodeConClave is thinking".
+
+**Free Limit Moon:**
+- Appears only on actual server limit transition.
+- Once per day per transition. Not on every refresh.
+- Sequence: DIMMING → ENTER → HOLD → FADE → MESSAGE.
+- Black crescent, 140px, subtle spin.
+- Overlay darkens for ~1 second then returns to normal.
+- Options: "Continue with Pro" (terracotta button) / "Maybe Later" (white button).
+- Reduced motion respected.
+
+---
+
+## 18. PLUGINS & INTEGRATIONS
+**Core Plugins (directly maintained):** GitHub, Slack, Vercel, VS Code, Generic Webhook/API.
+
+**Plugin Ecosystem (50+ available):** Slack, Discord, Email, SMS, Teams, GitHub, GitLab, Jira, Linear, Bitbucket, Stripe, Razorpay, HubSpot, Pipedrive, Salesforce, Airtable, Notion, Google Sheets, Mixpanel, Datadog, New Relic, Segment, Google Calendar, Asana, Todoist, Monday.com, Vercel, Netlify, Heroku, AWS, Google Cloud, Azure, DigitalOcean, OpenAI, Anthropic, Sentry, LogRocket, Rollbar, custom Webhook, REST API, GraphQL.
+
+**Plugin SDK Requirements:**
+- OAuth scopes
+- Encrypted credential storage (Vault)
+- Token rotation
+- Circuit breaker (failure threshold → open)
+- Rate limiting
+- Revocation
+- Audit trail
+- Error handling
+
+**Plugin Isolation:**
+- Plugin failure must never crash CodeConClave.
+- Health check every N seconds.
+- States: CONNECTED, DEGRADED, FAILED, DISCONNECTED, REAUTH_REQUIRED.
+- Consecutive failures tracked. DEGRADED at 3, FAILED at 5.
+- Do not silently pretend a failed plugin works.
+
+---
+
+## 19. SEARCH ARCHITECTURE
+**Backends:**
+- PostgreSQL: source of truth (always)
+- pgvector: semantic search (always)
+- Redis: cache + session + rate limits (always)
+- S3/MinIO: file storage with encryption (always)
+- Bull Queue: job queue with retries (always)
+- Elasticsearch: full-text ONLY if measured scale requires it. Default is PostgreSQL FTS + pgvector.
+
+**Search Features:** global keyword, semantic (vector), memory, file, OCR, project, advanced filters, saved searches.
+
+---
+
+## 20. AUDIT LOG (HARDENED)
+**Persistent database-backed storage only.** The in-memory array implementation is acceptable ONLY as a test utility, never as the authoritative store.
+
+**Required Properties:**
+- Append-only
+- Tenant scoped
+- Actor/principal
+- Event type
+- Payload (JSONB)
+- Timestamp
+- Correlation ID where applicable
+- Immutable after write
+- Survives process restart
+- Retention metadata
+- Queryable
+- 7-year retention
+
+**Never expose secrets in logs.**
+
+---
+
+## 21. OBSERVABILITY (HARDENED)
+**Metric Tracks:**
+- API latency, TTFT, task queue time, memory retrieval time
+- Task success/failure rates, worker health
+- Payment verification, entitlement activation
+- Provider failures, plugin failures
+- Local agent connectivity, approval events, security events
+
+**Required Implementation:**
+- Structured logs
+- Correlation IDs on every request
+- Trace IDs where applicable
+- Task metrics
+- Latency histograms
+- Provider health status
+- Retry counts
+- Payment verification status
+- Local agent heartbeat
+- Plugin health
+- Security events
+
+**Survival Metric Groups:** latency, cost, reliability, local, memory, payments, security, plugins.
+
+**Every Metric Event Includes:** name, value, timestamp, tenantId, userId, correlationId, traceId, payload.
+
+---
+
+## 22. ACCESSIBILITY
+- WCAG 2.1 AA compliance.
+- Contrast minimum 4.5:1 for text.
+- Keyboard navigation for all controls.
+- Screen reader labels on all interactive elements.
+- `aria-live="polite"` for thinking state, task changes, limit reached.
+- `prefers-reduced-motion`: all animations reduce to simple fade.
+- Visible focus indicators, skip links, touch accessibility, proper dialog semantics.
+- Focus order: skip-link → sidebar → header → workspace → composer → context-panel.
+
+---
+
+## 23. OFFLINE & WEBSOCKET RELIABILITY
+- Operations queue when offline.
+- Reconnect flow: SYNC → DEDUPLICATE → RECONCILE → PERSIST → CONFIRM.
+- Heartbeat: 30s.
+- Reconnect backoff: 1s base, 30s max.
+- Sequence numbers, acknowledgements, deduplication, missed-event replay all required.
+- Do not lose user work.
+
+---
+
+## 24. FEATURE FLAGS
+- Types: BOOLEAN, PERCENTAGE, USER_SEGMENT, PLAN, EMERGENCY_KILL.
+- Flags control rollout, experiments, beta, regional availability, plan access, emergency disable, staged activation.
+- Do NOT remove features permanently using flags.
+- Progressive disclosure uses flags for staged activation, never permanent hiding.
+
+---
+
+## 25. ENVIRONMENT & SECRETS
+- Do not commit secrets.
+- Use environment variables exclusively.
+- Expected integrations: DATABASE, REDIS, ANTHROPIC, OPENAI, GEMINI, MISTRAL, GOOGLE, GITHUB, RESEND, RAZORPAY, CLOUDFLARE, STORAGE, SENTRY.
+- Do not require R2 credentials right now.
+- Do not require Razorpay API credentials right now.
+- Do not invent missing secrets.
+
+---
+
+## 26. TESTING CONTRACT (HARDENED)
+**Test Suites:**
+- UNIT: state machines, policy engine, entitlement, payment, Moon states, AI routing, memory, DNA, task lifecycle
+- INTEGRATION: DB, queues, AI, Local Agent, payment adapter, storage, notifications, WebSocket
+- E2E: signup, chat, memory, DNA, project, cowork, local terminal, local file edit, diff, approval, 24/7 task, return to work, payment, entitlement, profile photo, Moon
+- SECURITY: tenant bypass, prompt injection, path traversal, command injection, secret access, plugin escalation, auth bypass, payment spoofing, entitlement spoofing
+- FAILURE: AI provider failure, Redis failure, DB delay, storage failure, payment unavailable, Local Agent offline, worker restart, WebSocket disconnect
+- PERFORMANCE: chat, memory search, task queue, terminal output, file explorer, large conversations, Moon animation
+
+**Safe-to-Scale Gates (all must pass):**
+FUNCTIONAL, SECURITY, COST, PERFORMANCE, RECOVERY, OBSERVABILITY, PERSISTENCE, AUDIT, TESTING.
+
+**Definition of Done (answer all before marking complete):**
+1. What starts it?
+2. What does it do?
+3. What artifact proves it worked?
+4. Where is the result persisted?
+5. What can fail?
+6. How does it recover?
+7. What automated test proves it?
+
+**After all corrections, run:**
+1. typecheck
+2. lint
+3. unit tests
+4. integration tests
+5. database/migration validation
+6. relevant security tests
+7. relevant execution tests
+
+Fix every actual failure. Do not hide failures. Do not disable tests. Do not replace tests with snapshots that merely confirm constants.
+
+---
+
+## 27. BUILD ORDER (Execute in Sequence)
+**PHASE A:** Repository inspection  
+**PHASE B:** Shared types + architecture locks  
+**PHASE C:** Authentication + authorization (MFA, sessions, RBAC)  
+**PHASE D:** Database contract + migrations + RLS (AUDIT EVERY TABLE)  
+**PHASE E:** Core application services (17 services)  
+**PHASE F:** AI Gateway (provider abstraction, fallback, compute policy)  
+**PHASE G:** Memory + DNA (real embeddings or queued, no fakes, safety, provenance, confidence, cold start)  
+**PHASE H:** Tasks + Workers + Coworkers (fast/deep path, cost tracking, handoffs, all terminal states)  
+**PHASE I:** Local Agent + Terminal + Files + Diff (real execution, deny-by-default, capability model, cross-platform, real rollback)  
+**PHASE J:** 24/7 cloud task engine (execution safety pipeline, WAITING_FOR_LOCAL_AGENT)  
+**PHASE K:** Payments + entitlements (EXACTLY as specified, Mode A only, no fake verification)  
+**PHASE L:** Plugins + teams + remote (isolation, health monitoring, SDK)  
+**PHASE M:** Frontend workspaces (progressive disclosure, lazy loading, all 18 areas)  
+**PHASE N:** Moon experiences (reduced motion, accessibility)  
+**PHASE O:** Notifications + While You Were Away (real persistence, first-session continuity tests)  
+**PHASE P:** Observability (survival metrics, correlation IDs, traces, structured logs)  
+**PHASE Q:** Testing (unit, integration, E2E, security, failure, performance)  
+**PHASE R:** Security/failure/load verification
+
+---
+
+## 28. FINAL ACCEPTANCE
+This correction pass is complete only when:
+
+- Current code builds
+- Current code typechecks
+- Migrations validate against PostgreSQL
+- Database contracts are consistent (no broken RLS, no missing FKs, no duplicate unique constraints)
+- Payment behavior is safe (client claims do not activate Pro, PENDING stays PENDING without evidence)
+- Memory does not fake embeddings (real vectors or NULL with queued flag)
+- Memory search is real (vector, FTS, or hybrid) or explicitly queued
+- Terminal does not fake execution (real PID, stdout, stderr, exit code)
+- Rollback actually restores exact previous content
+- Audit persists to database (append-only, immutable)
+- Task failure states exist and are reachable (FAILED, TIMED_OUT, CANCELLED, BLOCKED, WAITING_FOR_LOCAL_AGENT, REQUIRES_REVIEW)
+- Security policy is deterministic (not an LLM)
+- Approval authority is server-side
+- Continuity has real persistence tests (close session, restore, verify state)
+- Tests pass
+
+**At the end, report:**
+
+```text
+FOUNDATION HARDENING REPORT
+
+FILES CREATED:
+FILES MODIFIED:
+FILES REMOVED:
+
+DATABASE CHANGES:
+PAYMENT CHANGES:
+SECURITY CHANGES:
+MEMORY CHANGES:
+TERMINAL CHANGES:
+TASK ENGINE CHANGES:
+ROLLBACK CHANGES:
+AUDIT CHANGES:
+
+TESTS RUN:
+TYPECHECK:
+LINT:
+DATABASE:
+SECURITY:
+
+REMAINING LIMITATIONS:
+FOUNDATION STATUS: PASS / FAIL
+```
+
+Do NOT claim the product is production-ready after this pass.
+
+Only say **FOUNDATION HARDENED** if the correction tests pass.
+
+---
+
+## 29. FINAL PROMISE
+**Product Identity:** CodeConClave — MEMORY + EXECUTION + CONTINUITY + TEAM + CONTROL  
+**Final Promise:** NEVER FORGET. NEVER STOP. NEVER START OVER.
+
+**Implementation Standard:**
+`REAL USER → REAL REQUEST → REAL AUTHORIZATION → REAL PLAN → REAL EXECUTION → REAL VERIFICATION → REAL ARTIFACT → REAL PERSISTENCE → REAL AUDIT → REAL RECOVERY`
+
+**Cost Standard:**
+`TASK → CLASSIFY → CHEAPEST QUALIFIED MODEL → PREMIUM ONLY WHEN JUSTIFIED → BUDGET CHECK → EXECUTE → TRACK COST`
+
+**Local Execution Standard:**
+`REQUEST → LOCAL AGENT STATUS → ONLINE = EXECUTE WITH POLICY / OFFLINE = WAITING_FOR_LOCAL_AGENT`
+
+**Memory Standard:**
+`RETRIEVE → TENANT SCOPE → PROJECT SCOPE → PERMISSION → PROVENANCE → CONFIDENCE → INJECT ONLY WHEN APPROPRIATE`
+
+**AI Action Standard:**
+`MODEL OUTPUT → TOOL SCHEMA → DETERMINISTIC POLICY → APPROVAL IF REQUIRED → EXECUTE`
+
+---
+
+**This prompt is the complete, uncut, hardened, frozen specification for CodeConClave Pro. Implement every phase. Cut nothing. Fake nothing. Verify everything. Audit first, fix second, test third, verify last.**

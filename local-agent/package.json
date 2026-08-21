@@ -1,0 +1,25 @@
+{
+  "name": "@codeconclave/local-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CodeConClave Local Agent (optional; npx codeconclave-agent@latest init)",
+  "bin": {
+    "codeconclave-agent": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

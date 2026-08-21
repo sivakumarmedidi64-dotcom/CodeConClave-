@@ -1,0 +1,9 @@
+Phase 13 is complete.
+
+**This session finished the remaining work:**
+- **Backend tests** — wrote `trash-13`, `activity-13`, `search-idea-13`, `recommendations-13` test files; fixed test bugs (stateful mocks, substring matches, AppError instances, single-source SQL instead of UNION); **81/81 Phase-13 tests pass**, full backend suite **752/752**.
+- **Frontend** — added Phase 13 types to `lib/types.ts`; rebuilt `IdeasPage` (real CRUD/voting/comments/archive/trash + Brainstorm tab with capture and gateway-gated AI generation), `HistoryPage` (timeline, filters, stars, detail), `TrashPage` (unified tabs, bulk restore/purge, confirmations), `DataPage` (counts, retention, honest backup, cleanup recommendations); added HomePage activity feed, Topbar idea search, and Ideas quick action.
+- **Tests** — rewrote IdeasPage/HistoryPage tests, new TrashPage/DataPage tests, HomePage/Topbar additions; frontend **166/166** pass, typecheck and build clean.
+- **`docs/PHASE_13_REPORT.md`** written in the Phase 12 format.
+
+Blockers unchanged: migrations 0034/0035 are static-only (no live Postgres), and AI generation is contract-tested only (no provider credentials). Phase 14 not started, per instructions.
