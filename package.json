@@ -14,6 +14,7 @@
     "shared"
   ],
   "scripts": {
+    "prebuild": "npm ci",
     "build": "npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/local-agent",
     "start": "npm run start --workspace @codeconclave/backend",
     "typecheck": "npm run typecheck --workspaces --if-present",
