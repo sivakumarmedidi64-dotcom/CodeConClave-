@@ -1,0 +1,45 @@
+# Railway `railway up` upload exclusions (deployment hygiene).
+# railway uploads the repo bundle to build the Dockerfile server-side.
+# Heavy/generated paths must never be uploaded. Source + manifests stay.
+
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+coverage
+**/coverage
+*.tsbuildinfo
+logs
+**/logs
+.cache
+data
+minio-data
+s3-local
+
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+.git
+.gitignore
+.dockerignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+
+desktop/release
+desktop/out
+desktop/node_modules
+desktop/release-p6-*
+desktop/release-stale-*
+
+local-agent/.agent
+agent-state.json
+CodeConClave-Complete
+CodeConClave-Complete.zip
+*.txt

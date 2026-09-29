@@ -183,10 +183,10 @@ describe('usage counters + free limits (server-authoritative)', () => {
     await expect(getUsage('u1')).resolves.toMatchObject({ daily_messages: 3 });
   });
 
-  it('free users hit the daily message limit', async () => {
+  it('free users hit the rolling window message limit', async () => {
     db.state.resolve = (text) => {
       if (text.includes('SELECT plan_id FROM users')) return [{ plan_id: 'free' }];
-      if (text.includes('SELECT name, value FROM usage_counters')) return [{ name: 'daily_messages', value: '1000' }];
+      if (text.includes('FROM free_usage_windows')) return [{ window_start: new Date(Date.now() - 3600_000), used: 1000 }];
       return null;
     };
     const check = await checkFreeLimits('u1', 'message');

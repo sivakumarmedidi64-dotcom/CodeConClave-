@@ -1,0 +1,70 @@
+{
+  "name": "@codeconclave/desktop",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "author": "CodeConClave",
+  "description": "CodeConClave Desktop — Electron shell + capability-gated local agent",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/bundle-preload.mjs && node scripts/copy-frontend.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "dev:desktop": "npm run build && electron .",
+    "package:desktop": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@codeconclave/local-agent": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "electron": "44.2.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "build": {
+    "appId": "com.codeconclave.desktop",
+    "productName": "CodeConClave",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json",
+      "assets/icon.ico",
+      "assets/icon.png",
+      "!src/**",
+      "!**/*.test.js",
+      "!**/*.test.ts",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/frontend",
+        "to": "frontend"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    }
+  }
+}

@@ -5,7 +5,7 @@
  * produced output, NOT_CONFIGURED when no preview tooling is configured on
  * this deployment. The UI never fabricates a rendered preview.
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { logger } from '../../shared/logger.js';
@@ -71,23 +71,42 @@ export function previewConfigured(): boolean {
 
 export async function getPreview(userId: string, projectId: string): Promise<PreviewSessionRow> {
   await assertProject(userId, projectId);
-  const rows = await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]);
+  const rows = await withTenant<PreviewSessionRow[]>(userId, (db) =>
+    db
+      .query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId])
+      .then((r) => r.rows),
+  );
   if (!rows[0]) {
     const id = newId('pvw');
-    await pool.query(
-      `INSERT INTO preview_sessions (id, owner_id, project_id, state) VALUES ($1,$2,$3,$4)`,
-      [id, userId, projectId, previewConfigured() ? 'OFFLINE' : PreviewState.NOT_CONFIGURED],
+    // One session per project; a concurrent first load (e.g. GET + SSE stream)
+    // may insert at the same time. ON CONFLICT keeps creation idempotent and
+    // then re-reads by project_id so both callers share the winning row.
+    await withTenant(userId, (db) =>
+      db.query(
+        `INSERT INTO preview_sessions (id, owner_id, project_id, state) VALUES ($1,$2,$3,$4)
+         ON CONFLICT ON CONSTRAINT uq_preview_sessions_project DO NOTHING`,
+        [id, userId, projectId, previewConfigured() ? 'OFFLINE' : PreviewState.NOT_CONFIGURED],
+      ),
     );
-    return (await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE id = $1', [id]))[0]!;
+    const created = await withTenant<PreviewSessionRow[]>(userId, (db) =>
+      db
+        .query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId])
+        .then((r) => r.rows),
+    );
+    return created[0]!;
   }
   return rows[0];
 }
 
 async function assertProject(userId: string, projectId: string): Promise<void> {
-  const project = await queryOne<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [
-    projectId,
-    userId,
-  ]);
+  const project = await withTenant<{ id: string } | null>(userId, (db) =>
+    db
+      .query<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [
+        projectId,
+        userId,
+      ])
+      .then((r) => r.rows[0] ?? null),
+  );
   if (!project) throw AppError.notFound('Project');
 }
 
@@ -98,11 +117,15 @@ async function assertProject(userId: string, projectId: string): Promise<void> {
 export async function requestBuild(userId: string, projectId: string, taskId?: string): Promise<PreviewSessionRow> {
   const session = await getPreview(userId, projectId);
   if (!previewConfigured()) {
-    await pool.query(
-      `UPDATE preview_sessions SET state = $2, error = $3 WHERE project_id = $1`,
-      [projectId, PreviewState.NOT_CONFIGURED, 'Preview tooling is not configured on this deployment'],
+    await withTenant(userId, (db) =>
+      db.query(
+        `UPDATE preview_sessions SET state = $2, error = $3 WHERE project_id = $1`,
+        [projectId, PreviewState.NOT_CONFIGURED, 'Preview tooling is not configured on this deployment'],
+      ),
     );
-    const updated = (await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]))[0]!;
+    const updated = (await withTenant<PreviewSessionRow[]>(userId, (db) =>
+      db.query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]).then((r) => r.rows),
+    ))[0]!;
     broadcast(projectId, updated);
     return updated;
   }
@@ -110,11 +133,15 @@ export async function requestBuild(userId: string, projectId: string, taskId?: s
   const next = isFresh ? PreviewState.BUILDING : PreviewState.UPDATING;
   const { capturePreviewSnapshot } = await import('./snapshots.js');
   await capturePreviewSnapshot(userId, projectId).catch(() => undefined);
-  await pool.query(
-    `UPDATE preview_sessions SET state = $2, task_id = $3, error = NULL, build_log = $4::jsonb, version = version + 1 WHERE project_id = $1`,
-    [projectId, next, taskId ?? null, JSON.stringify([...session.build_log, `build requested (v${session.version + 1})`])],
+  await withTenant(userId, (db) =>
+    db.query(
+      `UPDATE preview_sessions SET state = $2, task_id = $3, error = NULL, build_log = $4::jsonb, version = version + 1 WHERE project_id = $1`,
+      [projectId, next, taskId ?? null, JSON.stringify([...session.build_log, `build requested (v${session.version + 1})`])],
+    ),
   );
-  const updated = (await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]))[0]!;
+  const updated = (await withTenant<PreviewSessionRow[]>(userId, (db) =>
+    db.query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]).then((r) => r.rows),
+  ))[0]!;
   broadcast(projectId, updated);
   await recordAudit({
     action: AuditAction.PREVIEW_BUILD_STARTED,
@@ -136,25 +163,30 @@ export async function requestBuild(userId: string, projectId: string, taskId?: s
  * output directory is strictly sandboxed (only files under it are served).
  */
 async function runBuild(userId: string, projectId: string, sessionId: string, version: number): Promise<void> {
-  const log = (line: string) => pool.query(`UPDATE preview_sessions SET build_log = build_log || $2::jsonb WHERE id = $1`, [sessionId, JSON.stringify([line.slice(0, 500)])]).catch(() => undefined);
+  const log = (line: string) =>
+    withTenant(userId, (db) => db.query(`UPDATE preview_sessions SET build_log = build_log || $2::jsonb WHERE id = $1`, [sessionId, JSON.stringify([line.slice(0, 500)])])).catch(() => undefined);
   const projectRoot = env.PREVIEW_PROJECTS_ROOT ? path.resolve(env.PREVIEW_PROJECTS_ROOT, projectId) : null;
   if (!projectRoot) {
-    await pool.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
-      sessionId,
-      PreviewState.ERROR,
-      'PREVIEW_PROJECTS_ROOT is not configured',
-    ]);
+    await withTenant(userId, (db) =>
+      db.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
+        sessionId,
+        PreviewState.ERROR,
+        'PREVIEW_PROJECTS_ROOT is not configured',
+      ]),
+    );
     await previewOutcome(userId, projectId, sessionId, false, 'PREVIEW_PROJECTS_ROOT is not configured');
     return;
   }
   try {
     await stat(projectRoot);
   } catch {
-    await pool.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
-      sessionId,
-      PreviewState.ERROR,
-      'project workspace not found on this deployment',
-    ]);
+    await withTenant(userId, (db) =>
+      db.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
+        sessionId,
+        PreviewState.ERROR,
+        'project workspace not found on this deployment',
+      ]),
+    );
     await previewOutcome(userId, projectId, sessionId, false, 'project workspace not found on this deployment');
     return;
   }
@@ -163,15 +195,17 @@ async function runBuild(userId: string, projectId: string, sessionId: string, ve
   const result = await runCommand(command, projectRoot);
   for (const line of result.lines) await log(line);
   if (result.exitCode !== 0) {
-    await pool.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
-      sessionId,
-      PreviewState.ERROR,
-      `build failed (exit ${result.exitCode}): ${result.lines.slice(-2).join(' ').slice(0, 1000)}`,
-    ]);
+    await withTenant(userId, (db) =>
+      db.query(`UPDATE preview_sessions SET state = $2, error = $3 WHERE id = $1`, [
+        sessionId,
+        PreviewState.ERROR,
+        `build failed (exit ${result.exitCode}): ${result.lines.slice(-2).join(' ').slice(0, 1000)}`,
+      ]),
+    );
     await previewOutcome(userId, projectId, sessionId, false, `build failed (exit ${result.exitCode})`);
     return;
   }
-  await pool.query(`UPDATE preview_sessions SET state = $2, error = NULL WHERE id = $1`, [sessionId, PreviewState.READY]);
+  await withTenant(userId, (db) => db.query(`UPDATE preview_sessions SET state = $2, error = NULL WHERE id = $1`, [sessionId, PreviewState.READY]));
   await previewOutcome(userId, projectId, sessionId, true);
 }
 
@@ -201,7 +235,9 @@ async function runCommand(command: string, cwd: string): Promise<{ exitCode: num
 }
 
 async function previewOutcome(userId: string, projectId: string, sessionId: string, ok: boolean, error?: string): Promise<void> {
-  const rows = await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE id = $1', [sessionId]);
+  const rows = await withTenant<PreviewSessionRow[]>(userId, (db) =>
+    db.query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE id = $1', [sessionId]).then((r) => r.rows),
+  );
   const session = rows[0];
   if (session) {
     broadcast(projectId, session);
@@ -233,16 +269,23 @@ async function previewOutcome(userId: string, projectId: string, sessionId: stri
  */
 export async function previewTaskCompleted(taskId: string, projectId: string): Promise<void> {
   try {
-    const rows = await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]);
-    const session = rows[0];
+    const session = await withSystem<PreviewSessionRow | null>((db) =>
+      db
+        .query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId])
+        .then((r) => r.rows[0] ?? null),
+    );
     if (!session) return;
     if (!previewConfigured()) return;
     if (session.state === 'READY' || session.state === 'ERROR' || session.state === 'UPDATING' || session.state === 'BUILDING') {
-      await pool.query(
-        `UPDATE preview_sessions SET state = $2, task_id = $3, error = NULL WHERE project_id = $1`,
-        [projectId, PreviewState.UPDATING, taskId],
+      await withSystem((db) =>
+        db.query(
+          `UPDATE preview_sessions SET state = $2, task_id = $3, error = NULL WHERE project_id = $1`,
+          [projectId, PreviewState.UPDATING, taskId],
+        ),
       );
-      const updated = (await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]))[0]!;
+      const updated = (await withSystem<PreviewSessionRow[]>((db) =>
+        db.query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE project_id = $1', [projectId]).then((r) => r.rows),
+      ))[0]!;
       broadcast(projectId, updated);
       void runBuild(session.owner_id, projectId, session.id, updated.version).catch(() => undefined);
     }
@@ -253,8 +296,10 @@ export async function previewTaskCompleted(taskId: string, projectId: string): P
 
 export async function markPreviewOffline(userId: string, projectId: string): Promise<PreviewSessionRow> {
   const session = await getPreview(userId, projectId);
-  await pool.query(`UPDATE preview_sessions SET state = $2 WHERE id = $1`, [session.id, PreviewState.OFFLINE]);
-  const updated = (await queryMany<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE id = $1', [session.id]))[0]!;
+  await withTenant(userId, (db) => db.query(`UPDATE preview_sessions SET state = $2 WHERE id = $1`, [session.id, PreviewState.OFFLINE]));
+  const updated = (await withTenant<PreviewSessionRow[]>(userId, (db) =>
+    db.query<PreviewSessionRow>('SELECT * FROM preview_sessions WHERE id = $1', [session.id]).then((r) => r.rows),
+  ))[0]!;
   broadcast(projectId, updated);
   return updated;
 }

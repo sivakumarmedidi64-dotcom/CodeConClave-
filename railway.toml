@@ -1,17 +1,8 @@
-# CodeConClave Backend — Railway Deployment Config
-# Uses Dockerfile from backend/Dockerfile
-
 [build]
-builder = "DOCKERFILE"
-dockerfilePath = "backend/Dockerfile"
+builder = "dockerfile"
 
 [deploy]
-healthcheckPath = "/health"
-healthcheckTimeout = 300
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
-
-[variables]
-# These will be overridden by railway.env at deploy time
-NODE_ENV = "production"
-PORT = "4000"
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

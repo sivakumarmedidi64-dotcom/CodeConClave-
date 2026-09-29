@@ -14,6 +14,7 @@ import { recordAudit } from '../audit/service.js';
 import { AuditAction } from '@codeconclave/shared';
 import type { Request } from 'express';
 import { createHmac } from 'node:crypto';
+import { logger } from '../../shared/logger.js';
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -46,10 +47,14 @@ function googleStateToken(nonce: string): string {
 export function verifyGoogleState(token: string): void {
   const [body, sig] = token.split('.');
   if (!body || !sig || createHmac('sha256', env.JWT_SECRET).update(`google-oauth:${body}`).digest('base64url') !== sig) {
+    logger.warn('google.oauth_state_invalid');
     throw AppError.badRequest('google_state_invalid', 'Invalid OAuth state');
   }
   const payload = JSON.parse(Buffer.from(body, 'base64url').toString()) as { exp: number };
-  if (payload.exp <= Date.now()) throw AppError.badRequest('google_state_expired', 'OAuth state expired');
+  if (payload.exp <= Date.now()) {
+    logger.warn('google.oauth_state_expired');
+    throw AppError.badRequest('google_state_expired', 'OAuth state expired');
+  }
 }
 
 export interface GoogleUserInfo {
@@ -79,10 +84,12 @@ async function exchangeCode(code: string): Promise<{ accessToken: string; refres
       signal: outboundSignal(),
     });
   } catch {
+    logger.error('google.token_timeout');
     throw AppError.unavailable('google_token_timeout', 'Google token exchange timed out');
   }
   if (!response.ok) {
     const text = await response.text();
+    logger.error('google.token_exchange_failed', { status: response.status, body: text.slice(0, 500) });
     throw AppError.badRequest('google_token_failed', 'Google token exchange failed');
   }
   const payload = (await response.json()) as {
@@ -101,9 +108,13 @@ async function fetchUserInfo(accessToken: string): Promise<GoogleUserInfo> {
       signal: outboundSignal(),
     });
   } catch {
+    logger.error('google.userinfo_timeout');
     throw AppError.unavailable('google_userinfo_timeout', 'Google profile fetch timed out');
   }
-  if (!response.ok) throw AppError.badRequest('google_userinfo_failed', 'Failed to fetch Google profile');
+  if (!response.ok) {
+    logger.error('google.userinfo_failed', { status: response.status });
+    throw AppError.badRequest('google_userinfo_failed', 'Failed to fetch Google profile');
+  }
   return (await response.json()) as GoogleUserInfo;
 }
 
@@ -188,7 +199,7 @@ export async function createSessionForGoogleUser(userId: string, req: Request): 
     tenantId: userId,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
   });
   return token;
 }
@@ -200,6 +211,8 @@ export function authResultFromUser(user: {
   display_name: string | null;
   avatar_url: string | null;
   google_sub: string | null;
+  role: string | null;
+  primary_use_case: string | null;
   mfa_enabled: boolean;
   rbac_role: string;
   plan_id: string;
@@ -212,6 +225,8 @@ export function authResultFromUser(user: {
     displayName: user.display_name,
     avatarUrl: user.avatar_url,
     googleSub: user.google_sub,
+    role: user.role ?? null,
+    primaryUseCase: user.primary_use_case ?? null,
     mfaEnabled: user.mfa_enabled,
     rbacRole: user.rbac_role,
     planId: user.plan_id,

@@ -31,7 +31,56 @@ export const projectRoutes = (): Router => {
 
   router.use(requireAuth);
 
-  router.get(
+  /**
+ * @openapi
+ * /api/v1/projects:
+ *   get:
+ *     summary: List user's projects
+ *     description: Retrieve all projects for the authenticated user with optional filtering
+ *     tags: [Projects]
+ *     security:
+ *       - cookieAuth: []
+ *       - csrfToken: []
+ *     parameters:
+ *       - in: query
+ *         name: archived
+ *         schema:
+ *           type: boolean
+ *         description: Include archived projects
+ *       - in: query
+ *         name: favorite
+ *         schema:
+ *           type: boolean
+ *         description: Filter by favorite status
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, ARCHIVED, COMPLETED, ON_HOLD]
+ *         description: Filter by project status
+ *       - in: query
+ *         name: tag
+ *         schema:
+ *           type: string
+ *         description: Filter by tag
+ *     responses:
+ *       '200':
+ *         description: List of projects
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       '401':
+ *         description: Unauthorized
+ *       '429':
+ *         description: Rate limited
+ */
+router.get(
     '/',
     asyncRoute(async (req, res) => {
       const includeArchived = req.query.archived === '1' || req.query.archived === 'true';

@@ -48,6 +48,10 @@ vi.mock('../modules/audit/service.js', () => ({ recordAudit }));
 
 const workspace = vi.hoisted(() => ({
   checkFreeLimits: vi.fn(async () => ({ ok: true, reason: null, limits: {} })),
+  consumeFreeMessage: vi.fn(async () => ({
+    accepted: true,
+    usage: { used: 0, limit: 20, windowHours: 24, windowStart: null, resetsAt: null, remaining: 20 },
+  })),
   incrementUsage: vi.fn(async () => {}),
   shouldShowFreeLimitMoon: vi.fn(async () => false),
   recordUsage: vi.fn(async () => {}),
@@ -61,7 +65,11 @@ const memory = vi.hoisted(() => ({
 vi.mock('../modules/memory/service.js', () => memory);
 
 const context = vi.hoisted(() => ({
-  retrieveScopedContext: vi.fn(async () => ({ memories: [] as string[], dna: [] as string[] })),
+  retrieveScopedContext: vi.fn(async () => ({
+    memories: [] as string[],
+    dna: [] as string[],
+    decisions: [] as string[],
+  })),
 }));
 vi.mock('../modules/memory/context.js', () => context);
 
@@ -895,10 +903,9 @@ describe('chat pipeline — end-to-end through the gateway', () => {
 
   it('free limit enforcement happens before any AI spend', async () => {
     mockPlan('free');
-    vi.mocked(workspace.checkFreeLimits).mockResolvedValue({
-      ok: false,
-      reason: 'daily_message_limit',
-      limits: { messages: 20, used: 20 },
+    vi.mocked(workspace.consumeFreeMessage).mockResolvedValue({
+      accepted: false,
+      usage: { used: 20, limit: 20, windowHours: 24, windowStart: null, resetsAt: null, remaining: 0 },
     });
     vi.mocked(workspace.shouldShowFreeLimitMoon).mockResolvedValue(true);
     let limitEvent = false;
@@ -912,6 +919,43 @@ describe('chat pipeline — end-to-end through the gateway', () => {
     ).rejects.toMatchObject({ errorCode: 'free_limit_reached' });
     expect(limitEvent).toBe(true);
     expect(usageRows()).toHaveLength(0);
+  });
+
+  it('IMAGE_GENERATION: billing/quota exhaustion is surfaced honestly, never faked as an image', async () => {
+    dbState();
+    // Only an image-generation-capable model exists; it is quota-exhausted the
+    // way gemini currently is (429 billing). The gate must fail the message and
+    // rethrow the honest error — no fallback to a text model, no fake image.
+    vi.mocked(registry.getRegistry).mockResolvedValue([
+      model('img-1', { imageGeneration: true, priority: 1 }),
+    ]);
+    vi.mocked(providers.getAdapter).mockImplementation((providerId, modelId) =>
+      adapter(modelId, {
+        providerId,
+        async *complete() {
+          throw AppError.unavailable('provider_billing', 'Gemini billing quota exhausted (429)', {
+            status: 429,
+            provider: 'google',
+          });
+        },
+      }),
+    );
+    await expect(
+      sendChatMessage(
+        { id: 'u1', planId: 'pro', entitlementState: 'PRO_VERIFIED' },
+        's1',
+        { content: 'generate an image of a rocket', conversationId: 'c1', projectId: 'p1', imageRequest: true },
+      ),
+    ).rejects.toMatchObject({ errorCode: 'model_unavailable' });
+    // The assistant message is marked FAILED with the honest error code (the
+    // error the SSE route turns into an `event: error` frame the UI renders).
+    const updates = db.state.calls.filter((c) => c.text.includes('UPDATE messages SET'));
+    expect(updates[0].params[1]).toBe('FAILED');
+    expect(updates[0].params[3]).toBe('model_unavailable');
+    // Audit facts full + honest: failure recorded against IMAGE_GENERATION.
+    expect(vi.mocked(recordAudit).mock.calls.some((call) => call[0].action === 'ai.image_generation_failed')).toBe(true);
+    // No image file was persisted (no onImage artifact — nothing faked).
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO files') && c.text.includes('image'))).toBe(false);
   });
 });
 

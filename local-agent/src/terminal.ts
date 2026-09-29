@@ -197,3 +197,84 @@ export class TerminalSession {
     this.emitter.emit('status', this.tabId, this.status, this.exitCode);
   }
 }
+
+export interface OneShotResult {
+  ok: boolean;
+  output: string;
+  exitCode: number | null;
+  timedOut: boolean;
+  error?: string;
+}
+
+/**
+ * One-shot non-interactive command execution for chat-driven agents. Runs a
+ * single command line through the configured shell and returns its combined
+ * output (stdout + stderr), bounded in bytes and time. Unlike the interactive
+ * TerminalSession there is no persistent tab — start → collect → finish — the
+ * primitive the chat agent loop needs. Gate FIRST via the caller's policy;
+ * this only enforces the byte/time bounds so one runaway command can never
+ * flood an agent reply.
+ */
+export function runCommandOnce(
+  shell: string,
+  command: string,
+  cwd: string,
+  opts: { timeoutMs?: number; maxBytes?: number } = {},
+): Promise<OneShotResult> {
+  return new Promise<OneShotResult>((resolve) => {
+    const def = SHELLS[shell] ?? SHELLS.bash!;
+    const args = shell === 'powershell' || shell === 'pwsh'
+      ? [...(def.args as string[]), '-NoProfile', '-NonInteractive', '-Command', command]
+      : ['-lc', command];
+    const timeoutMs = Number.isFinite(Number(opts.timeoutMs)) && (opts.timeoutMs ?? 0) > 0
+      ? Math.min(Number(opts.timeoutMs), 24 * 60 * 60 * 1000)
+      : undefined;
+    const maxBytesValue = opts.maxBytes ?? 256 * 1024;
+    const maxBytes = maxBytesValue > 0 ? maxBytesValue : 256 * 1024;
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(def.command, args, { cwd, env: process.env }) as ChildProcessWithoutNullStreams;
+    } catch (err) {
+      resolve({ ok: false, output: '', exitCode: null, timedOut: false, error: err instanceof Error ? err.message : 'spawn failed' });
+      return;
+    }
+    const chunks: string[] = [];
+    let bytes = 0;
+    let done = false;
+    let timer: NodeJS.Timeout | null = null;
+    const finish = (result: OneShotResult): void => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
+    const push = (text: string): void => {
+      if (bytes >= maxBytes) return;
+      const slice = text.slice(0, maxBytes - bytes);
+      chunks.push(slice);
+      bytes += slice.length;
+    };
+    child.stdout.on('data', (d: Buffer) => push(d.toString()));
+    child.stderr.on('data', (d: Buffer) => push(d.toString()));
+    child.on('error', (err) => finish({ ok: false, output: chunks.join(''), exitCode: null, timedOut: false, error: err.message }));
+    child.on('exit', (code) => finish({ ok: true, output: chunks.join(''), exitCode: code, timedOut: false }));
+    if (timeoutMs) {
+      timer = setTimeout(() => {
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* already gone */
+        }
+        setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* already gone */
+          }
+        }, 2000).unref?.();
+        finish({ ok: true, output: chunks.join(''), exitCode: null, timedOut: true });
+      }, timeoutMs);
+      timer.unref?.();
+    }
+  });
+}

@@ -5,7 +5,7 @@
  * revocation, and screenshot access gated by a fresh explicit grant.
  */
 import { AuditAction, Timeouts } from '@codeconclave/shared';
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
@@ -39,22 +39,22 @@ interface RemoteSessionRow {
 
 export async function createRemoteSession(userId: string, deviceId: string): Promise<RemoteSessionJson> {
   const device = await requirePairedDevice(userId, deviceId);
-  const existing = await pool.query<RemoteSessionRow>(
+  const existing = await withTenant(userId, (q) => q.query<RemoteSessionRow>(
     `SELECT id, device_id, state, started_at, expires_at, last_active_at,
             screenshot_authorized, screenshot_auth_expires_at, revoked_at
      FROM remote_sessions
      WHERE owner_id = $1 AND device_id = $2 AND state = 'ACTIVE' AND expires_at > now()
      ORDER BY created_at DESC LIMIT 1`,
     [userId, deviceId],
-  );
+  ));
   if (existing.rows[0]) return toJson(existing.rows[0], device.name);
 
   const id = newId(PREFIX.REMOTE_SESSION);
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO remote_sessions (id, owner_id, device_id, state, expires_at)
      VALUES ($1,$2,$3,'ACTIVE', now() + make_interval(msecs => $4))`,
     [id, userId, deviceId, Timeouts.REMOTE_SESSION_TTL_MS],
-  );
+  ));
   await recordAudit({
     action: AuditAction.REMOTE_SESSION_CREATED,
     actorUserId: userId,
@@ -64,17 +64,17 @@ export async function createRemoteSession(userId: string, deviceId: string): Pro
     resourceId: id,
     detail: { deviceId },
   });
-  const row = await pool.query<RemoteSessionRow>(
+  const row = await withTenant(userId, (q) => q.query<RemoteSessionRow>(
     `SELECT id, device_id, state, started_at, expires_at, last_active_at,
             screenshot_authorized, screenshot_auth_expires_at, revoked_at
      FROM remote_sessions WHERE id = $1 AND owner_id = $2`,
     [id, userId],
-  );
+  ));
   return toJson(row.rows[0]!, device.name);
 }
 
 export async function listRemoteSessions(userId: string): Promise<RemoteSessionJson[]> {
-  const result = await pool.query<RemoteSessionRow & { name: string }>(
+  const result = await withTenant(userId, (q) => q.query<RemoteSessionRow & { name: string }>(
     `SELECT s.id, s.device_id, s.state, s.started_at, s.expires_at, s.last_active_at,
             s.screenshot_authorized, s.screenshot_auth_expires_at, s.revoked_at,
             d.name
@@ -83,18 +83,18 @@ export async function listRemoteSessions(userId: string): Promise<RemoteSessionJ
      WHERE s.owner_id = $1
      ORDER BY s.created_at DESC`,
     [userId],
-  );
+  ));
   return result.rows.map((row) => toJson(row, row.name));
 }
 
 export async function revokeRemoteSession(userId: string, sessionId: string): Promise<void> {
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `UPDATE remote_sessions
      SET state = 'REVOKED', revoked_at = now(), screenshot_authorized = false
      WHERE id = $1 AND owner_id = $2 AND state = 'ACTIVE'
      RETURNING id`,
     [sessionId, userId],
-  );
+  ));
   if (!result.rows[0]) throw AppError.notFound('RemoteSession');
   await recordAudit({
     action: AuditAction.REMOTE_SESSION_REVOKED,
@@ -107,14 +107,14 @@ export async function revokeRemoteSession(userId: string, sessionId: string): Pr
 }
 
 export async function authorizeScreenshot(userId: string, sessionId: string): Promise<void> {
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `UPDATE remote_sessions
      SET screenshot_authorized = true,
          screenshot_auth_expires_at = now() + make_interval(msecs => $3)
      WHERE id = $1 AND owner_id = $2 AND state = 'ACTIVE' AND expires_at > now() AND revoked_at IS NULL
      RETURNING id`,
     [sessionId, userId, Timeouts.REMOTE_SCREENSHOT_AUTH_TTL_MS],
-  );
+  ));
   if (!result.rows[0]) throw AppError.notFound('RemoteSession');
   await recordAudit({
     action: AuditAction.REMOTE_SCREENSHOT_AUTHORIZED,
@@ -133,7 +133,7 @@ export async function authorizeScreenshot(userId: string, sessionId: string): Pr
  * no simulated image is ever produced.
  */
 export async function requestScreenshot(userId: string, sessionId: string): Promise<{ source: string; image: Uint8Array | null }> {
-  const row = await pool.query<{
+  const row = await withTenant(userId, (q) => q.query<{
     state: string;
     expires_at: string;
     revoked_at: string | null;
@@ -143,7 +143,7 @@ export async function requestScreenshot(userId: string, sessionId: string): Prom
     `SELECT state, expires_at, revoked_at, screenshot_authorized, screenshot_auth_expires_at
      FROM remote_sessions WHERE id = $1 AND owner_id = $2`,
     [sessionId, userId],
-  );
+  ));
   const dbRow = row.rows[0];
   if (!dbRow) throw AppError.notFound('RemoteSession');
   assertScreenshotAuthorized({

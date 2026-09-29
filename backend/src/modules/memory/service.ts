@@ -4,7 +4,7 @@
  * contradiction enforcement. Default retrieval: CURRENT PROJECT ONLY.
  * Retrieval fallback: vector (pgvector) → keyword → recent context.
  */
-import { pool, withTenant, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import type { Memory, MemorySource, MemoryType } from '@codeconclave/shared';
@@ -13,6 +13,7 @@ import { recordAudit } from '../audit/service.js';
 import { AuditAction } from '@codeconclave/shared';
 import { logger } from '../../shared/logger.js';
 import { getEmbeddingProvider, isVectorValid } from '../ai/embeddings.js';
+import { redactSecrets } from '../secretGuard/service.js';
 
 export interface MemoryRow {
   id: string;
@@ -51,12 +52,34 @@ export interface CreateMemoryInput {
   structured?: Record<string, unknown> | null;
 }
 
+/**
+ * Server-boundary sanitization: redact known secret material recursively from
+ * structured values so writes can never persist secrets when a caller forgets
+ * to redact. Idempotent — already-redacted input is unchanged.
+ */
+function redactStructuredValues(value: unknown): unknown {
+  if (typeof value === 'string') return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactStructuredValues);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactStructuredValues(v);
+    return out;
+  }
+  return value;
+}
+
+function sanitizeStructured(patch: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (patch == null) return null;
+  return redactStructuredValues(patch) as Record<string, unknown>;
+}
+
 export async function createMemory(userId: string, input: CreateMemoryInput): Promise<MemoryRow> {
   const projectId = input.projectId ?? null;
   const teamId = input.tenantId ?? null;
+  const content = redactSecrets(input.content);
   await withTenant(userId, async (q) => {
     if (projectId) {
-      const p = await q.query('SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL', [projectId]);
+      const p = await q.query('SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [projectId, userId]);
       if (!p.rows[0]) throw AppError.notFound('Project');
     }
     const baseConfidence =
@@ -77,14 +100,16 @@ export async function createMemory(userId: string, input: CreateMemoryInput): Pr
         userId,
         input.type,
         input.source,
-        input.content,
-        input.structured ? JSON.stringify(input.structured) : null,
+        content,
+        input.structured ? JSON.stringify(sanitizeStructured(input.structured)) : null,
         input.confidence ?? baseConfidence,
         input.provenance ?? null,
       ],
     );
   });
-  const rows = await queryMany<MemoryRow>('SELECT * FROM memories WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 1', [userId]);
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MemoryRow>('SELECT * FROM memories WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 1', [userId])
+  ).rows);
   const memory = rows[0]!;
   await recordAudit({
     action: AuditAction.MEMORY_CREATED,
@@ -130,24 +155,30 @@ export async function listMemories(
   }
   params.push(opts.limit ?? 50, opts.offset ?? 0);
   const countParams = [...params.slice(0, params.length - 2)];
-  const count = await pool.query(
-    `SELECT count(*)::int AS n FROM memories WHERE ${conditions.join(' AND ')}`,
-    countParams,
-  );
-  const items = await queryMany<MemoryRow>(
-    `SELECT * FROM memories WHERE ${conditions.join(' AND ')}
-     ORDER BY (CASE confidence WHEN 0 THEN 1 ELSE 0 END), created_at DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params,
-  );
-  return { items, total: count.rows[0]?.n ?? 0 };
+  return withTenant(userId, async (q) => {
+    const count = await q.query(
+      `SELECT count(*)::int AS n FROM memories WHERE ${conditions.join(' AND ')}`,
+      countParams,
+    );
+    const items = (
+      await q.query<MemoryRow>(
+        `SELECT * FROM memories WHERE ${conditions.join(' AND ')}
+         ORDER BY (CASE confidence WHEN 0 THEN 1 ELSE 0 END), created_at DESC
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { items, total: count.rows[0]?.n ?? 0 };
+  });
 }
 
 export async function getMemory(userId: string, memoryId: string): Promise<MemoryRow> {
-  const rows = await queryMany<MemoryRow>(
-    `SELECT * FROM memories WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`,
-    [memoryId, userId],
-  );
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MemoryRow>(
+      `SELECT * FROM memories WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL`,
+      [memoryId, userId],
+    )
+  ).rows);
   if (!rows[0]) throw AppError.notFound('Memory');
   return rows[0];
 }
@@ -162,7 +193,7 @@ export async function updateMemory(
   const params: unknown[] = [memoryId];
   if (patch.content !== undefined) {
     fields.push(`content = $${params.length + 1}`);
-    params.push(patch.content);
+    params.push(redactSecrets(patch.content));
   }
   if (patch.confidence !== undefined) {
     fields.push(`confidence = $${params.length + 1}`);
@@ -174,10 +205,12 @@ export async function updateMemory(
   }
   if (patch.structured !== undefined) {
     fields.push(`structured = $${params.length + 1}::jsonb`);
-    params.push(JSON.stringify(patch.structured));
+    params.push(JSON.stringify(sanitizeStructured(patch.structured)));
   }
   if (!fields.length) return existing;
-  await pool.query(`UPDATE memories SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withTenant(userId, async (q) => {
+    await q.query(`UPDATE memories SET ${fields.join(', ')} WHERE id = $1`, params);
+  });
   await recordMemoryCorrection({ memoryId, kind: 'EDIT', actorUserId: userId });
   await recordAudit({
     action: AuditAction.MEMORY_UPDATED,
@@ -192,7 +225,9 @@ export async function updateMemory(
 
 export async function softDeleteMemory(userId: string, memoryId: string): Promise<void> {
   await getMemory(userId, memoryId);
-  await pool.query('UPDATE memories SET deleted_at = now() WHERE id = $1', [memoryId]);
+  await withTenant(userId, async (q) => {
+    await q.query('UPDATE memories SET deleted_at = now() WHERE id = $1', [memoryId]);
+  });
   await recordMemoryCorrection({ memoryId, kind: 'DELETE', actorUserId: userId });
   await recordAudit({
     action: AuditAction.MEMORY_DELETED,
@@ -205,9 +240,11 @@ export async function softDeleteMemory(userId: string, memoryId: string): Promis
 }
 
 export async function restoreMemory(userId: string, memoryId: string): Promise<MemoryRow> {
-  const result = await pool.query(
-    'UPDATE memories SET deleted_at = NULL WHERE id = $1 AND owner_id = $2 RETURNING *',
-    [memoryId, userId],
+  const result = await withTenant(userId, async (q) =>
+    q.query(
+      'UPDATE memories SET deleted_at = NULL WHERE id = $1 AND owner_id = $2 RETURNING *',
+      [memoryId, userId],
+    ),
   );
   if (!result.rows[0]) throw AppError.notFound('Memory');
   await recordMemoryCorrection({ memoryId, kind: 'RESTORE', actorUserId: userId });
@@ -215,11 +252,13 @@ export async function restoreMemory(userId: string, memoryId: string): Promise<M
 }
 
 export async function trashMemories(userId: string): Promise<MemoryRow[]> {
-  return queryMany<MemoryRow>(
-    `SELECT * FROM memories WHERE owner_id = $1 AND deleted_at IS NOT NULL
-     AND deleted_at > now() - interval '30 days' ORDER BY deleted_at DESC`,
-    [userId],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<MemoryRow>(
+      `SELECT * FROM memories WHERE owner_id = $1 AND deleted_at IS NOT NULL
+       AND deleted_at > now() - interval '30 days' ORDER BY deleted_at DESC`,
+      [userId],
+    )
+  ).rows);
 }
 
 /**
@@ -229,11 +268,13 @@ export async function trashMemories(userId: string): Promise<MemoryRow[]> {
  */
 export async function flagMemoryWrong(userId: string, memoryId: string, note?: string): Promise<MemoryRow> {
   const existing = await getMemory(userId, memoryId);
-  await pool.query(
-    `UPDATE memories SET contradiction_state = 'CONFIRMED', confidence = 0,
-       updated_at = now() WHERE id = $1`,
-    [memoryId],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE memories SET contradiction_state = 'CONFIRMED', confidence = 0,
+         updated_at = now() WHERE id = $1`,
+      [memoryId],
+    );
+  });
   const correction = await createMemory(userId, {
     projectId: existing.project_id ?? undefined,
     type: existing.type as MemoryType,
@@ -244,11 +285,13 @@ export async function flagMemoryWrong(userId: string, memoryId: string, note?: s
     confidence: 0.9,
     provenance: `memory://${memoryId}`,
   });
-  await pool.query(
-    `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
-     VALUES ($1,$2,$3,'contradicts',0.95)`,
-    [newId(PREFIX.MEMORY), memoryId, correction.id],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
+       VALUES ($1,$2,$3,'contradicts',0.95)`,
+      [newId(PREFIX.MEMORY), memoryId, correction.id],
+    );
+  });
   await recordMemoryCorrection({
     memoryId,
     correctMemoryId: correction.id,
@@ -270,20 +313,24 @@ export async function flagMemoryWrong(userId: string, memoryId: string, note?: s
 
 export async function addMemorySource(userId: string, memoryId: string, sourceLabel: MemorySource, sourceRef: string): Promise<void> {
   await getMemory(userId, memoryId);
-  await pool.query(
-    `INSERT INTO memory_sources (id, memory_id, source_label, source_ref, captured_at)
-     VALUES ($1,$2,$3,$4, now())`,
-    [newId(PREFIX.MEMORY), memoryId, sourceLabel, sourceRef],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO memory_sources (id, memory_id, source_label, source_ref, captured_at)
+       VALUES ($1,$2,$3,$4, now())`,
+      [newId(PREFIX.MEMORY), memoryId, sourceLabel, sourceRef],
+    );
+  });
 }
 
 export async function listMemorySources(userId: string, memoryId: string): Promise<unknown[]> {
   await getMemory(userId, memoryId);
-  return queryMany(
-    `SELECT id, source_label, source_ref, captured_at, confidence FROM memory_sources
-     WHERE memory_id = $1 ORDER BY captured_at DESC`,
-    [memoryId],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query(
+      `SELECT id, source_label, source_ref, captured_at, confidence FROM memory_sources
+       WHERE memory_id = $1 ORDER BY captured_at DESC`,
+      [memoryId],
+    )
+  ).rows);
 }
 
 // ---------------------------------------------------------------- retrieval
@@ -300,14 +347,16 @@ function confidenceGate(m: MemoryRow): boolean {
  * unverified or contradicted memory.
  */
 export async function retrieveMemoriesForPrompt(userId: string, projectId?: string | null, limit = 8): Promise<string[]> {
-  const rows = await queryMany<MemoryRow>(
-    `SELECT * FROM memories
-     WHERE owner_id = $1 AND deleted_at IS NULL
-       AND ($2::text IS NULL OR project_id = $2)
-     ORDER BY (CASE WHEN confidence >= 0.8 THEN 0 WHEN confidence >= 0.5 THEN 1 ELSE 2 END), created_at DESC
-     LIMIT $3`,
-    [userId, projectId ?? null, limit * 2],
-  );
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MemoryRow>(
+      `SELECT * FROM memories
+       WHERE owner_id = $1 AND deleted_at IS NULL
+         AND ($2::text IS NULL OR project_id = $2)
+       ORDER BY (CASE WHEN confidence >= 0.8 THEN 0 WHEN confidence >= 0.5 THEN 1 ELSE 2 END), created_at DESC
+       LIMIT $3`,
+      [userId, projectId ?? null, limit * 2],
+    )
+  ).rows);
   const out: string[] = [];
   for (const m of rows) {
     if (!confidenceGate(m)) continue;
@@ -359,17 +408,21 @@ export async function listTeamMemories(
     conditions.push(`confidence >= $${params.length}`);
   }
   params.push(opts.limit ?? 50, opts.offset ?? 0);
-  const count = await pool.query(
-    `SELECT count(*)::int AS n FROM memories WHERE ${conditions.join(' AND ')}`,
-    params.slice(0, params.length - 2),
-  );
-  const items = await queryMany<MemoryRow>(
-    `SELECT * FROM memories WHERE ${conditions.join(' AND ')}
-     ORDER BY (CASE confidence WHEN 0 THEN 1 ELSE 0 END), created_at DESC
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params,
-  );
-  return { items, total: count.rows[0]?.n ?? 0 };
+  return withTenant(userId, async (q) => {
+    const count = await q.query(
+      `SELECT count(*)::int AS n FROM memories WHERE ${conditions.join(' AND ')}`,
+      params.slice(0, params.length - 2),
+    );
+    const items = (
+      await q.query<MemoryRow>(
+        `SELECT * FROM memories WHERE ${conditions.join(' AND ')}
+         ORDER BY (CASE confidence WHEN 0 THEN 1 ELSE 0 END), created_at DESC
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
+      )
+    ).rows;
+    return { items, total: count.rows[0]?.n ?? 0 };
+  });
 }
 
 /** Prompt-safe team memory: membership-gated, confidence + contradiction gated. */
@@ -377,13 +430,15 @@ export async function retrieveTeamMemoriesForPrompt(userId: string, teamId: stri
   const { teamRoleFor } = await import('../teams/service.js');
   const role = await teamRoleFor(userId, teamId);
   if (!role) throw AppError.forbidden('insufficient_permission');
-  const rows = await queryMany<MemoryRow>(
-    `SELECT * FROM memories
-     WHERE team_id = $1 AND deleted_at IS NULL AND contradiction_state <> 'CONFIRMED'
-     ORDER BY (CASE WHEN confidence >= 0.8 THEN 0 WHEN confidence >= 0.5 THEN 1 ELSE 2 END), created_at DESC
-     LIMIT $2`,
-    [teamId, limit * 2],
-  );
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MemoryRow>(
+      `SELECT * FROM memories
+       WHERE team_id = $1 AND deleted_at IS NULL AND contradiction_state <> 'CONFIRMED'
+       ORDER BY (CASE WHEN confidence >= 0.8 THEN 0 WHEN confidence >= 0.5 THEN 1 ELSE 2 END), created_at DESC
+       LIMIT $2`,
+      [teamId, limit * 2],
+    )
+  ).rows);
   const out: string[] = [];
   for (const m of rows) {
     if (!confidenceGate(m)) continue;
@@ -399,27 +454,31 @@ export async function semanticSearch(userId: string, query: string, projectId?: 
     const embedding = await embeddingFor(query);
     if (embedding) {
       const params: unknown[] = [userId, projectId ?? null, embedding, limit];
-      const rows = await queryMany<MemoryRow>(
-        `SELECT * FROM memories
-         WHERE owner_id = $1 AND deleted_at IS NULL AND embedding IS NOT NULL
-           AND ($2::text IS NULL OR project_id = $2)
-         ORDER BY embedding <=> $3::vector
-         LIMIT $4`,
-        params,
-      );
+      const rows = await withTenant(userId, async (q) => (
+        await q.query<MemoryRow>(
+          `SELECT * FROM memories
+           WHERE owner_id = $1 AND deleted_at IS NULL AND embedding IS NOT NULL
+             AND ($2::text IS NULL OR project_id = $2)
+           ORDER BY embedding <=> $3::vector
+           LIMIT $4`,
+          params,
+        )
+      ).rows);
       if (rows.length) return rows;
     }
   } catch (err) {
     logger.warn('vector search failed, falling back to keyword', { error: (err as Error).message });
   }
-  return queryMany<MemoryRow>(
-    `SELECT * FROM memories
-     WHERE owner_id = $1 AND deleted_at IS NULL
-       AND ($2::text IS NULL OR project_id = $2)
-       AND to_tsvector('simple', content) @@ plainto_tsquery('simple', $3)
-     ORDER BY created_at DESC LIMIT $4`,
-    [userId, projectId ?? null, query, limit],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<MemoryRow>(
+      `SELECT * FROM memories
+       WHERE owner_id = $1 AND deleted_at IS NULL
+         AND ($2::text IS NULL OR project_id = $2)
+         AND to_tsvector('simple', content) @@ plainto_tsquery('simple', $3)
+       ORDER BY created_at DESC LIMIT $4`,
+      [userId, projectId ?? null, query, limit],
+    )
+  ).rows);
 }
 
 /**
@@ -450,15 +509,19 @@ export async function embeddingFor(text: string): Promise<number[] | null> {
 }
 
 export async function backfillEmbedding(memoryId: string): Promise<void> {
-  const rows = await queryMany<{ id: string; content: string }>(
-    'SELECT id, content FROM memories WHERE id = $1 AND embedding IS NULL',
-    [memoryId],
-  );
+  const rows = await withSystem(async (q) => (
+    await q.query<{ id: string; content: string }>(
+      'SELECT id, content FROM memories WHERE id = $1 AND embedding IS NULL',
+      [memoryId],
+    )
+  ).rows);
   const memory = rows[0];
   if (!memory) return;
   const embedding = await embeddingFor(memory.content);
   if (!embedding) return;
-  await pool.query('UPDATE memories SET embedding = $1::vector WHERE id = $2', [JSON.stringify(embedding), memory.id]);
+  await withSystem(async (q) => {
+    await q.query('UPDATE memories SET embedding = $1::vector WHERE id = $2', [JSON.stringify(embedding), memory.id]);
+  });
 }
 
 // ---------------------------------------------------------------- Phase 6: real embeddings
@@ -469,26 +532,32 @@ export async function backfillEmbedding(memoryId: string): Promise<void> {
  * vector). Success → READY with model + dimensions recorded.
  */
 export async function ensureEmbedding(memoryId: string): Promise<'QUEUED' | 'FAILED' | 'READY'> {
-  const rows = await queryMany<{ id: string; content: string; embedding_status: string }>(
-    'SELECT id, content, embedding_status FROM memories WHERE id = $1 AND deleted_at IS NULL',
-    [memoryId],
-  );
+  const rows = await withSystem(async (q) => (
+    await q.query<{ id: string; content: string; embedding_status: string }>(
+      'SELECT id, content, embedding_status FROM memories WHERE id = $1 AND deleted_at IS NULL',
+      [memoryId],
+    )
+  ).rows);
   const memory = rows[0];
   if (!memory) return 'QUEUED';
   if (memory.embedding_status === 'READY') return 'READY';
   const provider = getEmbeddingProvider();
   if (!provider) {
-    await pool.query("UPDATE memories SET embedding_status = 'QUEUED' WHERE id = $1", [memoryId]);
+    await withSystem(async (q) => {
+      await q.query("UPDATE memories SET embedding_status = 'QUEUED' WHERE id = $1", [memoryId]);
+    });
     return 'QUEUED';
   }
   try {
     const embedding = await provider.embed(memory.content);
     if (!isVectorValid(embedding)) throw new Error('embedding provider returned an invalid vector');
-    await pool.query(
-      `UPDATE memories SET embedding = $1::vector, embedding_status = 'READY',
-         embedding_model = $2, embedding_dimensions = $3 WHERE id = $4`,
-      [JSON.stringify(embedding), provider.model, provider.dimensions, memoryId],
-    );
+    await withSystem(async (q) => {
+      await q.query(
+        `UPDATE memories SET embedding = $1::vector, embedding_status = 'READY',
+           embedding_model = $2, embedding_dimensions = $3 WHERE id = $4`,
+        [JSON.stringify(embedding), provider.model, provider.dimensions, memoryId],
+      );
+    });
     await recordAudit({
       action: AuditAction.MEMORY_EMBEDDED,
       actorUserId: null,
@@ -501,7 +570,9 @@ export async function ensureEmbedding(memoryId: string): Promise<'QUEUED' | 'FAI
     return 'READY';
   } catch (err) {
     logger.warn('embedding failed', { memoryId, error: (err as Error).message });
-    await pool.query("UPDATE memories SET embedding_status = 'FAILED' WHERE id = $1", [memoryId]);
+    await withSystem(async (q) => {
+      await q.query("UPDATE memories SET embedding_status = 'FAILED' WHERE id = $1", [memoryId]);
+    });
     return 'FAILED';
   }
 }
@@ -510,25 +581,31 @@ export async function ensureEmbedding(memoryId: string): Promise<'QUEUED' | 'FAI
 export async function processEmbeddingQueue(limit = 20): Promise<number> {
   const provider = getEmbeddingProvider();
   if (!provider) return 0;
-  const rows = await queryMany<{ id: string; content: string }>(
-    `SELECT id, content FROM memories WHERE embedding_status = 'QUEUED' AND deleted_at IS NULL
-     ORDER BY updated_at ASC LIMIT $1`,
-    [limit],
-  );
+  const rows = await withSystem(async (q) => (
+    await q.query<{ id: string; content: string }>(
+      `SELECT id, content FROM memories WHERE embedding_status = 'QUEUED' AND deleted_at IS NULL
+       ORDER BY updated_at ASC LIMIT $1`,
+      [limit],
+    )
+  ).rows);
   let processed = 0;
   for (const row of rows) {
     try {
       const embedding = await provider.embed(row.content);
       if (!isVectorValid(embedding)) throw new Error('invalid embedding vector');
-      await pool.query(
-        `UPDATE memories SET embedding = $1::vector, embedding_status = 'READY',
-           embedding_model = $2, embedding_dimensions = $3 WHERE id = $4`,
-        [JSON.stringify(embedding), provider.model, provider.dimensions, row.id],
-      );
+      await withSystem(async (q) => {
+        await q.query(
+          `UPDATE memories SET embedding = $1::vector, embedding_status = 'READY',
+             embedding_model = $2, embedding_dimensions = $3 WHERE id = $4`,
+          [JSON.stringify(embedding), provider.model, provider.dimensions, row.id],
+        );
+      });
       processed += 1;
     } catch (err) {
       logger.warn('queue embedding failed', { memoryId: row.id, error: (err as Error).message });
-      await pool.query("UPDATE memories SET embedding_status = 'FAILED' WHERE id = $1", [row.id]);
+      await withSystem(async (q) => {
+        await q.query("UPDATE memories SET embedding_status = 'FAILED' WHERE id = $1", [row.id]);
+      });
     }
   }
   return processed;
@@ -588,14 +665,20 @@ function buildSearchConditions(userId: string, opts: { projectId?: string | null
   return { conditions, params };
 }
 
-function fullTextSearch(conditions: string[], params: unknown[], query: string, limit: number): Promise<MemoryRow[]> {
+function fullTextSearch(
+  cq: { query: (t: string, p?: unknown[]) => Promise<{ rows: MemoryRow[] }> },
+  conditions: string[],
+  params: unknown[],
+  query: string,
+  limit: number,
+): Promise<MemoryRow[]> {
   const ftsParams = [...params, query, limit];
-  return queryMany<MemoryRow>(
+  return cq.query(
     `SELECT * FROM memories WHERE ${conditions.join(' AND ')}
        AND to_tsvector('simple', content) @@ plainto_tsquery('simple', $${params.length + 1})
      ORDER BY created_at DESC LIMIT $${params.length + 2}`,
     ftsParams,
-  );
+  ).then((r) => r.rows);
 }
 
 /** Reciprocal-rank fusion for HYBRID results (k = 60, standard RRF). */
@@ -630,37 +713,41 @@ export async function searchMemories(userId: string, opts: SearchMemoriesOptions
     try {
       const embedding = await embedTextForSearch(opts.query);
       const vectorParams = [...params, embedding, limit];
-      const rows = await queryMany<MemoryRow>(
-        `SELECT * FROM memories WHERE ${conditions.join(' AND ')} AND embedding IS NOT NULL
-         ORDER BY embedding <=> $${params.length + 1}::vector
-         LIMIT $${params.length + 2}`,
-        vectorParams,
-      );
+      const rows = await withTenant(userId, async (q) => (
+        await q.query<MemoryRow>(
+          `SELECT * FROM memories WHERE ${conditions.join(' AND ')} AND embedding IS NOT NULL
+           ORDER BY embedding <=> $${params.length + 1}::vector
+           LIMIT $${params.length + 2}`,
+          vectorParams,
+        )
+      ).rows);
       return { modeUsed: 'VECTOR', items: rows };
     } catch (err) {
       logger.warn('VECTOR search unavailable — honest fallback to FULL_TEXT', { error: (err as Error).message });
-      return { modeUsed: 'FULL_TEXT', items: await fullTextSearch(conditions, params, opts.query, limit) };
+      return { modeUsed: 'FULL_TEXT', items: await withTenant(userId, (q) => fullTextSearch(q, conditions, params, opts.query, limit)) };
     }
   }
 
   if (mode === 'HYBRID') {
     try {
       const embedding = await embedTextForSearch(opts.query);
-      const vectorRows = await queryMany<MemoryRow>(
-        `SELECT * FROM memories WHERE ${conditions.join(' AND ')} AND embedding IS NOT NULL
-         ORDER BY embedding <=> $${params.length + 1}::vector
-         LIMIT $${params.length + 2}`,
-        [...params, embedding, limit],
-      );
-      const ftsRows = await fullTextSearch(conditions, params, opts.query, limit);
+      const vectorRows = await withTenant(userId, async (q) => (
+        await q.query<MemoryRow>(
+          `SELECT * FROM memories WHERE ${conditions.join(' AND ')} AND embedding IS NOT NULL
+           ORDER BY embedding <=> $${params.length + 1}::vector
+           LIMIT $${params.length + 2}`,
+          [...params, embedding, limit],
+        )
+      ).rows);
+      const ftsRows = await withTenant(userId, (q) => fullTextSearch(q, conditions, params, opts.query, limit));
       return { modeUsed: 'HYBRID', items: mergeByReciprocalRank(vectorRows, ftsRows, limit) };
     } catch (err) {
       logger.warn('HYBRID search degraded to FULL_TEXT', { error: (err as Error).message });
-      return { modeUsed: 'FULL_TEXT', items: await fullTextSearch(conditions, params, opts.query, limit) };
+      return { modeUsed: 'FULL_TEXT', items: await withTenant(userId, (q) => fullTextSearch(q, conditions, params, opts.query, limit)) };
     }
   }
 
-  return { modeUsed: 'FULL_TEXT', items: await fullTextSearch(conditions, params, opts.query, limit) };
+  return { modeUsed: 'FULL_TEXT', items: await withTenant(userId, (q) => fullTextSearch(q, conditions, params, opts.query, limit)) };
 }
 
 async function embedTextForSearch(query: string): Promise<number[]> {
@@ -683,11 +770,13 @@ async function recordMemoryCorrection(input: {
   reason?: string | null;
   actorUserId: string;
 }): Promise<void> {
-  await pool.query(
-    `INSERT INTO memory_corrections (id, memory_id, correct_memory_id, kind, reason, actor_user_id)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [newId(PREFIX.MEMORY), input.memoryId, input.correctMemoryId ?? null, input.kind, input.reason ?? null, input.actorUserId],
-  );
+  await withTenant(input.actorUserId, async (q) => {
+    await q.query(
+      `INSERT INTO memory_corrections (id, memory_id, correct_memory_id, kind, reason, actor_user_id)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [newId(PREFIX.MEMORY), input.memoryId, input.correctMemoryId ?? null, input.kind, input.reason ?? null, input.actorUserId],
+    );
+  });
 }
 
 /**
@@ -697,11 +786,13 @@ async function recordMemoryCorrection(input: {
  */
 export async function correctMemory(userId: string, memoryId: string, reason: string): Promise<MemoryRow> {
   const existing = await getMemory(userId, memoryId);
-  await pool.query(
-    `UPDATE memories SET contradiction_state = 'CONFIRMED', confidence = 0,
-       verification_state = 'REJECTED', updated_at = now() WHERE id = $1`,
-    [memoryId],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE memories SET contradiction_state = 'CONFIRMED', confidence = 0,
+         verification_state = 'REJECTED', updated_at = now() WHERE id = $1`,
+      [memoryId],
+    );
+  });
   const correction = await createMemory(userId, {
     projectId: existing.project_id ?? undefined,
     type: existing.type as MemoryType,
@@ -710,11 +801,13 @@ export async function correctMemory(userId: string, memoryId: string, reason: st
     confidence: 0.9,
     provenance: `memory://${memoryId}`,
   });
-  await pool.query(
-    `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
-     VALUES ($1,$2,$3,'supersedes',0.95)`,
-    [newId(PREFIX.MEMORY), memoryId, correction.id],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
+       VALUES ($1,$2,$3,'supersedes',0.95)`,
+      [newId(PREFIX.MEMORY), memoryId, correction.id],
+    );
+  });
   await recordMemoryCorrection({ memoryId, correctMemoryId: correction.id, kind: 'FLAG_WRONG', reason, actorUserId: userId });
   await recordAudit({
     action: AuditAction.MEMORY_CORRECTED,
@@ -733,15 +826,17 @@ export async function mergeMemories(userId: string, targetId: string, intoId: st
   const target = await getMemory(userId, targetId);
   const into = await getMemory(userId, intoId);
   if (target.id === into.id) throw AppError.badRequest('merge_self', 'Cannot merge a memory into itself');
-  await pool.query(
-    `UPDATE memories SET superseded_by_id = $2, verification_state = 'REJECTED', updated_at = now() WHERE id = $1`,
-    [target.id, into.id],
-  );
-  await pool.query(
-    `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
-     VALUES ($1,$2,$3,'supersedes',1)`,
-    [newId(PREFIX.MEMORY), target.id, into.id],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE memories SET superseded_by_id = $2, verification_state = 'REJECTED', updated_at = now() WHERE id = $1`,
+      [target.id, into.id],
+    );
+    await q.query(
+      `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
+       VALUES ($1,$2,$3,'supersedes',1)`,
+      [newId(PREFIX.MEMORY), target.id, into.id],
+    );
+  });
   await recordMemoryCorrection({ memoryId: target.id, correctMemoryId: into.id, kind: 'MERGE', reason: note ?? null, actorUserId: userId });
   await recordAudit({
     action: AuditAction.MEMORY_MERGED,
@@ -758,10 +853,12 @@ export async function mergeMemories(userId: string, targetId: string, intoId: st
 /** Verification state change (VERIFIED / REJECTED). */
 export async function verifyMemory(userId: string, memoryId: string, state: 'VERIFIED' | 'REJECTED'): Promise<MemoryRow> {
   await getMemory(userId, memoryId);
-  await pool.query(
-    'UPDATE memories SET verification_state = $2, updated_at = now() WHERE id = $1',
-    [memoryId, state],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      'UPDATE memories SET verification_state = $2, updated_at = now() WHERE id = $1',
+      [memoryId, state],
+    );
+  });
   await recordAudit({
     action: state === 'VERIFIED' ? AuditAction.MEMORY_VERIFIED : AuditAction.MEMORY_REJECTED,
     actorUserId: userId,
@@ -782,11 +879,13 @@ export async function addMemoryRelationship(
 ): Promise<void> {
   await getMemory(userId, sourceMemoryId);
   await getMemory(userId, targetMemoryId);
-  await pool.query(
-    `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [newId(PREFIX.MEMORY), sourceMemoryId, targetMemoryId, relation, Math.max(0, Math.min(1, weight))],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO memory_relationships (id, source_memory_id, target_memory_id, relation, weight)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [newId(PREFIX.MEMORY), sourceMemoryId, targetMemoryId, relation, Math.max(0, Math.min(1, weight))],
+    );
+  });
   await recordAudit({
     action: AuditAction.MEMORY_RELATIONSHIP_ADDED,
     actorUserId: userId,
@@ -800,12 +899,14 @@ export async function addMemoryRelationship(
 
 export async function listMemoryRelationships(userId: string, memoryId: string): Promise<unknown[]> {
   await getMemory(userId, memoryId);
-  return queryMany(
-    `SELECT id, source_memory_id, target_memory_id, relation, weight, created_at
-     FROM memory_relationships WHERE source_memory_id = $1 OR target_memory_id = $1
-     ORDER BY created_at DESC`,
-    [memoryId],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query(
+      `SELECT id, source_memory_id, target_memory_id, relation, weight, created_at
+       FROM memory_relationships WHERE source_memory_id = $1 OR target_memory_id = $1
+       ORDER BY created_at DESC`,
+      [memoryId],
+    )
+  ).rows);
 }
 
 /** Episodic memory extraction after each chat exchange (background, honest). */
@@ -818,17 +919,20 @@ export async function extractEpisodicMemory(input: {
 }): Promise<void> {
   const userMemory = `${input.content}`.slice(0, 5000);
   const summary = `${input.response}`.slice(0, 3000);
-  await pool.query(
-    `INSERT INTO memories (id, project_id, owner_id, type, source, content, confidence, provenance, contradiction_state)
-     VALUES ($1,$2,$3,'EPISODIC','AI_INFERRED',$4,0.5,$5,'NONE')`,
-    [
-      newId(PREFIX.MEMORY),
-      input.projectId ?? null,
-      input.userId,
-      `Exchange in conversation ${input.conversationId}: "${userMemory}" → ${summary}`.slice(0, 19000),
-      `conversation://${input.conversationId}`,
-    ],
-  ).catch((err) => logger.warn('episodic memory extract failed', { error: (err as Error).message }));
+  const derived = `Exchange in conversation ${input.conversationId}: "${userMemory}" → ${summary}`.slice(0, 19000);
+  await withTenant(input.userId, async (q) => {
+    await q.query(
+      `INSERT INTO memories (id, project_id, owner_id, type, source, content, confidence, provenance, contradiction_state)
+       VALUES ($1,$2,$3,'EPISODIC','AI_INFERRED',$4,0.5,$5,'NONE')`,
+      [
+        newId(PREFIX.MEMORY),
+        input.projectId ?? null,
+        input.userId,
+        redactSecrets(derived),
+        `conversation://${input.conversationId}`,
+      ],
+    );
+  }).catch((err) => logger.warn('episodic memory extract failed', { error: (err as Error).message }));
 }
 
 function toConfidence(value: number): Memory['confidence'] {

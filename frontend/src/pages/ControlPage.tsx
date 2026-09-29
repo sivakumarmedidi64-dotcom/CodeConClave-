@@ -12,12 +12,27 @@ import { useToast } from '../components/Toast';
 import type {
   ControlPolicyRow,
   KillSwitchRow,
+  RoiEstimate,
+  SecretGuardFinding,
   SecretGuardScanRow,
   TransparencyCall,
   UndoLogRow,
   UsageFeatureCost,
   UsageRollupRow,
 } from '../lib/types';
+
+function scanFindings(s: SecretGuardScanRow): SecretGuardFinding[] {
+  if (Array.isArray(s.findings)) return s.findings;
+  if (typeof s.findings === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(s.findings);
+      return Array.isArray(parsed) ? (parsed as SecretGuardFinding[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 const KILL_SWITCH_SCOPES = ['GLOBAL', 'AGENTS', 'TASKS', 'SCHEDULES', 'AUTONOMY'] as const;
 
@@ -38,7 +53,7 @@ export function ControlPage() {
   const [undo, setUndo] = useState<UndoLogRow[]>([]);
   const [scans, setScans] = useState<SecretGuardScanRow[]>([]);
   const [featureCosts, setFeatureCosts] = useState<UsageFeatureCost[]>([]);
-  const [roi, setRoi] = useState<{ estimateUsd: number; tasks: number; aiCostUsd: number; days: number; labelled: boolean } | null>(null);
+  const [roi, setRoi] = useState<RoiEstimate | null>(null);
   const [transparency, setTransparency] = useState<TransparencyCall[]>([]);
   const [rollups, setRollups] = useState<UsageRollupRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -55,8 +70,8 @@ export function ControlPage() {
   const [scanRef, setScanRef] = useState('');
   const [scanContent, setScanContent] = useState('');
 
-  const [taskCostId, setTaskCostId] = useState('');
-  const [taskCost, setTaskCost] = useState<{ costUsd: number; aiUsd: number; calls: number } | null>(null);
+const [taskCostId, setTaskCostId] = useState('');
+const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
   const [days, setDays] = useState(30);
 
   const load = useCallback(async () => {
@@ -66,7 +81,7 @@ export function ControlPage() {
       api<{ entries: UndoLogRow[] }>('/api/v1/control/undo'),
       api<{ scans: SecretGuardScanRow[] }>('/api/v1/control/secret-guard/scans'),
       api<{ features: UsageFeatureCost[] }>(`/api/v1/control/usage/cost-per-feature?days=${days}`),
-      api<{ estimateUsd: number; tasks: number; aiCostUsd: number; days: number; labelled: boolean }>(`/api/v1/control/usage/roi?days=${days}`),
+      api<RoiEstimate>(`/api/v1/control/usage/roi?days=${days}`),
       api<{ calls: TransparencyCall[] }>(`/api/v1/control/usage/transparency?days=7`),
       api<{ rollups: UsageRollupRow[] }>(`/api/v1/control/usage/rollups?days=${days}`),
     ]);
@@ -129,7 +144,7 @@ export function ControlPage() {
         body: { targetType: scanTarget, targetRef: scanRef.trim() || undefined, content: scanContent },
       });
       await load();
-      toast(res.scan.matched ? `${res.scan.findings.length} secret(s) detected` : 'No secrets detected');
+      toast(res.scan.result === 'FINDINGS' ? `${res.scan.findings.length} secret(s) detected` : 'No secrets detected');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'scan failed', 'error');
     } finally {
@@ -150,7 +165,7 @@ export function ControlPage() {
   const lookupTaskCost = async () => {
     if (!taskCostId.trim()) return;
     try {
-      const res = await api<{ cost: { costUsd: number; aiUsd: number; calls: number } }>(
+      const res = await api<{ cost: UsageFeatureCost }>(
         `/api/v1/control/usage/cost-per-task/${encodeURIComponent(taskCostId.trim())}`,
       );
       setTaskCost(res.cost);
@@ -310,12 +325,12 @@ export function ControlPage() {
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
             {scans.slice(0, 10).map((s) => (
               <li key={s.id} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <span className="cc-pill" style={{ fontSize: 10, background: s.matched ? '#dc2626' : '#334155', color: '#fff' }}>
-                  {s.matched ? `${s.findings.length} finding(s)` : 'clean'}
+                <span className="cc-pill" style={{ fontSize: 10, background: s.result === 'FINDINGS' ? '#dc2626' : '#334155', color: '#fff' }}>
+                  {s.result === 'FINDINGS' ? `${scanFindings(s).length} finding(s)` : 'clean'}
                 </span>
                 <span>{s.target_type}{s.target_ref ? ` · ${s.target_ref}` : ''}</span>
-                <span className="cc-hint">{new Date(s.created_at).toLocaleString()}</span>
-                {s.findings.map((f, i) => (
+                <span className="cc-hint">{new Date(s.scanned_at).toLocaleString()}</span>
+                {scanFindings(s).map((f, i) => (
                   <span key={i} className="cc-hint">[{f.kind} @ {f.location} · {(f.confidence * 100).toFixed(0)}%]</span>
                 ))}
               </li>
@@ -347,7 +362,8 @@ export function ControlPage() {
               <li key={f.feature} className="cc-mono" style={{ fontSize: 12, display: 'flex', gap: 8 }}>
                 <span style={{ width: 120 }}>{f.feature}</span>
                 <span>{f.calls} call(s)</span>
-                <span>${f.cost_usd.toFixed(4)}</span>
+                <span>{f.inputTokens}+{f.outputTokens} tok</span>
+                <span>${f.costUsd.toFixed(4)}</span>
               </li>
             ))}
           </ul>
@@ -366,17 +382,27 @@ export function ControlPage() {
         </div>
         {taskCost && (
           <p className="cc-mono" style={{ margin: 0, fontSize: 12 }}>
-            ${taskCost.costUsd.toFixed(4)} total (${taskCost.aiUsd.toFixed(4)} AI) · {taskCost.calls} call(s)
+            ${taskCost.costUsd.toFixed(4)} total · {taskCost.calls} call(s) · {taskCost.inputTokens}+{taskCost.outputTokens} tok
           </p>
         )}
         <h4 style={{ margin: '10px 0 6px' }}>ROI estimate</h4>
-        {roi && (
-          <p className="cc-hint" style={{ margin: 0 }}>
-            <span className="cc-mono" style={{ fontSize: 12 }}>
-              ${roi.estimateUsd.toFixed(2)} estimated value over {roi.days} day(s) from {roi.tasks} task(s) vs ${roi.aiCostUsd.toFixed(2)} AI cost.
-            </span>{' '}
-            — estimate only, using a fixed $5/task value model; not a claim of realised returns.
-          </p>
+        {roi && roi.rows.length > 0 ? (
+          <>
+            <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {roi.rows.slice(0, 10).map((r) => (
+                <li key={`${r.feature}-${r.tasksCompleted}-${r.valueUsd}`} className="cc-mono" style={{ fontSize: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ width: 120 }}>{r.feature}</span>
+                  <span>${r.valueUsd.toFixed(2)} value</span>
+                  <span>{r.tasksCompleted} task(s)</span>
+                  <span>{r.calls} call(s) · ${r.costUsd.toFixed(4)} AI</span>
+                  <span>ROI {r.roi}×</span>
+                </li>
+              ))}
+            </ul>
+            <p className="cc-hint" style={{ margin: 0 }}>{roi.label}</p>
+          </>
+        ) : (
+          <p className="cc-hint" style={{ margin: 0 }}>No billed usage in this window.</p>
         )}
         <h4 style={{ margin: '10px 0 6px' }}>Transparency log (last 7 days)</h4>
         {transparency.length === 0 ? (
@@ -384,10 +410,11 @@ export function ControlPage() {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
             {transparency.map((c) => (
-              <li key={c.id} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <span>{new Date(c.called_at).toLocaleString()}</span>
-                <span>{c.feature}</span>
-                <span className="cc-hint">{c.model_id ?? '—'} · {c.input_tokens}+{c.output_tokens} tok · ${c.cost_usd.toFixed(4)}</span>
+              <li key={`${c.createdAt}-${c.providerId}-${c.modelId ?? 'anon'}-${c.inputTokens}`} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span>{new Date(c.createdAt).toLocaleString()}</span>
+                <span>{c.agent ?? 'ai'}</span>
+                <span>{c.providerId}/{c.modelId}</span>
+                <span className="cc-hint">{c.inputTokens}+{c.outputTokens} tok · ${c.costUsd.toFixed(4)}{c.usedFallback ? ` · fallback${c.fallbackReason ? `: ${c.fallbackReason}` : ''}` : ''}{c.outcome !== 'ok' ? ` · ${c.outcome}` : ''}</span>
               </li>
             ))}
           </ul>
@@ -398,7 +425,7 @@ export function ControlPage() {
         ) : (
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflowY: 'auto' }}>
             {rollups.slice(0, 25).map((r) => (
-              <li key={r.id} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <li key={`${r.bucket}-${r.feature}-${r.task_id ?? ''}-${r.calls}`} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <span className="cc-pill" style={{ fontSize: 10 }}>{r.bucket}</span>
                 <span>{r.feature}{r.task_id ? ` · ${r.task_id}` : ''}</span>
                 <span>{r.calls} call(s) · {r.input_tokens}+{r.output_tokens} tok · ${r.cost_usd.toFixed(4)}</span>

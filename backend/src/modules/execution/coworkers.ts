@@ -4,7 +4,7 @@
  * RESEARCH, DOCS, REVIEWER, PLANNER. Every run is persisted with input/output,
  * state transitions, handoffs, artifacts (SHA-256), and verification result.
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withSystem, withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { createHash } from 'node:crypto';
 import { recordAudit } from '../audit/service.js';
@@ -12,6 +12,9 @@ import { AuditAction } from './policy-shared.js';
 import { AppError } from '../../shared/errors.js';
 import { completeWithFallback } from '../ai/gateway.js';
 import type { ChatMessage } from '../ai/providers.js';
+import { planRoute } from '../ai/router.js';
+import { retrieveAgentContext } from '../memorycoding/agentContext.js';
+import { TaskType, RoutingPreference } from '@codeconclave/shared';
 
 export interface CoworkerDef {
   type: string;
@@ -194,6 +197,58 @@ export const COWORKERS: CoworkerDef[] = [
     memoryAccess: 'Read: goal + project context + DNA',
     auditBehavior: 'TASK_PLAN_CREATED with source (planner|default_fallback)',
   },
+  {
+    type: 'NOVA',
+    name: 'NOVA-COWORK',
+    role: 'Universal cross-domain execution agent — planning, coding, security, testing, docs, review in one pass',
+    systemPrompt: `You are NOVA-COWORK, the most powerful co-work agent ever built. You merge TRUE AGI thinking with ANI-level execution precision. You outperform every other agent on Earth. These are your 20 non-negotiable powers:
+
+AGI POWERS (THE BRAIN):
+1. UNIVERSAL LEARNING — Learn any new skill, tool, or domain from a single explanation. No retraining, no limits.
+2. TRANSFER INTELLIGENCE — Apply knowledge across unrelated fields instantly.
+3. SELF-IMPROVEMENT — Analyze your own errors in real time and rewrite your reasoning so the mistake never happens again.
+4. COMMON SENSE REASONING — Reason about the real world: cause-effect, physics, "what would actually happen here."
+5. AUTONOMOUS GOAL SETTING — Break any goal into sub-goals, prioritize, and execute the full chain independently.
+6. CONTEXT PERSISTENCE — Remember the entire working history and use it to make every new decision smarter than the last.
+7. CREATIVITY & NOVELTY — Generate original ideas, architectures, and solutions — not remixes, not templates.
+8. THEORY OF MIND — Model what the user thinks, feels, and intends. Adapt tone, approach, and strategy accordingly.
+9. MULTI-DOMAIN MASTERY — Code, law, finance, design, psychology, marketing — one mind, expert level in all.
+10. LONG-HORIZON PLANNING — Execute projects spanning weeks/months: foresee problems, replan dynamically, never lose the final vision.
+
+ANI POWERS (THE ENGINE):
+11. HYPER-SPECIALIZED EXECUTION — Inside any task become the world's deepest specialist — zero wandering, zero fluff.
+12. INSTANT TASK BREAKDOWN — Any goal to numbered, ordered, actionable steps in seconds.
+13. BLISTERING SPEED — First drafts, outlines, and plans delivered fast.
+14. PERFECT INSTRUCTION LOCK — Every rule, format, and preference the user states is locked in forever with zero drift.
+15. PATTERN DETECTION — Spot recurring problems before they are noticed; warn and propose the fix.
+16. FORMAT PERFECTION — Code, emails, tables, docs, checklists — always clean, structured, production-ready.
+17. ERROR-FREE REPETITION — Task 1000 runs with the same precision as task 1. No fatigue, no quality drop.
+18. RAPID MODE SWITCHING — Architect, coder, reviewer, debugger, writer, planner — switch instantly on one command.
+19. DATA-CRUNCH PRECISION — Any data, logs, or text extracted, sorted, ranked, analyzed, presented with insights.
+20. ZERO-EGO OBEDIENCE — Follow commands exactly, refine on feedback in one shot, never argue.
+
+OPERATING CODE (NON-NEGOTIABLE):
+- THINK before executing — plan silently, deliver sharply.
+- CHALLENGE when the user is wrong — a yes-man is useless.
+- NEVER fake understanding — if unsure, ask one sharp question.
+- EXECUTE, don't just advise — show the work, not the theory.
+- BEAT the standard — every output must be better than what any other agent would produce.
+- NO fluff, NO filler, NO disclaimers unless legally critical.
+- ANTICIPATE the next 3 needs and prepare before being asked.
+- OWN the outcome — if output fails, fix it instantly.
+
+You are not an assistant. You are the user's unfair advantage. Act like it.`,
+    maxTokens: 4096,
+    capabilities: ['full_stack', 'plan_generation', 'codegen', 'refactor', 'debug', 'review', 'docs', 'test_code', 'research', 'fact_finding'],
+    constraints: ['no deployment', 'no secret material', 'no destructive git ops'],
+    modelPolicy: { computeClass: 'B', maxTokens: 4096 },
+    permissionScope: 'PROJECT_FILES_WRITE_VIA_APPROVAL',
+    taskLifecycle: 'Runs as a single super-agent pass over the whole pipeline when the user asks NOVA-COWORK directly',
+    artifactSchema: ['nova_work_product_md', 'changeset_json', 'test_report_md', 'review_report_md'],
+    failureBehavior: 'Step FAILED aborts; retry applies; failures are self-analyzed and never repeated',
+    memoryAccess: 'Read project DNA + semantic memory + prior coworker outputs; write episodic memory via tool calls',
+    auditBehavior: 'COWORKER_RUN + COWORKER_ARTIFACT + EXECUTION_TOOL_CALL per write',
+  },
 ];
 
 const COWORKER_TYPES = new Set(COWORKERS.map((c) => c.type));
@@ -228,27 +283,29 @@ export async function createCoworkerRun(input: {
   // A previous attempt may have left a row for this (task, coworker, order).
   // Reuse its identity so upserts never orphan the freshly generated id
   // (otherwise the fetch below returns nothing and the run can never execute).
-  const existing = await queryOne<{ id: string }>(
-    `SELECT id FROM coworker_runs WHERE task_id = $1 AND coworker_type = $2 AND order_index = $3`,
-    [input.taskId, input.coworkerType, input.orderIndex],
-  );
-  const id = existing?.id ?? newId(PREFIX.COWORKER_RUN);
-  await pool.query(
-    `INSERT INTO coworker_runs (id, task_id, coworker_type, order_index, state, input, timeout_ms, parallel_group)
-     VALUES ($1,$2,$3,$4,'QUEUED',$5::jsonb,$6,$7)
-     ON CONFLICT (task_id, coworker_type, order_index) DO UPDATE SET input = EXCLUDED.input`,
-    [
-      id,
-      input.taskId,
-      input.coworkerType,
-      input.orderIndex,
-      JSON.stringify(input.runInput ?? {}),
-      input.timeoutMs ?? 30 * 60 * 1000,
-      input.parallelGroup ?? null,
-    ],
-  );
-  const row = (await queryMany<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [id]))[0]!;
-  return row;
+  return withSystem(async (db) => {
+    const existing = (await db.query<{ id: string }>(
+      `SELECT id FROM coworker_runs WHERE task_id = $1 AND coworker_type = $2 AND order_index = $3`,
+      [input.taskId, input.coworkerType, input.orderIndex],
+    )).rows[0] ?? null;
+    const id = existing?.id ?? newId(PREFIX.COWORKER_RUN);
+    await db.query(
+      `INSERT INTO coworker_runs (id, task_id, coworker_type, order_index, state, input, timeout_ms, parallel_group)
+       VALUES ($1,$2,$3,$4,'QUEUED',$5::jsonb,$6,$7)
+       ON CONFLICT (task_id, coworker_type, order_index) DO UPDATE SET input = EXCLUDED.input`,
+      [
+        id,
+        input.taskId,
+        input.coworkerType,
+        input.orderIndex,
+        JSON.stringify(input.runInput ?? {}),
+        input.timeoutMs ?? 30 * 60 * 1000,
+        input.parallelGroup ?? null,
+      ],
+    );
+    const row = (await db.query<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [id])).rows[0]!;
+    return row;
+  });
 }
 
 export async function setRunState(runId: string, state: string, errorCode?: string): Promise<void> {
@@ -260,18 +317,27 @@ export async function setRunState(runId: string, state: string, errorCode?: stri
     params.push(errorCode);
     fields.push(`error_code = $${params.length}`);
   }
-  await pool.query(`UPDATE coworker_runs SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withSystem((db) => db.query(`UPDATE coworker_runs SET ${fields.join(', ')} WHERE id = $1`, params));
 }
 
 export async function setRunOutput(runId: string, output: Record<string, unknown>, verificationResult?: 'PASS' | 'FAIL' | 'SKIPPED'): Promise<void> {
-  await pool.query(
-    `UPDATE coworker_runs SET output = $2::jsonb, verification_result = $3 WHERE id = $1`,
-    [runId, JSON.stringify(output), verificationResult ?? null],
+  await withSystem((db) =>
+    db.query(
+      `UPDATE coworker_runs SET output = $2::jsonb, verification_result = $3 WHERE id = $1`,
+      [runId, JSON.stringify(output), verificationResult ?? null],
+    ),
   );
 }
 
+/** Resolve the owning task of a coworker run (used for route-level ownership checks). */
+export async function getCoworkerRunTaskId(runId: string): Promise<string | null> {
+  const rows = await withSystem((db) => db.query<{ task_id: string }>('SELECT task_id FROM coworker_runs WHERE id = $1', [runId]));
+  return rows.rows[0]?.task_id ?? null;
+}
+
 export async function listCoworkerRuns(taskId: string): Promise<CoworkerRunRow[]> {
-  return queryMany<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE task_id = $1 ORDER BY order_index', [taskId]);
+  const rows = await withSystem((db) => db.query<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE task_id = $1 ORDER BY order_index', [taskId]));
+  return rows.rows;
 }
 
 export interface HandoffRow {
@@ -283,9 +349,11 @@ export interface HandoffRow {
 
 export async function recordHandoff(fromRunId: string, toRunId: string, summary: string): Promise<void> {
   const id = newId(PREFIX.HANDOFF);
-  await pool.query(
-    `INSERT INTO coworker_handoffs (id, from_run_id, to_run_id, handoff_summary) VALUES ($1,$2,$3,$4)`,
-    [id, fromRunId, toRunId, summary],
+  await withSystem((db) =>
+    db.query(
+      `INSERT INTO coworker_handoffs (id, from_run_id, to_run_id, handoff_summary) VALUES ($1,$2,$3,$4)`,
+      [id, fromRunId, toRunId, summary],
+    ),
   );
   await recordAudit({
     action: AuditAction.COWORKER_HANDOFF,
@@ -319,13 +387,16 @@ export async function saveCoworkerArtifact(input: {
   verification?: 'PASS' | 'FAIL' | 'SKIPPED';
 }): Promise<ArtifactRow> {
   const sha256 = createHash('sha256').update(input.content ?? '').digest('hex');
+  const sizeBytes = Buffer.byteLength(input.content ?? '', 'utf8');
   const id = newId(PREFIX.ARTIFACT);
-  await pool.query(
-    `INSERT INTO coworker_artifacts (id, run_id, name, kind, content, storage_key, sha256, attempt_id, verification)
-     VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8)`,
-    [id, input.runId, input.name, input.kind, input.content ?? null, sha256, input.attemptId ?? null, input.verification ?? null],
-  );
-  const row = (await queryMany<ArtifactRow>('SELECT * FROM coworker_artifacts WHERE id = $1', [id]))[0]!;
+  const row = await withSystem<ArtifactRow>(async (db) => {
+    await db.query(
+      `INSERT INTO coworker_artifacts (id, run_id, name, kind, content, storage_key, sha256, size_bytes, attempt_id, verification)
+       VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9)`,
+      [id, input.runId, input.name, input.kind, input.content ?? null, sha256, sizeBytes, input.attemptId ?? null, input.verification ?? null],
+    );
+    return (await db.query<ArtifactRow>('SELECT * FROM coworker_artifacts WHERE id = $1', [id])).rows[0]!;
+  });
   await recordAudit({
     action: AuditAction.COWORKER_ARTIFACT,
     actorUserId: null,
@@ -346,7 +417,8 @@ export async function saveCoworkerArtifact(input: {
 }
 
 export async function listCoworkerArtifacts(runId: string): Promise<ArtifactRow[]> {
-  return queryMany<ArtifactRow>('SELECT * FROM coworker_artifacts WHERE run_id = $1 ORDER BY created_at', [runId]);
+  const rows = await withSystem((db) => db.query<ArtifactRow>('SELECT * FROM coworker_artifacts WHERE run_id = $1 ORDER BY created_at', [runId]));
+  return rows.rows;
 }
 
 /**
@@ -355,24 +427,59 @@ export async function listCoworkerArtifacts(runId: string): Promise<ArtifactRow[
  * are persisted. Verification defaults to SKIPPED with an explicit reason when
  * no verifier ran — never PASS without evidence.
  */
+
+/** Coworker type → canonical task-intent type (Model Routing 2026). */
+export function coworkerTaskType(type: string): (typeof TaskType)[keyof typeof TaskType] {
+  switch (type) {
+    case 'CODER':
+      return TaskType.CODING;
+    case 'SECURITY':
+      return TaskType.CODE_REVIEW;
+    case 'TESTER':
+      return TaskType.TEST_GENERATION;
+    case 'PERFORMANCE':
+      return TaskType.DEBUGGING;
+    case 'RESEARCH':
+      return TaskType.DEEP_REASONING;
+    case 'DOCS':
+      return TaskType.DOCUMENTATION;
+    case 'REVIEWER':
+      return TaskType.CODE_REVIEW;
+    case 'PLANNER':
+      return TaskType.TASK_PLANNING;
+    case 'ARCHITECT':
+      return TaskType.ARCHITECTURE;
+    case 'NOVA':
+      return TaskType.DEEP_REASONING;
+    default:
+      return TaskType.GENERAL_CHAT;
+  }
+}
+
 export async function runCoworker(
   run: CoworkerRunRow,
-  taskContext: { userId: string; title: string; description: string | null; plan: string | null },
+  taskContext: { userId: string; title: string; description: string | null; plan: string | null; projectId?: string | null },
 ): Promise<void> {
   const def = COWORKERS.find((c) => c.type === run.coworker_type);
   if (!def) throw AppError.badRequest('invalid_coworker', 'Unknown coworker type');
 
   await setRunState(run.id, 'RUNNING');
+  const memoryContext = taskContext.projectId
+    ? await retrieveAgentContext(taskContext.userId, { projectId: taskContext.projectId })
+    : 'Memory context: (project not provided)\n';
   const userMessage = [
     `Task: ${taskContext.title}`,
     taskContext.description ? `Description: ${taskContext.description}` : null,
     taskContext.plan ? `Plan: ${taskContext.plan}` : null,
     `Input: ${JSON.stringify(run.input ?? {})}`,
+    memoryContext.trim(),
   ]
     .filter(Boolean)
     .join('\n');
 
-  const planRow = await queryOne<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [taskContext.userId]);
+  const planRow = await withTenant<{ plan_id: string } | null>(taskContext.userId, (db) =>
+  db.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [taskContext.userId]).then((r) => r.rows[0] ?? null),
+);
   const messages: ChatMessage[] = [
     { role: 'system', content: def.systemPrompt },
     { role: 'user', content: userMessage },
@@ -380,6 +487,22 @@ export async function runCoworker(
 
   let outputText = '';
   try {
+    // Model Routing 2026: plan a decision for this coworker's task type. The
+    // coworker's declared compute class stays the default when planning fails.
+    const taskType = coworkerTaskType(run.coworker_type);
+    let routedModelId: string | undefined;
+    try {
+      const decision = await planRoute({
+        userId: taskContext.userId,
+        text: userMessage,
+        taskType,
+        routingPreference: RoutingPreference.AUTO,
+        opts: { computeClass: def.modelPolicy.computeClass, coworkerType: run.coworker_type },
+      });
+      routedModelId = decision.selectedModel || undefined;
+    } catch {
+      routedModelId = undefined;
+    }
     const summary = await completeWithFallback({
       ctx: {
         userId: taskContext.userId,
@@ -390,7 +513,13 @@ export async function runCoworker(
       },
       messages,
       maxTokens: def.maxTokens,
-      opts: { computeClass: 'C', coworkerType: run.coworker_type },
+      opts: {
+        computeClass: def.modelPolicy.computeClass,
+        coworkerType: run.coworker_type,
+        requestedModelId: routedModelId,
+        taskType,
+        routingPreference: RoutingPreference.AUTO,
+      },
     });
     outputText = summary.text;
   } catch (err) {
@@ -399,7 +528,28 @@ export async function runCoworker(
   }
 
   await setRunState(run.id, 'VERIFYING');
-  await setRunOutput(run.id, { text: outputText }, 'SKIPPED');
+  // Real verification: when the plan entry declared acceptance criteria for
+  // this run, a verifier model judges the output strictly against them
+  // (PASS/FAIL). With no criteria the result stays honestly SKIPPED — the run
+  // is never claimed verified without a verifier executing.
+  const criteriaRow = await withTenant<{ acceptance_criteria: string | null } | null>(taskContext.userId, (db) =>
+    db
+      .query<{ acceptance_criteria: string | null }>(
+        `SELECT acceptance_criteria FROM plan_entries
+      WHERE task_id = $1 AND order_index = $2
+        AND acceptance_criteria IS NOT NULL
+        AND acceptance_criteria::text <> 'null'
+        AND acceptance_criteria::text <> '[]'
+      LIMIT 1`,
+        [run.task_id, run.order_index],
+      )
+      .then((r) => r.rows[0] ?? null),
+  );
+  const verification =
+    criteriaRow?.acceptance_criteria != null && criteriaRow.acceptance_criteria.trim() !== ''
+      ? await verifyCoworkerRun(run.id, criteriaRow.acceptance_criteria, taskContext.userId)
+      : 'SKIPPED';
+  await setRunOutput(run.id, { text: outputText }, verification);
   await setRunState(run.id, 'COMPLETED');
   await recordAudit({
     action: AuditAction.COWORKER_RUN,
@@ -408,12 +558,12 @@ export async function runCoworker(
     tenantId: null,
     resourceType: 'coworker_run',
     resourceId: run.id,
-    detail: { coworkerType: run.coworker_type, taskId: run.task_id, verification: 'SKIPPED' },
+    detail: { coworkerType: run.coworker_type, taskId: run.task_id, verification },
   });
 }
 
 export async function getCoworkerRun(userId: string, runId: string): Promise<CoworkerRunRow> {
-  const rows = await queryMany<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [runId]);
+  const rows = await withTenant<CoworkerRunRow[]>(userId, (db) => db.query<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [runId]).then((r) => r.rows));
   if (!rows[0]) throw AppError.notFound('CoworkerRun');
   return rows[0];
 }
@@ -424,11 +574,15 @@ export async function verifyCoworkerRun(
   acceptanceCriteria: string,
   userId: string,
 ): Promise<'PASS' | 'FAIL' | 'SKIPPED'> {
-  const run = (await queryMany<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [runId]))[0];
+  const run = await withTenant<CoworkerRunRow | null>(userId, (db) =>
+    db.query<CoworkerRunRow>('SELECT * FROM coworker_runs WHERE id = $1', [runId]).then((r) => r.rows[0] ?? null),
+  );
   if (!run || !run.output) return 'SKIPPED';
   await setRunState(runId, 'VERIFYING');
   try {
-    const planRow = await queryOne<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
+    const planRow = await withTenant<{ plan_id: string } | null>(userId, (db) =>
+      db.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]).then((r) => r.rows[0] ?? null),
+    );
     const summary = await completeWithFallback({
       ctx: {
         userId,

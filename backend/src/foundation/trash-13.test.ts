@@ -85,7 +85,7 @@ afterEach(() => {
 describe('listTrash — unified aggregation', () => {
   it('collects trashed items from all six systems within the 30-day window', async () => {
     db.state.resolve = (text) => {
-      if (text.includes('FROM files f\n     JOIN projects p')) {
+      if (text.includes('JOIN projects p ON p.id = f.project_id')) {
         return [{ id: 'fil_1', path: '/a.txt', size_bytes: 100, deleted_at: deletedAt, project_id: 'prj_1', project_name: 'App', team_id: null, team_name: null }];
       }
       if (text.includes('SELECT p.id, p.name, p.deleted_at')) {
@@ -122,7 +122,7 @@ describe('listTrash — unified aggregation', () => {
   it('enforces tenant scope in the file/idea queries', async () => {
     db.state.resolve = () => [];
     await listTrash('u1');
-    const files = db.state.calls.find((c) => c.text.includes('FROM files f\n     JOIN projects p'));
+    const files = db.state.calls.find((c) => c.text.includes('JOIN projects p ON p.id = f.project_id'));
     expect(files!.text).toContain('project_members');
     const ideas = db.state.calls.find((c) => c.text.includes('FROM ideas i'));
     expect(ideas!.text).toContain('team_members');

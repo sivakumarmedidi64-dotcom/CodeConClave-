@@ -209,7 +209,14 @@ describe('STAGE 23 — PostgreSQL unavailable during worker operations', () => {
     db.state.fail = /./;
     const out = await sweepOnce();
     expect(typeof out).toBe('object');
-    expect(Object.keys(out).length).toBe(0);
+    // Every DB-bound sweep failed closed: no count keys, no crash. A
+    // zero-count short-circuit sweep (reconcilePaymentSweep returns
+    // { scanned: 0, actionable: 0 } without touching the DB when the Razorpay
+    // API is not configured) is legitimate and may appear as zero-value keys.
+    for (const value of Object.values(out)) expect(value).toBe(0);
+    expect('recovered' in out).toBe(false);
+    expect('timedOut' in out).toBe(false);
+    expect('outbox' in out).toBe(false);
   });
 
   it('recovery after DB returns: stale RUNNING tasks bounce to CREATED without consuming retry budget', async () => {

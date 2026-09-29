@@ -34,19 +34,21 @@ export function UsageCard() {
 
   const o = overview!;
   const storageMb = (o.measured.storageBytes / (1024 * 1024)).toFixed(1);
-  const reset = o.resetDate ? new Date(o.resetDate).toLocaleDateString() : '—';
+  const reset = o.rolling.resetsAt
+    ? new Date(o.rolling.resetsAt).toLocaleString()
+    : 'after first use (rolling)';
 
   return (
     <div>
       <p className="cc-hint">
-        Plan <strong>{o.plan.toUpperCase()}</strong> · resets {reset}
+        Plan <strong>{o.plan.toUpperCase()}</strong> · free window resets {reset}
       </p>
       <table className="cc-table">
         <tbody>
           <tr>
-            <td>Messages today</td>
+            <td>Messages this window</td>
             <td>
-              {o.measured.messagesToday.toLocaleString()} / {o.limits.dailyMessages}
+              {o.rolling.used.toLocaleString()} / {o.rolling.limit.toLocaleString()} used · {o.rolling.remaining.toLocaleString()} left
             </td>
           </tr>
           <tr>

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { ApiError } from '../lib/api';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function MfaPage() {
   const { verifyMfa } = useAuth();
@@ -39,7 +40,7 @@ export function MfaPage() {
     <div className="cc-auth">
       <div className="cc-auth__card">
         <div className="cc-auth__brand">
-          <span className="cc-logo">C</span> CodeConClave
+          <BrandLogo variant="lockup" height={44} />
         </div>
         <h2>Two-factor verification</h2>
         {state.email && <p className="cc-hint">{state.email}</p>}

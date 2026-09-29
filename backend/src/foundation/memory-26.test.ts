@@ -24,6 +24,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_u: string, fn: (q: { query: typeof query }) => Promise<unknown> | unknown) => fn?.({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown> | unknown) => fn?.({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);

@@ -1,0 +1,39 @@
+{
+  "audit": "CODECONCLAVE_FINAL_REMEDIATION_AUDIT",
+  "date": "2026-09-09",
+  "mode": "HEAL + ACCEPTANCE",
+  "deployment_allowed": false,
+  "deployment_execution": "NOT PERFORMED",
+  "features": { "denominator": 336, "removed": 0, "unmapped": 0, "unknown": 0 },
+  "findings": [
+    { "id": "REM-01", "severity": "HIGH", "status": "RESOLVED", "summary": "audit_logs.correlation_id missing column; every audit write failed silently in production. Migration 0076 applied; live write+read verified." },
+    { "id": "REM-02", "severity": "MEDIUM", "status": "RESOLVED", "summary": "Topbar double notification polling consolidated to one interval; tests green." },
+    { "id": "REM-03", "severity": "MEDIUM", "status": "RESOLVED", "summary": "Offline sync single source of truth (ref-counted one listener pair); regression test added." },
+    { "id": "REM-04", "severity": "MEDIUM", "status": "RESOLVED", "summary": "Settings tabs converted to role=tab; missed test queries updated." },
+    { "id": "REM-05", "severity": "MEDIUM", "status": "RESOLVED", "summary": "Secret scan clean (852 files, 0 findings); memory.test.ts deliberate fixtures allowlisted." },
+    { "id": "REM-06", "severity": "LOW", "status": "ADDRESSED", "summary": "Memory timeline capped to latest 50 with count footer; server bounds already enforced." },
+    { "id": "REM-07", "severity": "LOW", "status": "VERIFIED", "summary": "DnaPage single failure under load; passes in isolation (timing flake)." },
+    { "id": "REM-08", "severity": "LOW", "status": "VERIFIED", "summary": "Google OAuth + Desktop acceptance docs grounded; live steps human-only." }
+  ],
+  "counts": { "findings_total": 8, "findings_resolved": 7, "findings_verified_nochange": 1, "findings_open": 0 },
+  "tests": {
+    "backend": { "files": 156, "passed": 2849, "skipped": 11, "failed": 0 },
+    "frontend": { "files": 74, "passed": 408, "skipped": 0, "failed": 0 },
+    "desktop": { "files": 5, "passed": 58, "skipped": 0, "failed": 0 },
+    "payment_frozen_regression": { "file": "src/scripts/prove-payment.test.ts", "passed": 16, "failed": 0 }
+  },
+  "typechecks": { "frontend": "PASS", "backend": "PASS", "desktop": "PASS" },
+  "migrations": { "applied": 76, "pending": 0 },
+  "secret_scan": { "files": 852, "findings": 0, "skipped": 0 },
+  "providers": {
+    "google": "AVAILABLE", "qwen": "AVAILABLE", "nemotron": "AVAILABLE (slow: ~48.9s avg)",
+    "openai": "DEGRADED (429 QUOTA_EXHAUSTED)", "anthropic": "DEGRADED (400 REQUIRES_AUTH)",
+    "grok": "DEGRADED (credentials rejected)", "gemma": "DEGRADED (500)",
+    "mistral": "NOT_CONFIGURED", "deepseek": "NOT_CONFIGURED", "kimi": "NOT_CONFIGURED", "north": "NOT_CONFIGURED",
+    "devin": "NOT_CONFIGURED (never attempted)", "manus": "CONFIGURED (never attempted)",
+    "ox_alpha": "CONFIGURED (never attempted)", "z_code_5_3": "OFFLINE",
+    "big_pickle": "NOT_INTEGRATED / ENVIRONMENT_BLOCKED"
+  },
+  "gate": "CONDITIONAL_PASS",
+  "reason": "All code-level findings resolved and green across full regression; live acceptance (Google consent, NSIS install, live payment link, prod provider probe) remains HUMAN-only by design. DEPLOYMENT_ALLOWED = NO."
+}

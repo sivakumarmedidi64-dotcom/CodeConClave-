@@ -72,7 +72,7 @@ describe('SettingsPage — notification preferences', () => {
   it('loads server notification preferences and toggles them', async () => {
     stubFetch(settingsHandler());
     renderSettings();
-    await userEvent.click(screen.getByRole('button', { name: 'notifications' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'notifications' }));
     const inApp = await screen.findByLabelText('In-app notifications');
     expect(inApp).toBeChecked();
     expect(screen.getByLabelText('Push notifications')).not.toBeChecked();
@@ -83,7 +83,7 @@ describe('SettingsPage — notification preferences', () => {
   it('saves notification preferences with PUT', async () => {
     const fetchFn = stubFetch(settingsHandler());
     renderSettings();
-    await userEvent.click(screen.getByRole('button', { name: 'notifications' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'notifications' }));
     await screen.findByLabelText('In-app notifications');
     await userEvent.click(screen.getByLabelText('Push notifications'));
     await userEvent.click(screen.getByText('Save notification preferences'));
@@ -97,7 +97,7 @@ describe('SettingsPage — notification preferences', () => {
   it('shows quiet hours inputs when DND is enabled', async () => {
     stubFetch(settingsHandler());
     renderSettings();
-    await userEvent.click(screen.getByRole('button', { name: 'notifications' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'notifications' }));
     await userEvent.click(await screen.findByLabelText('Do not disturb'));
     expect(screen.getByLabelText('Quiet hours start')).toBeInTheDocument();
     expect(screen.getByLabelText('Quiet hours end')).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe('SettingsPage — default model preference', () => {
   it('persists the default model through workspace preferences', async () => {
     const fetchFn = stubFetch(settingsHandler());
     renderSettings();
-    await userEvent.click(screen.getByRole('button', { name: 'preferences' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'preferences' }));
     const select = await screen.findByLabelText('Default model');
     expect(select).toHaveValue('sonnet');
     await userEvent.selectOptions(select, '');

@@ -23,12 +23,12 @@ export function registerCoreTools(): void {
     const path = String(input.path ?? input.filePath ?? '');
     const userId = callerId(ctx);
     if (!projectId || !path) throw new Error('file_read requires projectId, path');
-    const { pool } = await import('../../shared/db.js');
+    const { withTenant } = await import('../../shared/db.js');
     const { getFileContent } = await import('../files/service.js');
-    const found = await pool.query(
+    const found = await withTenant(userId, (q) => q.query(
       `SELECT id FROM files WHERE project_id = $1 AND path = $2 AND deleted_at IS NULL LIMIT 1`,
       [projectId, path],
-    );
+    ));
     if (!found.rows[0]) return { ok: false, reason: 'file_not_found', path };
     const { buffer, mimeType } = await getFileContent(userId, projectId, found.rows[0].id as string);
     return {

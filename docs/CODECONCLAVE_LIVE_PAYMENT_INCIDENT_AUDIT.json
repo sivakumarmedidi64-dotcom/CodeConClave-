@@ -1,0 +1,106 @@
+{
+  "doc": "CODECONCLAVE_LIVE_PAYMENT_INCIDENT_AUDIT",
+  "kind": "incident_audit",
+  "date": "2026-09-08",
+  "scope": "payments",
+  "incident": {
+    "id": "codeconclave-live-payment-2026-09-06",
+    "summary": "Paid founder remains on free plan; the payment produced no system-verifiable evidence and no code path could activate it.",
+    "severity": "HIGH",
+    "funds_confirmed_by": ["founder_report", "founder_bank"],
+    "observed_outside_system": true,
+    "system_verifiable_evidence": false
+  },
+  "timeline_utc": [
+    { "ts": "2026-09-05T13:13:00Z", "event": "pool seeder produced 50 placeholder links" },
+    { "ts": "2026-09-05T17:35:01Z", "event": "founder account created (usr_a6sznusr5jgxbnt54o60, plan_id=free)" },
+    { "ts": "2026-09-06T05:31:00Z", "event": "pro intent + reservation (link 1)", "expired_at": "2026-09-06T05:46:00Z" },
+    { "ts": "2026-09-06T08:17:00Z", "event": "pro intent re-reserved (link 1)", "expired_at": "2026-09-06T08:32:00Z" },
+    { "ts": "2026-09-06T12:41:00Z", "event": "team intent + reservation (link 3)", "expired_at": "2026-09-06T12:56:00Z" },
+    { "ts": "2026-09-07T13:06:14Z", "event": "intent expiry sweep marked both intents EXPIRED" },
+    { "ts": "2026-09-08T00:00:00Z", "event": "founder report: payment confirmed on bank; plan still free" }
+  ],
+  "database_snapshot": {
+    "source": "Neon neondb (read-only)",
+    "payment_link_pool": 50,
+    "placeholder_links": 50,
+    "payment_link_reservations": 3,
+    "expired_reservations": 3,
+    "fulfilled_reservations": 0,
+    "payment_pool_callbacks": 0,
+    "payment_intents": 2,
+    "expired_intents": 2,
+    "intent_confidence": 0,
+    "payment_evidence": 0,
+    "payment_reconciliations": 0,
+    "payment_webhook_events": 0,
+    "payment_claims": 0,
+    "payment_sessions": 0,
+    "payments": 0,
+    "entitlements": 3,
+    "payment_audit": 0,
+    "affected_user": "usr_a6sznusr5jgxbnt54o60",
+    "affected_plan": "free"
+  },
+  "configuration_facts": {
+    "razorpay_mode": "payment_link",
+    "api_creds_configured": false,
+    "webhook_configured": false,
+    "gmail_rail_configured": false,
+    "pool_explicit": false,
+    "checkout_link_type": "static per-plan reference-less link"
+  },
+  "failure_model": {
+    "class": ["G", "H"],
+    "mechanism": "Evidence never entered any activation rail: static reference-less link + no provider rail configured; latent callback signature-format mismatch would additionally block authentic Razorpay callbacks."
+  },
+  "latent_defect": {
+    "location": "backend/src/modules/payments/pool/callback.ts",
+    "verifyPoolSignature_message_before": "reference_id:payment_id (custom)",
+    "verifyPoolSignature_message_after": "payment_id|payment_link_id|reference_id|status (authentic Razorpay) with legacy reference_id:payment_id compat fallback",
+    "impact_if_unfixed": "authentic Razorpay redirect callbacks fail invalid_signature and are permanently ledged non-activating"
+  },
+  "system_behavior": {
+    "degraded_transition_correct": true,
+    "no_ghost_grants": true,
+    "failed_closed": true,
+    "direct_users_plan_write": false,
+    "entitlement_granted_without_evidence": false
+  },
+  "decisions": [
+    {
+      "decision": "no_account_repair_write",
+      "rationale": "Grant authority requires evidence on the intent (payment_evidence=0, pool_callbacks=0). A repair write from a claim alone violates incident rules. Operator must service the founder intent via evidence or refund; this is outside the activation rail.",
+      "writes_performed": false
+    },
+    {
+      "decision": "minimal_code_fix_applied",
+      "details": "authentic Razorpay callback signature verification with legacy compat in pool/callback.ts",
+      "tests_added": "backend/src/modules/payments/pool/auto-unlock.test.ts (5 tests, E2E PRO_VERIFIED + fail-closed)"
+    }
+  ],
+  "verification": {
+    "payment_tests_files": 10,
+    "payment_tests_passed": 143,
+    "legacy_payment_tests_passed": 138,
+    "e2e_auto_unlock_tests_passed": 5,
+    "secret_scan_files": 848,
+    "secret_scan_findings": 0,
+    "typecheck": "OK",
+    "build": "OK",
+    "migrations_applied": 73,
+    "migrations_pending": 0,
+    "new_migration": false
+  },
+  "known_issues": [
+    "control-center.test.ts router test (default 5s import timeout) can stall under concurrent batch transform load; passes solo and in the 9-file legacy batch; load sensitivity, pre-existing."
+  ],
+  "operator_remediation": [
+    "provision REAL explicit pool links (unique per-link reference_id + callback_url) via PAYMENT_POOL_LINKS",
+    "set RAZORPAY_KEY_SECRET (and RAZORPAY_KEY_ID for the API rail)",
+    "enable signed webhook rail (RAZORPAY_WEBHOOK_SECRET + RAZORPAY_WEBHOOK_ENABLED)",
+    "optionally configure the gmail claim rail (GMAIL_OAUTH_*, PAYMENT_ACCOUNT_EMAIL)",
+    "service the existing founder intent with evidence or refund through the operator menu (no grant without evidence)"
+  ],
+  "gate": "CONDITIONAL_PASS"
+}

@@ -20,6 +20,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_userId: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -66,8 +68,14 @@ beforeEach(() => {
 
 describe('HEALTH CLASSIFICATION (server-derived, never client-inferred)', () => {
   it('marks unknown types NOT_CONFIGURED regardless of state', () => {
-    expect(derivePluginHealthStatus('notion', 'CONNECTED', null)).toBe('NOT_CONFIGURED');
     expect(derivePluginHealthStatus('vscode', 'CONNECTED', null)).toBe('NOT_CONFIGURED');
+    expect(derivePluginHealthStatus('teams', 'CONNECTED', null)).toBe('NOT_CONFIGURED');
+  });
+
+  it('maps adapter types to health statuses', () => {
+    expect(derivePluginHealthStatus('notion', 'CONNECTED', null)).toBe('HEALTHY');
+    expect(derivePluginHealthStatus('stripe', 'CONNECTED', null)).toBe('HEALTHY');
+    expect(derivePluginHealthStatus('twilio', 'DISCONNECTED', null)).toBe('NOT_CONNECTED');
   });
 
   it('maps adapter states to health statuses', () => {
@@ -106,8 +114,8 @@ describe('CATALOGUE SEARCH', () => {
     const discord = res.find((r) => r.plugin_type === 'discord')!;
     expect(discord.adapterAvailable).toBe(true);
     const notion = res.find((r) => r.plugin_type === 'notion')!;
-    expect(notion.adapterAvailable).toBe(false);
-    expect(notion.integration).toBe('UNSUPPORTED');
+    expect(notion.adapterAvailable).toBe(true);
+    expect(notion.integration).toBe('CONFIGURED');
   });
 });
 
@@ -161,7 +169,7 @@ describe('CONNECTION LIFECYCLE + AUDIT', () => {
 describe('EXPANDED ADAPTER REGISTRATION (no network)', () => {
   it('registers the 10-connector adapter set', () => {
     const ids = listAdapters().map((a) => a.id).sort();
-    expect(ids).toEqual(['cloudflare', 'discord', 'github', 'google', 'linear', 'resend', 'sentry', 'slack', 'vercel', 'webhook']);
+    expect(ids).toEqual(['asana', 'clickup', 'cloudflare', 'coda', 'confluence', 'databricks', 'datadog', 'discord', 'github', 'gitlab', 'google', 'hubspot', 'jira', 'klaviyo', 'linear', 'mailgun', 'monday', 'notion', 'pagerduty', 'pipedrive', 'render', 'resend', 'sentry', 'servicenow', 'slack', 'stripe', 'supabase', 'trello', 'twilio', 'vercel', 'webhook', 'zendesk']);
   });
 
   it('the expanded adapters declare real capabilities and typed actions', () => {

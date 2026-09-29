@@ -8,12 +8,13 @@
  * fails, DEGRADED when anything degrades, HEALTHY only when every check is
  * healthy. No secrets, no user content, no connection strings are exposed.
  */
-import { ping, queryMany } from '../shared/db.js';
+import { ping, withSystem } from '../shared/db.js';
 import { cache } from '../shared/cache.js';
 import { env } from '../config/env.js';
 import { storage } from '../integrations/storage.js';
 import { lastWatchdogRunAt } from '../workers/watchdog.js';
 import { hubAttached, agentWs } from '../modules/agent/ws.js';
+import { configuredProviders } from '../modules/ai/registry.js';
 
 export type HealthState = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'NOT_CONFIGURED';
 
@@ -39,22 +40,12 @@ interface AiHealthRow {
   state: string;
 }
 
+// Single source of truth: the AI registry's enabled+keyed+gate-visible
+// provider set (env.ts allow-list, strict key check, provider quality gate).
+// Keeping the list in sync with the registry prevents health from diverging
+// from what /models can actually serve.
 function configuredAiProviders(): string[] {
-  const names: Record<string, string | undefined> = {
-    anthropic: env.ANTHROPIC_API_KEY,
-    openai: env.OPENAI_API_KEY,
-    google: env.GEMINI_API_KEY,
-    mistral: env.MISTRAL_API_KEY,
-    grok: env.GROK_API_KEY,
-    deepseek: env.DEEPSEEK_API_KEY,
-    kimi: env.KIMI_API_KEY,
-    nemotron: env.NVIDIA_API_KEY,
-    north: env.COHERE_API_KEY,
-  };
-  return env.AI_PROVIDERS_ENABLED.split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((id) => Boolean(names[id]));
+  return configuredProviders();
 }
 
 async function aiCheck(): Promise<HealthCheck> {
@@ -62,7 +53,7 @@ async function aiCheck(): Promise<HealthCheck> {
   if (configured.length === 0) {
     return { id: 'ai', name: 'AI providers', status: 'NOT_CONFIGURED', reason: 'No AI provider credentials configured' };
   }
-  const rows = await queryMany<AiHealthRow>('SELECT provider_id, state FROM provider_health');
+  const rows = await withSystem<AiHealthRow[]>(async (q) => (await q.query<AiHealthRow>('SELECT provider_id, state FROM provider_health')).rows);
   const byProvider = new Map(rows.map((r) => [r.provider_id, r.state]));
   let failed = 0;
   let degraded = 0;
@@ -134,8 +125,10 @@ interface PluginHealthRow {
 }
 
 async function pluginsCheck(): Promise<HealthCheck> {
-  const rows = await queryMany<PluginHealthRow>(
-    `SELECT DISTINCT pc.state FROM plugin_connections pc WHERE pc.state IN ('CONNECTED','DEGRADED','FAILED','ERROR')`,
+  const rows = await withSystem<PluginHealthRow[]>(async (q) =>
+    (await q.query<PluginHealthRow>(
+      `SELECT DISTINCT pc.state FROM plugin_connections pc WHERE pc.state IN ('CONNECTED','DEGRADED','FAILED','ERROR')`,
+    )).rows,
   );
   const states = rows.map((r) => r.state);
   if (states.length === 0) {

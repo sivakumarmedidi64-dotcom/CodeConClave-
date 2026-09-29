@@ -10,7 +10,7 @@
  * evidence-only; when no AI provider is available the summary degrades to a
  * deterministic narrative (never faked AI).
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { WorkspaceStateKey } from '@codeconclave/shared';
@@ -128,11 +128,10 @@ export async function updateReturnToWorkConfig(
 // ---------------------------------------------------------------- persistence
 
 async function latestSummary(userId: string): Promise<SummaryRow | null> {
-  const rows = await queryMany<SummaryRow>(
-    'SELECT * FROM return_to_work_summaries WHERE owner_id = $1 ORDER BY generated_at DESC LIMIT 1',
-    [userId],
+  const rows = await withTenant<{ rows: SummaryRow[] }>(userId, (q) =>
+    q.query<SummaryRow>('SELECT * FROM return_to_work_summaries WHERE owner_id = $1 ORDER BY generated_at DESC LIMIT 1', [userId]),
   );
-  return rows[0] ?? null;
+  return rows.rows[0] ?? null;
 }
 
 export function toSummaryJson(row: SummaryRow): ReturnToWorkSummaryJson {
@@ -193,63 +192,64 @@ async function collectEvidence(userId: string, absenceStart: Date, projectScope:
   const scopeParams = (params: unknown[]) => (scoped ? [...params, projectScope] : params);
 
   const [completedRows, failedRows, approvalRows, fileCount, discoveryRows, memoryCount, dnaCount, activityCount, unreadCount, runningRows] =
-    await Promise.all([
-      queryMany<{ id: string; title: string; project_id: string | null; attempt_count: number }>(
+    await withTenant(userId, async (q) => {
+      const completedRaw = (await q.query<{ id: string; title: string; project_id: string | null; attempt_count: number }>(
         `SELECT id, title, project_id, attempt_count FROM tasks
          WHERE owner_id = $1 AND status = 'COMPLETED' AND completed_at > $2${scopeClause}
          ORDER BY completed_at DESC LIMIT 20`,
         scopeParams([userId, since]),
-      ),
-      queryMany<{ id: string; title: string; status: string; recovery_status: string | null }>(
+      )).rows;
+      const failedRaw = (await q.query<{ id: string; title: string; status: string; recovery_status: string | null }>(
         `SELECT id, title, status, recovery_status FROM tasks
          WHERE owner_id = $1 AND status IN ('FAILED','TIMED_OUT') AND failed_at > $2${scopeClause}
          ORDER BY failed_at DESC LIMIT 20`,
         scopeParams([userId, since]),
-      ),
-      queryMany<{ id: string; task_id: string | null; risk_level: string }>(
+      )).rows;
+      const approvalRaw = (await q.query<{ id: string; task_id: string | null; risk_level: string }>(
         `SELECT a.id, a.task_id, a.risk_level FROM approvals a
          WHERE a.owner_id = $1 AND a.status = 'PENDING' AND a.expires_at > now()
            ${scoped ? "AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.project_id = $2)" : ''}
          ORDER BY a.created_at DESC LIMIT 20`,
         scoped ? [userId, projectScope] : [userId],
-      ),
-      queryMany<{ n: number }>(
+      )).rows;
+      const fileRaw = (await q.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM file_versions fv JOIN files f ON f.id = fv.file_id
          WHERE f.owner_id = $1 AND fv.created_at > $2${scoped ? ' AND f.project_id = $3' : ''}`,
         scopeParams([userId, since]),
-      ),
-      queryMany<{ id: string; coworker_type: string; completed_at: Date; task_id: string }>(
+      )).rows;
+      const discoveryRaw = (await q.query<{ id: string; coworker_type: string; completed_at: Date; task_id: string }>(
         `SELECT cr.id, cr.coworker_type, cr.completed_at, t.id AS task_id FROM coworker_runs cr
          JOIN tasks t ON t.id = cr.task_id
          WHERE t.owner_id = $1 AND cr.completed_at > $2${scopeClause}
          ORDER BY cr.completed_at DESC LIMIT 20`,
         scopeParams([userId, since]),
-      ),
-      queryMany<{ n: number }>(
+      )).rows;
+      const memoryRaw = (await q.query<{ n: number }>(
         'SELECT count(*)::int AS n FROM memories WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
         [userId, since],
-      ),
-      queryMany<{ n: number }>(
+      )).rows;
+      const dnaRaw = (await q.query<{ n: number }>(
         'SELECT count(*)::int AS n FROM dna WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
         [userId, since],
-      ),
-      queryMany<{ n: number }>(
+      )).rows;
+      const activityRaw = (await q.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM project_activity pa JOIN projects p ON p.id = pa.project_id
          WHERE p.owner_id = $1 AND pa.created_at > $2${scoped ? ' AND pa.project_id = $3' : ''}`,
         scopeParams([userId, since]),
-      ),
-      queryMany<{ n: number }>(
+      )).rows;
+      const unreadRaw = (await q.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM notifications
          WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false AND created_at > $2`,
         [userId, since],
-      ),
-      queryMany<{ id: string; title: string }>(
+      )).rows;
+      const runningRaw = (await q.query<{ id: string; title: string }>(
         `SELECT id, title FROM tasks
          WHERE owner_id = $1 AND status IN ('RUNNING','TESTING','VERIFIED','REQUIRES_REVIEW','WAITING_FOR_LOCAL_AGENT')${scopeClause}
          ORDER BY updated_at DESC LIMIT 1`,
         scopeParams([userId]),
-      ),
-    ]);
+      )).rows;
+      return [completedRaw, failedRaw, approvalRaw, fileRaw, discoveryRaw, memoryRaw, dnaRaw, activityRaw, unreadRaw, runningRaw];
+    });
 
   const completedTasks = completedRows.map((r) => ({
     id: r.id,
@@ -337,8 +337,8 @@ async function summarizeText(userId: string, evidence: EvidenceSet): Promise<{ t
   const deterministic = deterministicText(evidence);
   if (configuredProviders().length === 0) return { text: deterministic, aiGenerated: false };
   try {
-    const planRows = await queryMany<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
-    const planId = (planRows[0]?.plan_id as 'free' | 'pro' | 'team' | 'enterprise') ?? 'free';
+    const planRows = await withTenant<{ rows: { plan_id: string }[] }>(userId, (q) => q.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]));
+    const planId = (planRows.rows[0]?.plan_id as 'free' | 'pro' | 'team' | 'enterprise') ?? 'free';
     const ai = await completeWithFallback({
       ctx: { userId, sessionId: '', planId, tenantId: userId },
       messages: [
@@ -378,23 +378,25 @@ export async function generateReturnToWorkSummary(
     runningTask: evidence.runningTask,
     recommendedActions: buildActions(evidence),
   };
-  await pool.query(
-    `INSERT INTO return_to_work_summaries
-       (id, owner_id, generated_at, absence_start, absence_end, project_id, frequency,
-        completed_count, failed_count, pending_approval_count, modified_file_count,
-        discovery_count, memory_update_count, dna_update_count, project_activity_count,
-        unread_notification_count, evidence, summary_text, ai_generated)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)`,
-    [
-      id, userId, absenceEnd, absenceStart, absenceEnd, config.projectScope, config.frequency,
-      evidence.counts.completed, evidence.counts.failed, evidence.counts.pendingApprovals,
-      evidence.counts.modifiedFiles, evidence.counts.discoveries, evidence.counts.memoryUpdates,
-      evidence.counts.dnaUpdates, evidence.counts.projectActivity, evidence.counts.unreadNotifications,
-      JSON.stringify(evidencePayload), summaryText, aiGenerated,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO return_to_work_summaries
+         (id, owner_id, generated_at, absence_start, absence_end, project_id, frequency,
+          completed_count, failed_count, pending_approval_count, modified_file_count,
+          discovery_count, memory_update_count, dna_update_count, project_activity_count,
+          unread_notification_count, evidence, summary_text, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)`,
+      [
+        id, userId, absenceEnd, absenceStart, absenceEnd, config.projectScope, config.frequency,
+        evidence.counts.completed, evidence.counts.failed, evidence.counts.pendingApprovals,
+        evidence.counts.modifiedFiles, evidence.counts.discoveries, evidence.counts.memoryUpdates,
+        evidence.counts.dnaUpdates, evidence.counts.projectActivity, evidence.counts.unreadNotifications,
+        JSON.stringify(evidencePayload), summaryText, aiGenerated,
+      ],
+    ),
   );
-  const rows = await queryMany<SummaryRow>('SELECT * FROM return_to_work_summaries WHERE id = $1', [id]);
-  return rows[0]!;
+  const rows = await withTenant<{ rows: SummaryRow[] }>(userId, (q) => q.query<SummaryRow>('SELECT * FROM return_to_work_summaries WHERE id = $1', [id]));
+  return rows.rows[0]!;
 }
 
 // ---------------------------------------------------------------- read path
@@ -439,21 +441,25 @@ export async function getReturnToWork(userId: string): Promise<ReturnToWorkRespo
 }
 
 export async function markReturnToWorkRead(userId: string, summaryId: string): Promise<ReturnToWorkSummaryJson> {
-  const rows = await queryMany<SummaryRow>(
-    `UPDATE return_to_work_summaries SET read = true, read_at = now()
-     WHERE id = $1 AND owner_id = $2 RETURNING *`,
-    [summaryId, userId],
+  const rows = await withTenant<{ rows: SummaryRow[] }>(userId, (q) =>
+    q.query<SummaryRow>(
+      `UPDATE return_to_work_summaries SET read = true, read_at = now()
+       WHERE id = $1 AND owner_id = $2 RETURNING *`,
+      [summaryId, userId],
+    ),
   );
-  if (!rows[0]) throw AppError.notFound('Return-to-work summary');
-  return toSummaryJson(rows[0]);
+  if (!rows.rows[0]) throw AppError.notFound('Return-to-work summary');
+  return toSummaryJson(rows.rows[0]);
 }
 
 export async function dismissReturnToWork(userId: string, summaryId: string): Promise<ReturnToWorkSummaryJson> {
-  const rows = await queryMany<SummaryRow>(
-    `UPDATE return_to_work_summaries SET dismissed = true, dismissed_at = now()
-     WHERE id = $1 AND owner_id = $2 RETURNING *`,
-    [summaryId, userId],
+  const rows = await withTenant<{ rows: SummaryRow[] }>(userId, (q) =>
+    q.query<SummaryRow>(
+      `UPDATE return_to_work_summaries SET dismissed = true, dismissed_at = now()
+       WHERE id = $1 AND owner_id = $2 RETURNING *`,
+      [summaryId, userId],
+    ),
   );
-  if (!rows[0]) throw AppError.notFound('Return-to-work summary');
-  return toSummaryJson(rows[0]);
+  if (!rows.rows[0]) throw AppError.notFound('Return-to-work summary');
+  return toSummaryJson(rows.rows[0]);
 }

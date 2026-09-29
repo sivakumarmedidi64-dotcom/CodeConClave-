@@ -16,6 +16,7 @@ import {
 } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { PreviewPanel } from '../components/PreviewPanel';
+import { Icon } from '../components/Icon';
 
 interface LoadedFile {
   file: FileRef;
@@ -184,7 +185,7 @@ export function FilesPage() {
         <li key={node.path}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '2px 0' }}>
             <span className={node.type === 'folder' ? '' : 'cc-hint'} style={{ minWidth: 0 }}>
-              {node.type === 'folder' ? '📁' : '📄'} {node.name}
+              {node.type === 'folder' ? <Icon name="folder" size={13} /> : <Icon name="file" size={13} />} {node.name}
             </span>
             {node.file && (
               <span className="cc-hint cc-mono" style={{ marginLeft: 'auto', fontSize: 11 }}>

@@ -1,0 +1,54 @@
+{
+  "kind": "FINAL_ACCEPTANCE_PREPARATION_AUDIT",
+  "version": "1",
+  "generatedAt": "2026-09-10T00:00:00.000Z",
+  "phase": "FINAL ACCEPTANCE PREPARATION + RELEASE CANDIDATE HARDENING",
+  "canonicalOrigin": "http://localhost:5173",
+  "note": "Canonical origin is the private/dev origin for local acceptance. The same layout must be repeated at the release origin(s) with GOOGLE_REDIRECT_URI, CORS_ORIGINS, AUTH_COOKIE_DOMAIN, SESSION_COOKIE_SECURE=true when a deployment URL exists.",
+  "result": "PASS",
+  "summary": {
+    "secretScan": { "files": 855, "findings": 0, "skipped": 0 },
+    "migrationsApplied": 76,
+    "migrationsPending": 0,
+    "backendTests": { "files": 156, "passed": 2850, "skipped": 11, "failed": 0 },
+    "frontendTests": { "files": 74, "passed": 408, "skipped": 0, "failed": 0 },
+    "desktopTests": { "files": 5, "passed": 58, "skipped": 0, "failed": 0 },
+    "paymentProof": { "passed": 16, "skipped": 0, "failed": 0 },
+    "paymentsRegression": { "files": 9, "passed": 134, "skipped": 3, "failed": 0 },
+    "targetedSmokeSuites": { "files": 19, "passed": 411, "failed": 0 },
+    "typechecks": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS" },
+    "installer": {
+      "scope": "WINDOWS_DESKTOP",
+      "artifact": "desktop/release/CodeConClave Setup 0.1.0.exe",
+      "status": "BUILT_AND_SIGNED",
+      "size_mb": 106.3,
+      "installer_sha256": "52AF5BF2C8E2E8850120973555DA1F929CAE21A5239475ECECF24B0EBDDD6332",
+      "rebuilt": "2026-09-10",
+      "install_state": "NOT_PERFORMED"
+    },
+    "downloadPage": { "status": "NOT_DEPLOYED", "detail": "No public installer landing page exists in the frontend; release artifact is the source of installation." },
+    "oauth": { "automated": "PASS", "humanGate": "NOT_PERFORMED" },
+    "humanGates": { "count": "0 / 9", "releaseReady": false }
+  },
+  "gates": [
+    { "id": "GOOGLE_OAUTH_LOGIN", "status": "NOT_PERFORMED" },
+    { "id": "PRODUCTION_PAYMENT", "status": "NOT_PERFORMED" },
+    { "id": "WINDOWS_INSTALL", "status": "NOT_PERFORMED" },
+    { "id": "OFFLINE_MODE", "status": "NOT_PERFORMED" },
+    { "id": "PROVIDER_REPROBE", "status": "NOT_PERFORMED" },
+    { "id": "WEB_E2E", "status": "NOT_PERFORMED" },
+    { "id": "DESKTOP_E2E", "status": "NOT_PERFORMED" },
+    { "id": "WEB_DESKTOP_PARITY", "status": "NOT_PERFORMED" },
+    { "id": "FULL_PRODUCT", "status": "NOT_PERFORMED" }
+  ],
+  "provider_states_honest": [
+    "google HEALTHY", "qwen HEALTHY", "nemotron HEALTHY",
+    "openai QUOTA_EXHAUSTED", "deepseek QUOTA_EXHAUSTED",
+    "anthropic OFFLINE", "gemma OFFLINE",
+    "grok REQUIRES_REAUTH", "kimi REQUIRES_REAUTH",
+    "mistral NOT_CONFIGURED", "north NOT_CONFIGURED",
+    "ox_alpha NOT_CONFIGURED", "z_code_5_3 NOT_CONFIGURED",
+    "manus EXTERNAL_AGENT (never auto-run)", "devin EXTERNAL_AGENT (never auto-run)",
+    "big_pickle NOT_INTEGRATED"
+  ]
+}

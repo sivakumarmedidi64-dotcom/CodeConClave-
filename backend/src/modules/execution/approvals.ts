@@ -9,11 +9,12 @@
  * the policy engine, capabilities and device authorization before any tool
  * runs, and records the execution result back on the approval.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { ApprovalActionType, ApprovalExecutionState } from '@codeconclave/shared';
 import { Timeouts, RiskLevel, AuditAction, type Risky } from './policy-shared.js';
+import { guardTransition } from '../autonomy/state-machine.js';
 import { recordAudit } from '../audit/service.js';
 import { evaluateToolCall, policyDeniedError } from './policy.js';
 import { requirePairedDevice, requireAgentOnline, requireRemoteSession } from '../agent/service.js';
@@ -103,10 +104,12 @@ export async function createApproval(input: {
     input.expiresInMs ?? TTL_BY_RISK[input.riskLevel] ?? Timeouts.APPROVAL_DEFAULT_TTL_MS,
     Timeouts.APPROVAL_MAX_TTL_MS,
   );
-  await pool.query(
-    `INSERT INTO approvals (id, task_id, owner_id, detail, risk_level, status, expires_at)
-     VALUES ($1,$2,$3,$4::jsonb,$5,'PENDING', now() + ($6 || ' milliseconds')::interval)`,
-    [id, input.taskId ?? null, input.ownerId, JSON.stringify(input.detail), input.riskLevel, expiresIn],
+  await withTenant(input.ownerId, (q) =>
+    q.query(
+      `INSERT INTO approvals (id, task_id, owner_id, detail, risk_level, status, expires_at)
+       VALUES ($1,$2,$3,$4::jsonb,$5,'PENDING', now() + ($6 || ' milliseconds')::interval)`,
+      [id, input.taskId ?? null, input.ownerId, JSON.stringify(input.detail), input.riskLevel, expiresIn],
+    ),
   );
   await recordAudit({
     action: AuditAction.TASK_APPROVAL_REQUESTED,
@@ -121,10 +124,9 @@ export async function createApproval(input: {
 }
 
 export async function getApproval(userId: string, approvalId: string): Promise<ApprovalRow> {
-  const rows = await queryMany<ApprovalRow>('SELECT * FROM approvals WHERE id = $1 AND owner_id = $2', [
-    approvalId,
-    userId,
-  ]);
+  const rows = await withTenant<ApprovalRow[]>(userId, (q) =>
+    q.query<ApprovalRow>('SELECT * FROM approvals WHERE id = $1 AND owner_id = $2', [approvalId, userId]).then((r) => r.rows),
+  );
   if (!rows[0]) throw AppError.notFound('Approval');
   return rows[0];
 }
@@ -136,10 +138,14 @@ export async function listApprovals(userId: string, status?: string): Promise<Ap
     params.push(status);
     statusClause = `AND status = $${params.length}`;
   }
-  return queryMany<ApprovalRow>(
-    `SELECT * FROM approvals WHERE owner_id = $1 ${statusClause}
-     ORDER BY (status = 'PENDING') DESC, created_at DESC`,
-    params,
+  return withTenant<ApprovalRow[]>(userId, (q) =>
+    q
+      .query<ApprovalRow>(
+        `SELECT * FROM approvals WHERE owner_id = $1 ${statusClause}
+         ORDER BY (status = 'PENDING') DESC, created_at DESC`,
+        params,
+      )
+      .then((r) => r.rows),
   );
 }
 
@@ -157,10 +163,24 @@ export async function decideApproval(
     await expireStaleApprovals();
     throw AppError.conflict('approval_expired', 'Approval has expired (30-minute window)');
   }
-  await pool.query(
-    `UPDATE approvals SET status = $2, decision = $3, decided_by = $4, decided_at = now() WHERE id = $1`,
-    [approvalId, decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', decision, userId],
+  // Atomic decide: the status predicate makes concurrent APPROVE/REJECT calls
+  // mutually exclusive — exactly one wins; the loser sees rowCount 0 instead
+  // of silently overwriting the winner (last-writer-wins).
+  const decided = await withTenant<{ rowCount: number | null }>(userId, (q) =>
+    q
+      .query(
+        `UPDATE approvals SET status = $2, decision = $3, decided_by = $4, decided_at = now()
+          WHERE id = $1 AND status = 'PENDING'`,
+        [approvalId, decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', decision, userId],
+      )
+      .then((r) => ({ rowCount: r.rowCount })),
   );
+  if ((decided.rowCount ?? 0) === 0) {
+    throw AppError.conflict(
+      'approval_not_pending',
+      'Approval is no longer pending (a concurrent decision was recorded first)',
+    );
+  }
   await recordAudit({
     action: decision === 'APPROVE' ? AuditAction.APPROVAL_GRANTED : AuditAction.APPROVAL_REJECTED,
     actorUserId: userId,
@@ -171,20 +191,57 @@ export async function decideApproval(
     detail: { reason: reason ?? null, taskId: approval.task_id ?? null },
   });
 
+  // Task follow-up is best-effort convergence: the human decision above is
+  // already atomically recorded. A task that moved on concurrently must not
+  // be yanked across states by a late link write — such skips are audited.
   if (approval.task_id) {
     if (decision === 'APPROVE') {
-      const { approveLinkTask, getTaskInternal } = await import('./tasks.js');
-      await approveLinkTask(approval.task_id, approvalId);
-      if ((await getTaskInternal(approval.task_id)).execution_mode !== 'LOCAL') {
-        const { enqueueTask } = await import('../../shared/queue.js');
-        await enqueueTask(approval.task_id);
+      try {
+        const { approveLinkTask, getTaskInternal } = await import('./tasks.js');
+        await approveLinkTask(approval.task_id, approvalId);
+        if ((await getTaskInternal(approval.task_id)).execution_mode !== 'LOCAL') {
+          const { enqueueTask } = await import('../../shared/queue.js');
+          await enqueueTask(approval.task_id);
+        }
+      } catch (err) {
+        await recordAudit({
+          action: AuditAction.APPROVAL_GRANTED,
+          actorUserId: userId,
+          scope: 'USER',
+          tenantId: userId,
+          resourceType: 'task',
+          resourceId: approval.task_id,
+          detail: { note: 'task link skipped: task moved on concurrently', error: err instanceof Error ? err.message : String(err) },
+        });
       }
     } else {
-      await pool.query(
-        `UPDATE tasks SET status = 'CANCELLED', error_code = 'approval_rejected', completed_at = now(),
-                          updated_at = now() WHERE id = $1`,
-        [approval.task_id],
+      const current = await withTenant<{ status: string } | null>(userId, (q) =>
+        q.query<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [approval.task_id]).then((r) => r.rows[0] ?? null),
       );
+      if (current?.status) guardTransition(current.status, 'CANCELLED');
+      // Conditional: cancel from a cancellable state only — never clobber a
+      // concurrently COMPLETED/CANCELLED task. The rejection itself stands.
+      const cancelled = await withTenant<{ rowCount: number | null }>(userId, (q) =>
+        q
+          .query(
+            `UPDATE tasks SET status = 'CANCELLED', error_code = 'approval_rejected', completed_at = now(),
+                              updated_at = now()
+              WHERE id = $1 AND status IN ('WAITING_APPROVAL','CREATED','PLANNED','CHANGED','RUNNING')`,
+            [approval.task_id],
+          )
+          .then((r) => ({ rowCount: r.rowCount })),
+      );
+      if ((cancelled.rowCount ?? 0) === 0) {
+        await recordAudit({
+          action: AuditAction.APPROVAL_REJECTED,
+          actorUserId: userId,
+          scope: 'USER',
+          tenantId: userId,
+          resourceType: 'task',
+          resourceId: approval.task_id,
+          detail: { note: 'task left a cancellable state concurrently; rejection recorded on the approval only' },
+        });
+      }
     }
   }
   return getApproval(userId, approvalId);
@@ -192,8 +249,10 @@ export async function decideApproval(
 
 /** Watchdog: expire stale approvals (returns count). Each expiry is audited. */
 export async function expireStaleApprovals(): Promise<number> {
-  const result = await pool.query(
-    `UPDATE approvals SET status = 'EXPIRED' WHERE status = 'PENDING' AND expires_at <= now() RETURNING id`,
+  const result = await withSystem((q) =>
+    q.query(
+      `UPDATE approvals SET status = 'EXPIRED' WHERE status = 'PENDING' AND expires_at <= now() RETURNING id`,
+    ),
   );
   const count = result.rowCount ?? 0;
   if (result.rows) {
@@ -214,16 +273,17 @@ export async function expireStaleApprovals(): Promise<number> {
 
 /** Reject pending approvals for a task (used on task cancel). */
 export async function cancelPendingApprovalsForTask(taskId: string): Promise<void> {
-  await pool.query(
-    `UPDATE approvals SET status = 'REVOKED', decision = 'REJECT' WHERE task_id = $1 AND status = 'PENDING'`,
-    [taskId],
+  await withSystem((q) =>
+    q.query(
+      `UPDATE approvals SET status = 'REVOKED', decision = 'REJECT' WHERE task_id = $1 AND status = 'PENDING'`,
+      [taskId],
+    ),
   );
 }
 
 export async function pendingApprovalCount(userId: string): Promise<number> {
-  const row = await queryOne<{ n: number }>(
-    'SELECT COUNT(*)::int AS n FROM approvals WHERE owner_id = $1 AND status = $2',
-    [userId, 'PENDING'],
+  const row = await withTenant<{ n: number } | null>(userId, (q) =>
+    q.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM approvals WHERE owner_id = $1 AND status = $2', [userId, 'PENDING']).then((r) => r.rows[0] ?? null),
   );
   return row?.n ?? 0;
 }
@@ -296,9 +356,13 @@ export async function proposeApproval(
     throw AppError.badRequest('unknown_action_type', `Action type ${actionType} is not supported`);
   }
 
-  const pending = await queryMany<ApprovalRow>(
-    `SELECT * FROM approvals WHERE owner_id = $1 AND action_type = $2 AND status = 'PENDING' ORDER BY created_at DESC`,
-    [userId, actionType],
+  const pending = await withTenant<ApprovalRow[]>(userId, (q) =>
+    q
+      .query<ApprovalRow>(
+        `SELECT * FROM approvals WHERE owner_id = $1 AND action_type = $2 AND status = 'PENDING' ORDER BY created_at DESC`,
+        [userId, actionType],
+      )
+      .then((r) => r.rows),
   );
   for (const existing of pending) {
     if (sameResources(existing, resources)) {
@@ -311,27 +375,29 @@ export async function proposeApproval(
     proposal.expiresInMs ?? Timeouts.APPROVAL_DEFAULT_EXPIRY_MS,
     Timeouts.APPROVAL_DEFAULT_EXPIRY_MS,
   );
-  await pool.query(
-    `INSERT INTO approvals
-       (id, task_id, owner_id, detail, risk_level, status, expires_at,
-        action_type, coworker, model, justification, affected_resources, proposed_action, batch_group)
-     VALUES ($1,$2,$3,$4::jsonb,$5,'PENDING', now() + ($6 || ' milliseconds')::interval,
-             $7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)`,
-    [
-      id,
-      proposal.taskId ?? null,
-      userId,
-      JSON.stringify({ justification: proposal.justification }),
-      risk,
-      expiresIn,
-      actionType,
-      proposal.coworker ?? null,
-      proposal.model ?? null,
-      proposal.justification,
-      JSON.stringify(resources),
-      JSON.stringify(proposal.proposedAction ?? {}),
-      proposal.batchGroup ?? null,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO approvals
+         (id, task_id, owner_id, detail, risk_level, status, expires_at,
+          action_type, coworker, model, justification, affected_resources, proposed_action, batch_group)
+       VALUES ($1,$2,$3,$4::jsonb,$5,'PENDING', now() + ($6 || ' milliseconds')::interval,
+               $7,$8,$9,$10,$11::jsonb,$12::jsonb,$13)`,
+      [
+        id,
+        proposal.taskId ?? null,
+        userId,
+        JSON.stringify({ justification: proposal.justification }),
+        risk,
+        expiresIn,
+        actionType,
+        proposal.coworker ?? null,
+        proposal.model ?? null,
+        proposal.justification,
+        JSON.stringify(resources),
+        JSON.stringify(proposal.proposedAction ?? {}),
+        proposal.batchGroup ?? null,
+      ],
+    ),
   );
   if (resources.length > 0) {
     const values: unknown[] = [];
@@ -341,9 +407,11 @@ export async function proposeApproval(
       tuples.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4})`);
       values.push(newId(PREFIX.APPROVAL + '_res'), id, r.type, r.ref, JSON.stringify({ detail: r.detail ?? null }));
     });
-    await pool.query(
-      `INSERT INTO approval_resources (id, approval_id, resource_type, resource_ref, detail) VALUES ${tuples.join(',')}`,
-      values,
+    await withTenant(userId, (q) =>
+      q.query(
+        `INSERT INTO approval_resources (id, approval_id, resource_type, resource_ref, detail) VALUES ${tuples.join(',')}`,
+        values,
+      ),
     );
   }
   await recordAudit({
@@ -382,10 +450,12 @@ export async function executeApprovedAction(
     throw AppError.conflict('approval_not_approved', `Approval is ${approval.status.toLowerCase()}; only APPROVED approvals may execute`);
   }
   if (approval.expires_at.getTime() <= Date.now()) {
-    await pool.query(
-      `UPDATE approvals SET status = 'EXPIRED', execution_status = 'FAILED', execution_completed_at = now()
-        WHERE id = $1 AND status = 'APPROVED'`,
-      [approvalId],
+    await withTenant(userId, (q) =>
+      q.query(
+        `UPDATE approvals SET status = 'EXPIRED', execution_status = 'FAILED', execution_completed_at = now()
+          WHERE id = $1 AND status = 'APPROVED'`,
+        [approvalId],
+      ),
     );
     throw AppError.conflict('approval_expired', 'Approval has expired and can no longer execute');
   }
@@ -421,10 +491,27 @@ export async function executeApprovedAction(
     void device;
   }
 
-  await pool.query(
-    `UPDATE approvals SET execution_status = 'RUNNING', execution_started_at = now() WHERE id = $1`,
-    [approvalId],
+  // Atomic execution claim: concurrent execute calls are mutually exclusive.
+  // Exactly one caller transitions NULL/FAILED -> RUNNING; the loser gets a
+  // conflict instead of running the tool a second time (double side effects).
+  // Retry after FAILED still works; retry after SUCCEEDED is already blocked
+  // by the APPROVED check above (status becomes EXECUTED).
+  const claimed = await withTenant<{ rowCount: number | null }>(userId, (q) =>
+    q
+      .query(
+        `UPDATE approvals SET execution_status = 'RUNNING', execution_started_at = now()
+          WHERE id = $1 AND status = 'APPROVED'
+            AND (execution_status IS NULL OR execution_status <> 'RUNNING')`,
+        [approvalId],
+      )
+      .then((r) => ({ rowCount: r.rowCount })),
   );
+  if ((claimed.rowCount ?? 0) === 0) {
+    throw AppError.conflict(
+      'approval_execution_conflict',
+      'Approval execution is already running or is no longer executable',
+    );
+  }
   await recordAudit({
     action: AuditAction.APPROVAL_EXECUTION_STARTED,
     actorUserId: userId,
@@ -438,11 +525,13 @@ export async function executeApprovedAction(
   try {
     const { runRegisteredTool } = await import('./toolcalls.js');
     const output = await runRegisteredTool(execution.tool, execution.input, { userId });
-    await pool.query(
-      `UPDATE approvals SET status = 'EXECUTED', execution_status = 'SUCCEEDED',
-              execution_completed_at = now(), execution_result = $2::jsonb, audit_reference = $3
-        WHERE id = $1`,
-      [approvalId, JSON.stringify(output ?? {}), `tool:${execution.tool}`],
+    await withTenant(userId, (q) =>
+      q.query(
+        `UPDATE approvals SET status = 'EXECUTED', execution_status = 'SUCCEEDED',
+                execution_completed_at = now(), execution_result = $2::jsonb, audit_reference = $3
+          WHERE id = $1`,
+        [approvalId, JSON.stringify(output ?? {}), `tool:${execution.tool}`],
+      ),
     );
     await recordAudit({
       action: AuditAction.APPROVAL_EXECUTION_SUCCEEDED,
@@ -456,11 +545,13 @@ export async function executeApprovedAction(
   } catch (err) {
     incMetric('security.approvals_failed');
     const message = err instanceof Error ? err.message : String(err);
-    await pool.query(
-      `UPDATE approvals SET status = 'EXECUTED', execution_status = 'FAILED',
-              execution_completed_at = now(), execution_result = $2::jsonb
-        WHERE id = $1`,
-      [approvalId, JSON.stringify({ error: message })],
+    await withTenant(userId, (q) =>
+      q.query(
+        `UPDATE approvals SET status = 'EXECUTED', execution_status = 'FAILED',
+                execution_completed_at = now(), execution_result = $2::jsonb
+          WHERE id = $1`,
+        [approvalId, JSON.stringify({ error: message })],
+      ),
     );
     await recordAudit({
       action: AuditAction.APPROVAL_EXECUTION_FAILED,

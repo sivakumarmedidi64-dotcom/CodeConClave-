@@ -1,58 +1,62 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
+# Docker build-context exclusions.
+# Ensures the Docker daemon receives source + manifests ONLY, never host
+# dependency/cache directories. In particular: frontend/node_modules/.vite
+# must NEVER enter the build context.
+# Does NOT exclude source, workspace packages, lockfiles, migrations, railway.toml,
+# or any required production configuration.
 
-# Build outputs
-dist/
-build/
+# Dependencies
+node_modules
+**/node_modules
+
+# Vite cache
+.vite
+**/.vite
+
+# Build / generated output
+dist
+**/dist
+build
+**/build
+coverage
+**/coverage
 *.tsbuildinfo
 
-# Environment files (NEVER commit)
+# Caches / temp / logs / local artifacts
+.cache
+**/.cache
+.tmp
+**/.tmp
+logs
+*.log
+data
+*.pid
+*.seed
+minio-data
+s3-local
+
+# Environment files (never ship secrets)
 .env
 .env.*
 !.env.example
 !.env.test.example
 
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Runtime data
-data/
-*.pid
-*.seed
-
-# Local object storage
-minio-data/
-s3-local/
-
-# OS
+# VCS / IDE / OS metadata
+.git
+.git/**
+.gitignore
+.railwayignore
+.vscode
+.idea
 .DS_Store
 Thumbs.db
-
-# Editors
-.vscode/
-!.vscode/extensions.json
-.idea/
 *.swp
 
-# Local agent runtime
-local-agent/.agent/
+# Local agent runtime state
+local-agent/.agent
 agent-state.json
 
-# Test coverage
-coverage/
-
-# IDE
-.idea/
-.vscode/*
-!.vscode/extensions.json
-
-# Test output
-*.log
-server-test.log
-server-test-error.log
+# Local backup / scratch copies
+CodeConClave-Complete
+CodeConClave-Complete.zip
+*.txt

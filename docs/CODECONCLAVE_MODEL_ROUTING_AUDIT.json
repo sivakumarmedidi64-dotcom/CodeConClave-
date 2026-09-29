@@ -1,0 +1,140 @@
+{
+  "directive": "CODECONCLAVE PRO PROMPT 2/5 — INTELLIGENT MODEL ROUTING + FAILOVER + CAPABILITY-AWARE ORCHESTRATION (WEB + WINDOWS DESKTOP)",
+  "date": "2026-09-07",
+  "gateVerdict": "PASS",
+  "workState": "COMPLETED — all 23 Parts delivered, real provider call verified",
+  "modelRoutingGate": "PASS",
+  "existingAiArchitecturePreserved": "PASS",
+  "newAiEngineCreated": "NO",
+  "routingSurfaces": {
+    "WEB_ROUTING": "PASS",
+    "DESKTOP_ROUTING": "PASS",
+    "AI_CHAT_ROUTING": "PASS",
+    "COWORKER_ROUTING": "PASS",
+    "AUTONOMOUS_ROUTING": "PASS",
+    "FAILOVER": "PASS",
+    "COST_AWARE_ROUTING": "PASS",
+    "CAPABILITY_ROUTING": "PASS",
+    "HEALTH_AWARE_ROUTING": "PASS",
+    "SECURITY": "PASS",
+    "AUDIT": "PASS"
+  },
+  "realProviderCalls": {
+    "status": "VERIFIED",
+    "provider": "nemotron",
+    "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "taskType": "SUMMARIZATION",
+    "routingPreference": "AUTO",
+    "confidence": "medium",
+    "healthState": "HEALTHY",
+    "fallback": false,
+    "costUsd": 0.00000285,
+    "auditRailVerified": true,
+    "modelUsageLogsWriteConfirmed": true,
+    "script": "backend/src/scripts/real-routing-check.mts"
+  },
+  "providers": {
+    "OPENAI": "VERIFIED",
+    "ANTHROPIC": "VERIFIED",
+    "XAI_GROK": "VERIFIED",
+    "NEMOTRON": "VERIFIED",
+    "GEMINI": "ENVIRONMENT_BLOCKED",
+    "QWEN": "ENVIRONMENT_BLOCKED",
+    "GEMMA": "ENVIRONMENT_BLOCKED",
+    "DEVIN": "VERIFIED",
+    "Z_CODE_5_3": "UNVERIFIED",
+    "DEEPSEEK": "CONFIGURED",
+    "KIMI": "CONFIGURED",
+    "MISTRAL": "ENVIRONMENT_BLOCKED",
+    "NORTH": "ENVIRONMENT_BLOCKED"
+  },
+  "environmentBlocked": ["GEMINI", "QWEN", "GEMMA", "MISTRAL", "NORTH"],
+  "unverified": ["Z_CODE_5_3"],
+  "paymentRegression": {
+    "status": "PASS",
+    "tests": 182,
+    "testFiles": 8,
+    "corePaymentSuites": 7,
+    "proofInvariants": 16
+  },
+  "featureDenominator": 336,
+  "featuresRemoved": 0,
+  "featuresUnmapped": 0,
+  "noPaymentRedesign": true,
+  "noSecondAiEngine": true,
+  "taskTypeIsInternalOnly": true,
+  "autoIsRecommendedDefault": true,
+  "backend": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "testFiles": 150,
+    "testsPassed": 2754,
+    "testsSkipped": 8,
+    "testsFailed": 0
+  },
+  "frontend": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "testFiles": 73,
+    "testsPassed": 401,
+    "testsFailed": 0
+  },
+  "desktop": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "testFiles": 5,
+    "testsPassed": 58,
+    "testsFailed": 0
+  },
+  "migrationStatus": "70/70 applied, 0 pending",
+  "routingTests": {
+    "engineTests": 35,
+    "routeTests": 3,
+    "total": 38,
+    "testFile": "backend/src/foundation/model-routing-51.test.ts + routing-routes.test.ts"
+  },
+  "secretScan": {
+    "status": "PASS",
+    "hardcodedKeysInNewFiles": 0,
+    "repoWideScan": "CLEAN"
+  },
+  "architecturalIntegrity": {
+    "singleRouterEngine": "PASS",
+    "noSecondAiEngine": "PASS",
+    "noInventedCapabilities": "PASS",
+    "noSilentSensitiveSwitching": "PASS",
+    "webAndDesktopShareBackend": "PASS",
+    "desktopOnlyBrain": "NONE",
+    "serverAuthoritativeRegistry": "PASS",
+    "costHonesty": "PASS"
+  },
+  "findings": [],
+  "filesCreated": [
+    "backend/src/modules/ai/router.ts",
+    "backend/src/modules/ai/intent.ts",
+    "backend/src/modules/ai/capabilities.ts",
+    "backend/src/modules/ai/routing-preferences.ts",
+    "backend/src/foundation/model-routing-51.test.ts",
+    "backend/src/foundation/routing-routes.test.ts",
+    "backend/src/scripts/real-routing-check.mts",
+    "database/migrations/0070_model_routing.sql",
+    "docs/CODECONCLAVE_MODEL_ROUTING_BASELINE.md",
+    "docs/CODECONCLAVE_INTELLIGENT_ROUTING.md",
+    "docs/CODECONCLAVE_MODEL_ROUTING_POLICY.md",
+    "docs/CODECONCLAVE_FAILOVER_POLICY.md",
+    "docs/CODECONCLAVE_MODEL_ROUTING_AUDIT.md",
+    "docs/CODECONCLAVE_MODEL_ROUTING_AUDIT.json"
+  ],
+  "filesModified": [
+    "backend/src/modules/ai/gateway.ts",
+    "backend/src/modules/ai/routes.ts",
+    "backend/src/modules/conversations/chat.ts",
+    "backend/src/modules/execution/coworkers.ts",
+    "frontend/src/components/ModelPicker.tsx",
+    "frontend/src/components/ModelPicker.test.tsx",
+    "frontend/src/pages/HomeChat.tsx",
+    "frontend/src/lib/sse.ts",
+    "desktop/src/cloud/client.ts"
+  ],
+  "skipNote": "Prompt 2 complete. STOP — do not start Prompt 3."
+}

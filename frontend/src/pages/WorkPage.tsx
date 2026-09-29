@@ -1,5 +1,5 @@
 /**
- * CodeConClave — 24/7 Work: the task queue (create, cancel, poll status)
+ * CodeConClave — Tasks: the task queue (create, cancel, poll status)
  * plus the Artifact Center (artifacts produced by tasks and coworkers).
  * Approvals surface separately under Approvals.
  */
@@ -11,19 +11,19 @@ import { useToast } from '../components/Toast';
 const STATUS_COLOR: Record<string, string> = {
   COMPLETED: '#1e7d46',
   VERIFIED: '#1e7d46',
-  FAILED: '#b3261e',
-  TIMED_OUT: '#b3261e',
+  FAILED: '#dc2626',
+  TIMED_OUT: '#dc2626',
   CANCELLED: '#6b675e',
   WAITING_APPROVAL: '#c15f3c',
-  RUNNING: '#2f6fdb',
+  RUNNING: '#2563eb',
   WAITING_FOR_LOCAL_AGENT: '#b1ada1',
 };
 
 const PREVIEW_COLOR: Record<string, { label: string; color: string }> = {
-  BUILDING: { label: 'Building', color: '#2f6fdb' },
-  UPDATING: { label: 'Updating', color: '#2f6fdb' },
+  BUILDING: { label: 'Building', color: '#2563eb' },
+  UPDATING: { label: 'Updating', color: '#2563eb' },
   READY: { label: 'Ready', color: '#1e7d46' },
-  ERROR: { label: 'Build error', color: '#b3261e' },
+  ERROR: { label: 'Build error', color: '#dc2626' },
   OFFLINE: { label: 'Offline', color: '#6b675e' },
   NOT_CONFIGURED: { label: 'Not configured', color: '#6b675e' },
 };
@@ -87,7 +87,12 @@ export function WorkPage() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), 8000);
+    // Skip ticks while the tab is hidden: polling a task list nobody is
+    // looking at wastes requests and can pile up work after sleep/resume.
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void load();
+    }, 8000);
     return () => window.clearInterval(timer);
   }, [load]);
 
@@ -238,7 +243,7 @@ export function WorkPage() {
 
   const retry = async (id: string) => {
     try {
-      await api(`/api/v1/execution/tasks/${id}/retry`, { method: 'POST', body: { reason: 'Retried from 24/7 Work' } });
+      await api(`/api/v1/execution/tasks/${id}/retry`, { method: 'POST', body: { reason: 'Retried from Tasks' } });
       toast('Task re-queued');
       await load();
     } catch (err) {
@@ -248,7 +253,7 @@ export function WorkPage() {
 
   return (
     <div className="cc-page">
-      <h1>24/7 Work</h1>
+      <h1>Tasks</h1>
       <div className="cc-card">
         <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 140px 140px', marginBottom: 8 }}>
           <input className="cc-input" placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -303,7 +308,7 @@ export function WorkPage() {
               <strong>{t.title}</strong>
               {t.description && <div className="cc-hint">{t.description}</div>}
               <div className="cc-hint" style={{ marginTop: 4 }}>
-                {t.executionMode} · {t.riskLevel} · pipeline: {t.coworkerPipeline.join(' → ') || 'default'}
+                {t.executionMode} · {t.riskLevel} · pipeline: {t.coworkerPipeline?.length ? t.coworkerPipeline.join(' → ') : 'default'}
               </div>
               {t.executionMode === 'LOCAL' && t.status === 'WAITING_FOR_LOCAL_AGENT' && (
                 <div className="cc-hint" style={{ marginTop: 4 }}>
@@ -427,11 +432,11 @@ export function WorkPage() {
               <p className="cc-hint">Build succeeded. Open it in a new tab (strict CSP — it cannot be embedded).</p>
             )}
             {preview.state === 'ERROR' && <div className="cc-error">{preview.error ?? 'Build failed.'}</div>}
-            {preview.build_log.length > 0 && (
+            {(preview.build_log ?? []).length > 0 && (
               <details style={{ marginTop: 8 }}>
-                <summary className="cc-hint">Build log ({preview.build_log.length} lines)</summary>
+                <summary className="cc-hint">Build log ({(preview.build_log ?? []).length} lines)</summary>
                 <pre className="cc-mono" style={{ background: 'var(--cc-bg)', padding: 8, marginTop: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {preview.build_log.slice(-30).join('\n')}
+                  {(preview.build_log ?? []).slice(-30).join('\n')}
                 </pre>
               </details>
             )}

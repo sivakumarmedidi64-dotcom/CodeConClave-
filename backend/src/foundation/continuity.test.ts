@@ -127,7 +127,7 @@ describe('free-limit checks', () => {
   it('blocks free users at the daily message limit', async () => {
     db.state.resolve = (text) => {
       if (text.includes('SELECT plan_id FROM users')) return [{ plan_id: 'free' }];
-      if (text.includes('FROM usage_counters')) return [{ name: 'daily_messages', value: String(env.FREE_DAILY_MESSAGES) }];
+      if (text.includes('FROM free_usage_windows')) return [{ window_start: new Date(Date.now() - 3600_000), used: env.FREE_DAILY_MESSAGES }];
       return null;
     };
     const check = await checkFreeLimits('u1', 'message');

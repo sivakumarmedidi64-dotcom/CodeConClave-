@@ -15,7 +15,7 @@
  *   SKIP_STALE       → nothing executes; occurrences are recorded SKIPPED
  *                      ('stale_missed').
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -51,12 +51,14 @@ function staleThresholdMs(s: ScheduledTaskRow): number {
 
 /** Atomically claim an occurrence. Returns the inserted row or null on conflict. */
 export async function claimOccurrence(scheduleId: string, ownerId: string, scheduledFor: Date): Promise<ScheduleRunRow | null> {
-  const result = await pool.query(
-    `INSERT INTO schedule_runs (id, schedule_id, owner_id, scheduled_for, status)
-     VALUES ($1,$2,$3,$4,'DUE')
-     ON CONFLICT (schedule_id, scheduled_for) DO NOTHING
-     RETURNING *`,
-    [newId(PREFIX.SCHEDULE_RUN), scheduleId, ownerId, scheduledFor.toISOString()],
+  const result = await withTenant<{ rows: Record<string, unknown>[] }>(ownerId, (q) =>
+    q.query(
+      `INSERT INTO schedule_runs (id, schedule_id, owner_id, scheduled_for, status)
+       VALUES ($1,$2,$3,$4,'DUE')
+       ON CONFLICT (schedule_id, scheduled_for) DO NOTHING
+       RETURNING *`,
+      [newId(PREFIX.SCHEDULE_RUN), scheduleId, ownerId, scheduledFor.toISOString()],
+    ),
   );
   if (!result.rows[0]) return null;
   return mapRunRow(result.rows[0]);
@@ -79,7 +81,7 @@ function mapRunRow(row: Record<string, unknown>): ScheduleRunRow {
   };
 }
 
-async function updateRun(id: string, patch: Record<string, unknown>): Promise<void> {
+async function updateRun(ownerId: string, id: string, patch: Record<string, unknown>): Promise<void> {
   const sets: string[] = [];
   const params: unknown[] = [id];
   for (const [k, v] of Object.entries(patch)) {
@@ -87,11 +89,11 @@ async function updateRun(id: string, patch: Record<string, unknown>): Promise<vo
     sets.push(`${k} = $${params.length}`);
   }
   if (sets.length === 0) return;
-  await pool.query(`UPDATE schedule_runs SET ${sets.join(', ')} WHERE id = $1`, params);
+  await withTenant(ownerId, (q) => q.query(`UPDATE schedule_runs SET ${sets.join(', ')} WHERE id = $1`, params));
 }
 
 async function markFailed(run: ScheduleRunRow, error: string, reason?: string): Promise<void> {
-  await updateRun(run.id, {
+  await updateRun(run.owner_id, run.id, {
     status: 'FAILED',
     error,
     reason: reason ?? null,
@@ -109,8 +111,8 @@ async function markFailed(run: ScheduleRunRow, error: string, reason?: string): 
 }
 
 /** Export for manual run-now paths: mark a claimed run failed by id. */
-export async function markScheduleRunFailed(runId: string, error: string): Promise<void> {
-  await updateRun(runId, {
+export async function markScheduleRunFailed(ownerId: string, runId: string, error: string): Promise<void> {
+  await updateRun(ownerId, runId, {
     status: 'FAILED',
     error,
     reason: 'execution_failed',
@@ -120,7 +122,7 @@ export async function markScheduleRunFailed(runId: string, error: string): Promi
 
 /** Record a non-executed occurrence per the missed-run policy. */
 async function recordMissed(run: ScheduleRunRow, schedule: ScheduledTaskRow, kind: 'MISSED' | 'SKIPPED', reason: string): Promise<void> {
-  await updateRun(run.id, {
+  await updateRun(schedule.owner_id, run.id, {
     status: kind,
     reason,
     completed_at: new Date().toISOString(),
@@ -158,10 +160,12 @@ export async function executeClaimedRun(schedule: ScheduledTaskRow, run: Schedul
 
   // Apply the schedule's execution contract to the run's tasks (server-authoritative).
   const modeSql = schedule.execution_mode === 'LOCAL_ONLY' ? 'LOCAL' : schedule.execution_mode;
-  await pool.query(
-    `UPDATE tasks SET execution_mode = $2, timeout_ms = $3, max_attempts = $4
-      WHERE agent_run_id = $1`,
-    [agentRun.id, modeSql, schedule.timeout_ms, schedule.max_attempts],
+  await withTenant(schedule.owner_id, (q) =>
+    q.query(
+      `UPDATE tasks SET execution_mode = $2, timeout_ms = $3, max_attempts = $4
+        WHERE agent_run_id = $1`,
+      [agentRun.id, modeSql, schedule.timeout_ms, schedule.max_attempts],
+    ),
   );
 
   const status = schedule.require_approval
@@ -169,7 +173,7 @@ export async function executeClaimedRun(schedule: ScheduledTaskRow, run: Schedul
     : schedule.execution_mode === 'LOCAL_ONLY'
       ? 'WAITING_FOR_LOCAL_AGENT'
       : 'RUNNING';
-  await updateRun(run.id, {
+  await updateRun(schedule.owner_id, run.id, {
     status,
     agent_run_id: agentRun.id,
     reason: reason ?? null,
@@ -200,18 +204,22 @@ async function advanceSchedule(
   const anchor = anchorFor(schedule);
   const next = nextRunAt(anchor, now);
   if (schedule.recurrence === 'ONCE' && !next) {
-    await pool.query(
-      `UPDATE scheduled_tasks SET enabled = false, next_run_at = $3, last_run_at = $3, last_run_status = $4, run_count = run_count + 1, error = $5, updated_at = now()
-       WHERE id = $1 AND owner_id = $2`,
-      [schedule.id, schedule.owner_id, firedAt.toISOString(), outcome, error ?? null],
+    await withTenant(schedule.owner_id, (q) =>
+      q.query(
+        `UPDATE scheduled_tasks SET enabled = false, next_run_at = $3, last_run_at = $3, last_run_status = $4, run_count = run_count + 1, error = $5, updated_at = now()
+         WHERE id = $1 AND owner_id = $2`,
+        [schedule.id, schedule.owner_id, firedAt.toISOString(), outcome, error ?? null],
+      ),
     );
     return;
   }
   if (!next) return;
-  await pool.query(
-    `UPDATE scheduled_tasks SET next_run_at = $3, last_run_at = $4, last_run_status = $5, run_count = run_count + 1, error = $6, updated_at = now()
-     WHERE id = $1 AND owner_id = $2`,
-    [schedule.id, schedule.owner_id, next.toISOString(), firedAt.toISOString(), outcome, error ?? null],
+  await withTenant(schedule.owner_id, (q) =>
+    q.query(
+      `UPDATE scheduled_tasks SET next_run_at = $3, last_run_at = $4, last_run_status = $5, run_count = run_count + 1, error = $6, updated_at = now()
+       WHERE id = $1 AND owner_id = $2`,
+      [schedule.id, schedule.owner_id, next.toISOString(), firedAt.toISOString(), outcome, error ?? null],
+    ),
   );
 }
 
@@ -220,10 +228,12 @@ async function advanceSchedule(
  * missed-run policies. Returns the number of occurrences processed.
  */
 export async function schedulerTick(limit = 50): Promise<number> {
-  const due = await queryMany<ScheduledTaskRow>(
-    `SELECT * FROM scheduled_tasks WHERE enabled = true AND next_run_at <= now()
-     ORDER BY next_run_at LIMIT $1 FOR UPDATE SKIP LOCKED`,
-    [limit],
+  const due = await withSystem(async (q) =>
+    (await q.query<ScheduledTaskRow>(
+      `SELECT * FROM scheduled_tasks WHERE enabled = true AND next_run_at <= now()
+       ORDER BY next_run_at LIMIT $1 FOR UPDATE SKIP LOCKED`,
+      [limit],
+    )).rows,
   );
   const now = new Date();
   let processed = 0;
@@ -307,31 +317,37 @@ export async function schedulerTick(limit = 50): Promise<number> {
  * runs, fire completion notifications, and mark schedule timeouts truthfully.
  */
 export async function reconcileDueSchedules(limit = 100): Promise<number> {
-  const live = await queryMany<ScheduleRunRow>(
-    `SELECT sr.* FROM schedule_runs sr
-      JOIN ai_agent_runs ar ON ar.id = sr.agent_run_id
-     WHERE sr.status IN ('RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_LOCAL_AGENT')
-       AND ar.status IN ('COMPLETED','FAILED','BLOCKED','TIMED_OUT')
-     ORDER BY sr.scheduled_for
-     LIMIT $1`,
-    [limit],
+  const live = await withSystem(async (q) =>
+    (await q.query<ScheduleRunRow>(
+      `SELECT sr.* FROM schedule_runs sr
+        JOIN ai_agent_runs ar ON ar.id = sr.agent_run_id
+       WHERE sr.status IN ('RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_LOCAL_AGENT')
+         AND ar.status IN ('COMPLETED','FAILED','BLOCKED','TIMED_OUT')
+       ORDER BY sr.scheduled_for
+       LIMIT $1`,
+      [limit],
+    )).rows,
   );
   let changed = 0;
   for (const raw of live) {
     const run = mapRunRow(raw as unknown as Record<string, unknown>);
-    const agentState = await queryMany<{ status: string; error: string | null }>(
-      'SELECT status, error FROM ai_agent_runs WHERE id = $1', [run.agent_run_id],
+    const agentState = await withTenant<{ status: string; error: string | null }[]>(run.owner_id, async (q) =>
+      (await q.query<{ status: string; error: string | null }>(
+        'SELECT status, error FROM ai_agent_runs WHERE id = $1', [run.agent_run_id],
+      )).rows,
     );
     const st = agentState[0]?.status;
     const err = agentState[0]?.error ?? null;
     if (!st) continue;
-    const sched = await queryMany<ScheduledTaskRow>('SELECT * FROM scheduled_tasks WHERE id = $1', [run.schedule_id]);
+    const sched = await withTenant<ScheduledTaskRow[]>(run.owner_id, async (q) =>
+      (await q.query<ScheduledTaskRow>('SELECT * FROM scheduled_tasks WHERE id = $1', [run.schedule_id])).rows,
+    );
     if (!sched[0]) continue;
     const schedule = rowToSchedule(sched[0] as unknown as Record<string, unknown>);
 
     if (st === 'COMPLETED') {
-      await updateRun(run.id, { status: 'COMPLETED', completed_at: new Date().toISOString(), error: null });
-      await pool.query(`UPDATE scheduled_tasks SET last_run_status = 'COMPLETED', error = NULL, updated_at = now() WHERE id = $1`, [schedule.id]);
+      await updateRun(run.owner_id, run.id, { status: 'COMPLETED', completed_at: new Date().toISOString(), error: null });
+      await withTenant(run.owner_id, (q) => q.query(`UPDATE scheduled_tasks SET last_run_status = 'COMPLETED', error = NULL, updated_at = now() WHERE id = $1`, [schedule.id]));
       if (schedule.notify_on_completion) {
         await notify(schedule.owner_id, NotificationType.SCHEDULE_RUN_COMPLETED, `Scheduled run completed: ${schedule.title}`, {
           body: `The scheduled run ${schedule.title} finished successfully.`,
@@ -346,8 +362,8 @@ export async function reconcileDueSchedules(limit = 100): Promise<number> {
       }
       changed++;
     } else if (st === 'FAILED' || st === 'BLOCKED' || st === 'TIMED_OUT') {
-      await updateRun(run.id, { status: st === 'TIMED_OUT' ? 'FAILED' : st, completed_at: new Date().toISOString(), error: err });
-      await pool.query(`UPDATE scheduled_tasks SET last_run_status = 'FAILED', error = $2, updated_at = now() WHERE id = $1`, [schedule.id, err]);
+      await updateRun(run.owner_id, run.id, { status: st === 'TIMED_OUT' ? 'FAILED' : st, completed_at: new Date().toISOString(), error: err });
+      await withTenant(run.owner_id, (q) => q.query(`UPDATE scheduled_tasks SET last_run_status = 'FAILED', error = $2, updated_at = now() WHERE id = $1`, [schedule.id, err]));
       if (schedule.notify_on_completion) {
         await notify(schedule.owner_id, NotificationType.SCHEDULE_RUN_FAILED, `Scheduled run failed: ${schedule.title}`, {
           body: err ?? 'The scheduled run failed.',

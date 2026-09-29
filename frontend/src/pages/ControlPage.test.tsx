@@ -33,9 +33,9 @@ const SCAN = {
   owner_id: 'u1',
   target_type: 'agent_output',
   target_ref: 'run-1',
-  matched: true,
+  result: 'FINDINGS',
   findings: [{ kind: 'openai_api_key', location: 'run-1:12', confidence: 0.95, preview: 'sk-…' }],
-  created_at: '2026-08-19T00:00:00Z',
+  scanned_at: '2026-08-19T00:00:00Z',
 };
 
 const calls: string[] = [];
@@ -66,13 +66,13 @@ function handler(url: string, init?: RequestInit): Promise<Response> {
     return Promise.resolve(jsonResponse({ data: { scan: SCAN } }, 201));
   }
   if (url.includes('/api/v1/control/usage/cost-per-task')) {
-    return Promise.resolve(jsonResponse({ data: { cost: { costUsd: 0.05, aiUsd: 0.04, calls: 2 } } }));
+    return Promise.resolve(jsonResponse({ data: { cost: { feature: 'task', calls: 2, inputTokens: 100, outputTokens: 50, costUsd: 0.05 } } }));
   }
   if (url.includes('/api/v1/control/usage/cost-per-feature')) {
-    return Promise.resolve(jsonResponse({ data: { features: [{ feature: 'tasks', cost_usd: 0.01, calls: 2 }] } }));
+    return Promise.resolve(jsonResponse({ data: { features: [{ feature: 'tasks', calls: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.01 }] } }));
   }
   if (url.includes('/api/v1/control/usage/roi')) {
-    return Promise.resolve(jsonResponse({ data: { estimateUsd: 25, tasks: 5, aiCostUsd: 0.2, days: 30, labelled: true } }));
+    return Promise.resolve(jsonResponse({ data: { rows: [{ feature: 'tasks', calls: 2, inputTokens: 10, outputTokens: 5, costUsd: 0.2, tasksCompleted: 5, valueUsd: 25, roi: 125 }], label: 'estimate — value = completed tasks × $5 manual-equivalent baseline; ROI = value / AI cost' } }));
   }
   if (url.includes('/api/v1/control/usage/transparency')) {
     return Promise.resolve(jsonResponse({ data: { calls: [] } }));
@@ -146,7 +146,7 @@ describe('ControlPage', () => {
 
   it('labels the ROI as an estimate', async () => {
     renderPage();
-    await waitFor(() => expect(screen.getByText(/\$25\.00 estimated value/)).toBeInTheDocument());
-    expect(screen.getByText(/estimate only, using a fixed \$5\/task value model/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/\$25\.00 value/)).toBeInTheDocument());
+    expect(screen.getByText(/manual-equivalent baseline/)).toBeInTheDocument();
   });
 });

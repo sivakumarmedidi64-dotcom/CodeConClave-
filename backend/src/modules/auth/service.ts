@@ -3,7 +3,7 @@
  * Registration, password login, MFA (TOTP), recovery codes, sessions, devices.
  * Server is the single authority: sessions are opaque tokens, hashed at rest.
  */
-import { createHmac } from 'node:crypto';
+import { createHmac, randomInt } from 'node:crypto';
 import { pool, withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import {
@@ -27,11 +27,54 @@ import type { Request } from 'express';
 import { setSessionCookie } from '../../middleware/auth.js';
 import type { AuthUser } from '../../middleware/context.js';
 import { recordAudit } from '../audit/service.js';
-import { AuditAction } from '@codeconclave/shared';
+import { AuditAction, ONBOARDING_ROLES, ONBOARDING_USE_CASES } from '@codeconclave/shared';
 import type { Response } from 'express';
 import { incMetric } from '../../observability/metrics.js';
+import { isFounderAccount, isFounderEmail } from '../entitlements/service.js';
+import { validateHandle, validateKeyword } from './identity-policy.js';
+
+/** Upgrade a legacy scrypt v1 hash to the current v2 parameters after a
+ *  successful authentication. Never throws: a failed upgrade must not deny an
+ *  otherwise valid sign-in. */
+async function rehashIfStale(
+  table: 'users' | 'recovery_codes',
+  column: string,
+  userId: string,
+  rowId: string,
+  plaintext: string,
+  attempts: 0 | 1 = 1,
+): Promise<boolean> {
+  try {
+    const { needsRehash, rehashSecret } = await import('../../shared/crypto.js');
+    const current = await pool.query<{ hash: string }>(
+      `SELECT ${column} AS hash FROM ${table} WHERE id = $1`,
+      [rowId],
+    );
+    const stored = current.rows[0]?.hash;
+    if (!stored || !needsRehash(stored)) return false;
+    if (attempts === 1) {
+      await pool.query(`UPDATE ${table} SET ${column} = $1 WHERE id = $2`, [rehashSecret(stored, plaintext), rowId]);
+      incMetric('auth.hash_upgraded');
+      return true;
+    }
+    return needsRehash(stored);
+  } catch (err) {
+    logger.warn('scrypt rehash-upgrade failed', { userId, error: (err as Error).message });
+    return false;
+  }
+}
 
 const MFA_CHALLENGE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * B3: upgrade a legacy scrypt v1 recovery-code hash to the current v2
+ * parameters once it has been presented successfully. Exposed for the identity
+ * (handle+keyword) TOTP path, which resolves recovery codes through identity.ts
+ * rather than through completeMfa.
+ */
+export function rehashRecoveryCodeIfStale(rowId: string, plaintext: string, userId = 'unknown'): Promise<boolean> {
+  return rehashIfStale('recovery_codes', 'code_hash', userId, rowId, plaintext);
+}
 
 // ---------------------------------------------------------------- MFA challenge tokens
 
@@ -90,7 +133,7 @@ export function verifySignedToken<T>(token: string, purpose: string): T {
 // ---------------------------------------------------------------- sessions
 
 /** Associate a session with a PAIRED device presented via x-device-token. */
-async function deviceForRequest(userId: string, req: Request): Promise<string | null> {
+export async function deviceForRequest(userId: string, req: Request): Promise<string | null> {
   const token = req.headers['x-device-token'];
   if (typeof token !== 'string' || !token) return null;
   const result = await pool.query(
@@ -100,7 +143,7 @@ async function deviceForRequest(userId: string, req: Request): Promise<string | 
   return result.rows[0]?.id ?? null;
 }
 
-async function createSessionForUser(
+export async function createSessionForUser(
   userId: string,
   req: Request,
   deviceId: string | null = null,
@@ -147,7 +190,7 @@ export async function hookSuspiciousSession(userId: string, sessionId: string, r
     tenantId: userId,
     ip: req.ip,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
     detail: { reason: 'new_ip', ip: req.ip },
   });
 }
@@ -187,7 +230,7 @@ export async function rotateSessionsAfterPrivilegeChange(
     resourceId: created.sessionId,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
   });
   return created.token;
 }
@@ -206,6 +249,8 @@ function toAuthUser(row: Record<string, unknown>): AuthUser {
     displayName: (row.display_name as string | null) ?? null,
     avatarUrl: (row.avatar_url as string | null) ?? null,
     googleSub: (row.google_sub as string | null) ?? null,
+    role: (row.role as string | null) ?? null,
+    primaryUseCase: (row.primary_use_case as string | null) ?? null,
     mfaEnabled: (row.mfa_enabled as boolean) ?? false,
     rbacRole: (row.rbac_role as AuthUser['rbacRole']) ?? 'member',
     planId: (row.plan_id as AuthUser['planId']) ?? 'free',
@@ -213,36 +258,101 @@ function toAuthUser(row: Record<string, unknown>): AuthUser {
   };
 }
 
+/**
+ * PostgreSQL 23505 (unique_violation) on a specific constraint. The unique
+ * index on lower(handle) is authoritative for handle collisions: a concurrent
+ * registration can win the race between the pre-check and the insert.
+ */
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  const e = err as { code?: string; constraint?: string };
+  return e?.code === '23505' && e?.constraint === constraint;
+}
+
 export async function register(input: {
   email: string;
   password: string;
+  handle?: string;
+  keyword?: string;
   displayName?: string;
+  role?: string;
+  primaryUseCase?: string;
 }, req: Request): Promise<AuthResult> {
   const email = input.email.trim().toLowerCase();
+
+  // D1: handle + keyword are the primary credentials. Validate them BEFORE any
+  // row is written, so an invalid handle cannot leave a half-registered
+  // account, and reject a half-pair outright rather than silently creating an
+  // account with only half of its primary login.
+  const wantsIdentity = input.handle !== undefined || input.keyword !== undefined;
+  if (wantsIdentity && (input.handle === undefined || input.keyword === undefined)) {
+    throw AppError.badRequest('identity_pair_required', 'handle and keyword must be provided together');
+  }
+  const identity = wantsIdentity
+    ? { handle: validateHandle(input.handle as string), keyword: validateKeyword(input.keyword as string) }
+    : null;
+
   const existing = await pool.query('SELECT id FROM users WHERE lower(email) = $1', [email]);
   if (existing.rows[0]) throw AppError.conflict('email_taken', 'An account with this email already exists');
 
+  if (identity) {
+    const taken = await pool.query('SELECT 1 FROM user_auth_identities WHERE lower(handle) = $1', [identity.handle]);
+    if (taken.rows[0]) throw AppError.conflict('handle_taken', 'That handle is not available');
+  }
+
+  // Security fix (founder squat): the configured founder address is reserved.
+  // Founder entitlement requires users.is_founder + a verified email, so an
+  // unverified registration could no longer unlock a Team workspace — but it
+  // could still permanently lock the real founder out of their own address.
+  // Reserve it at registration instead of provisioning a founder account here:
+  // no founder row is ever auto-created by this path.
+  if (isFounderEmail(email)) {
+    throw AppError.conflict('email_taken', 'An account with this email already exists');
+  }
+
   const userId = newId(PREFIX.USER);
-  await withTenant(null, async (q) => {
-    await q.query(
-      `INSERT INTO users (id, email, password_hash, display_name, email_verified)
-       VALUES ($1,$2,$3,$4,false)`,
-      [userId, email, hashSecret(input.password), input.displayName ?? null],
-    );
-    await q.query(
-      `INSERT INTO entitlements (id, user_id, plan_id, state) VALUES ($1,$2,'free','FREE')`,
-      [newId(PREFIX.ENTITLEMENT), userId],
-    );
-    await q.query(
-      `INSERT INTO user_preferences (id, owner_id, prefs) VALUES ($1,$2,'{}'::jsonb)`,
-      [newId(PREFIX.PREFERENCE), userId],
-    );
-  });
+  try {
+    await withTenant(null, async (q) => {
+      // is_founder is explicitly false for every self-service registration.
+      await q.query(
+        `INSERT INTO users (id, email, password_hash, display_name, role, primary_use_case, email_verified, is_founder)
+       VALUES ($1,$2,$3,$4,$5,$6,false,false)`,
+        [userId, email, hashSecret(input.password), input.displayName ?? null, input.role ?? null, input.primaryUseCase ?? null],
+      );
+      // The identity row is written in the SAME transaction, so an account can
+      // never exist with a half-written identity, and a failed handle insert
+      // rolls the account back instead of orphaning it. The SQL mirrors
+      // createIdentityForUser() in identity.ts; it is inlined here because
+      // identity.ts already imports from this module and the reverse edge would
+      // create a require cycle.
+      if (identity) {
+        await q.query(
+          `INSERT INTO user_auth_identities (id, user_id, handle, keyword_hash, preferred_mfa, keyword_changed_at)
+           VALUES ($1,$2,$3,$4,'none', now())`,
+          [newId(PREFIX.AUTH_IDENTITY), userId, identity.handle, hashSecret(identity.keyword)],
+        );
+      }
+      await q.query(
+        `INSERT INTO entitlements (id, user_id, plan_id, state) VALUES ($1,$2,'free','FREE')`,
+        [newId(PREFIX.ENTITLEMENT), userId],
+      );
+      await q.query(
+        `INSERT INTO user_preferences (id, owner_id, prefs) VALUES ($1,$2,'{}'::jsonb)`,
+        [newId(PREFIX.PREFERENCE), userId],
+      );
+    });
+  } catch (err) {
+    // The unique index on lower(handle) is authoritative: a concurrent
+    // registration can win the race between the pre-check and the insert.
+    if (isUniqueViolation(err, 'uq_auth_identity_handle')) {
+      throw AppError.conflict('handle_taken', 'That handle is not available');
+    }
+    throw err;
+  }
 
   const created = await createSessionForUser(userId, req, await deviceForRequest(userId, req));
   const user = await getUserById(userId);
   await recordAudit({
-    action: AuditAction.AUTH_LOGIN,
+    action: identity ? AuditAction.AUTH_IDENTITY_ENROLLED : AuditAction.AUTH_LOGIN,
     actorUserId: userId,
     scope: 'USER',
     tenantId: userId,
@@ -250,7 +360,76 @@ export async function register(input: {
     resourceId: userId,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
+    detail: identity ? { handle: identity.handle, via: 'registration' } : undefined,
+  });
+  return { user, sessionToken: created.token, sessionId: created.sessionId };
+}
+
+/**
+ * Founder access — explicit founder-only entry for the designated account
+ * configured via PAYMENT_FOUNDER_EMAIL. The founder signs in with the
+ * account's existing password (no OTP, no typed-email magic). MUST fail
+ * closed:
+ *  - the address must match the configured founder email, AND
+ *  - the account must already exist (never auto-provisioned), AND
+ *  - the provided password must verify against that account's hash.
+ * Every failure returns the SAME forbidden error (anti-enumeration: the
+ * response never reveals whether an address is the founder or whether the
+ * account exists). MFA is never bypassed. When PAYMENT_FOUNDER_EMAIL is not
+ * configured this can never succeed.
+ */
+export async function founderAccess(
+  input: { email: string; password: string },
+  req: Request,
+): Promise<AuthResult | { mfaRequired: true; challengeToken: string; userId: string }> {
+  const email = input.email.trim().toLowerCase();
+  const result = await pool.query('SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL', [email]);
+  const row = result.rows[0];
+  // Founder sign-in requires the PROVISIONED founder account (users.is_founder),
+  // a VERIFIED founder email, and the correct credential. Previously this used
+  // only the email string, so an unverified account registered with the founder
+  // address could sign in. MFA below is still never bypassed.
+  const founderOk = await isFounderAccount(row?.id, {
+    email: row?.email ?? email,
+    emailVerified: row?.email_verified,
+  });
+  const valid = !!row && founderOk && !!row.password_hash && verifyHash(row.password_hash as string, input.password);
+  if (!valid) {
+    incMetric('security.auth_failures');
+    await recordAudit({
+      action: AuditAction.AUTH_LOGIN_FAILED,
+      actorUserId: (row?.id as string | undefined) ?? null,
+      scope: 'USER',
+      tenantId: (row?.id as string | undefined) ?? null,
+      ip: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+      correlationId: req.ctx?.correlationId ?? null,
+      detail: { reason: 'founder_access_denied' },
+    });
+    throw AppError.forbidden('founder_access_denied', 'Founder access is not authorized');
+  }
+
+  if (row.mfa_enabled) {
+    return { mfaRequired: true, challengeToken: createMfaChallenge(row.id as string), userId: row.id as string };
+  }
+
+  await rehashIfStale('users', 'password_hash', row.id as string, row.id as string, input.password);
+
+  const created = await createSessionForUser(row.id as string, req, await deviceForRequest(row.id as string, req));
+  const user = toAuthUser(row);
+  await recordAudit({
+    action: AuditAction.AUTH_LOGIN,
+    actorUserId: row.id as string,
+    scope: 'USER',
+    tenantId: row.id as string,
+    ip: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
+    detail: { via: 'founder' },
+  });
+  await hookSuspiciousSession(row.id as string, created.sessionId, req).catch((err) => {
+    logger.warn('suspicious-session hook failed', { error: (err as Error).message });
   });
   return { user, sessionToken: created.token, sessionId: created.sessionId };
 }
@@ -274,7 +453,7 @@ export async function login(
       tenantId: (row?.id as string | undefined) ?? null,
       ip: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
-      traceId: req.ctx?.traceId ?? null,
+      correlationId: req.ctx?.correlationId ?? null,
       detail: { reason: 'bad_credentials' },
     });
     throw AppError.unauthorized('bad_credentials', 'Incorrect email or password');
@@ -283,6 +462,8 @@ export async function login(
   if (row.mfa_enabled) {
     return { mfaRequired: true, challengeToken: createMfaChallenge(row.id as string), userId: row.id as string };
   }
+
+  await rehashIfStale('users', 'password_hash', row.id as string, row.id as string, input.password);
 
   const created = await createSessionForUser(row.id as string, req, await deviceForRequest(row.id as string, req));
   const user = toAuthUser(row);
@@ -293,7 +474,7 @@ export async function login(
     tenantId: row.id as string,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
   });
   await hookSuspiciousSession(row.id as string, created.sessionId, req).catch((err) => {
     logger.warn('suspicious-session hook failed', { error: (err as Error).message });
@@ -329,6 +510,8 @@ export async function completeMfa(input: {
     );
     for (const codeRow of codes.rows) {
       if (verifyHash(codeRow.code_hash as string, normalized)) {
+        // B3: transparently upgrade a v1 recovery-code hash before consuming it.
+        await rehashIfStale('recovery_codes', 'code_hash', challenge.userId, codeRow.id as string, normalized);
         await pool.query('UPDATE recovery_codes SET used_at = now() WHERE id = $1', [codeRow.id]);
         ok = true;
         usedRecovery = true;
@@ -345,7 +528,7 @@ export async function completeMfa(input: {
       tenantId: challenge.userId,
       ip: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
-      traceId: req.ctx?.traceId ?? null,
+      correlationId: req.ctx?.correlationId ?? null,
     });
     throw AppError.unauthorized('mfa_failed', 'MFA verification failed');
   }
@@ -358,7 +541,7 @@ export async function completeMfa(input: {
     tenantId: challenge.userId,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
     detail: usedRecovery ? { via: 'recovery_code' } : undefined,
   });
   return { user: toAuthUser(row), sessionToken: created.token, sessionId: created.sessionId };
@@ -376,7 +559,7 @@ export async function logout(userId: string, sessionId: string, req: Request): P
     tenantId: userId,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
   });
 }
 
@@ -385,6 +568,40 @@ export async function getUserById(userId: string): Promise<AuthUser> {
   const row = result.rows[0];
   if (!row) throw AppError.notFound('User');
   return toAuthUser(row);
+}
+
+export async function updateProfile(userId: string, input: { displayName?: string | null; role?: string | null; primaryUseCase?: string | null }): Promise<AuthUser> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  if (input.displayName !== undefined) {
+    const displayName = input.displayName === null ? null : String(input.displayName).trim().slice(0, 80);
+    if (displayName !== null && displayName.length < 2) {
+      throw AppError.badRequest('display_name_short', 'Display name must be at least 2 characters');
+    }
+    sets.push(`display_name = $${params.length + 1}`);
+    params.push(displayName);
+  }
+  if (input.role !== undefined) {
+    const role = input.role === null ? null : String(input.role).trim();
+    if (role !== null && !ONBOARDING_ROLES.includes(role)) {
+      throw AppError.badRequest('invalid_role', `role must be one of: ${ONBOARDING_ROLES.join(', ')}`);
+    }
+    sets.push(`role = $${params.length + 1}`);
+    params.push(role);
+  }
+  if (input.primaryUseCase !== undefined) {
+    const primaryUseCase = input.primaryUseCase === null ? null : String(input.primaryUseCase).trim();
+    if (primaryUseCase !== null && !ONBOARDING_USE_CASES.includes(primaryUseCase)) {
+      throw AppError.badRequest('invalid_use_case', `primaryUseCase must be one of: ${ONBOARDING_USE_CASES.join(', ')}`);
+    }
+    sets.push(`primary_use_case = $${params.length + 1}`);
+    params.push(primaryUseCase);
+  }
+  if (sets.length) {
+    params.push(userId);
+    await pool.query(`UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params);
+  }
+  return getUserById(userId);
 }
 
 export async function listSessions(userId: string): Promise<unknown[]> {
@@ -411,7 +628,7 @@ export async function revokeSession(userId: string, sessionId: string, req?: Req
     resourceId: sessionId,
     ip: req?.ip ?? null,
     userAgent: req?.headers['user-agent'] ?? null,
-    traceId: req?.ctx?.traceId ?? null,
+    correlationId: req?.ctx?.correlationId ?? null,
   });
 }
 
@@ -484,7 +701,7 @@ export async function disableMfa(userId: string, code: string, req?: Request): P
     tenantId: userId,
     ip: req?.ip ?? null,
     userAgent: req?.headers['user-agent'] ?? null,
-    traceId: req?.ctx?.traceId ?? null,
+    correlationId: req?.ctx?.correlationId ?? null,
   });
   // Privilege change: rotate every session so no old session outlives the change.
   if (!req) return null;
@@ -521,7 +738,7 @@ export async function rotateRecoveryCodes(userId: string, code: string, req?: Re
     tenantId: userId,
     ip: req?.ip ?? null,
     userAgent: req?.headers['user-agent'] ?? null,
-    traceId: req?.ctx?.traceId ?? null,
+    correlationId: req?.ctx?.correlationId ?? null,
   });
   return recoveryCodes;
 }
@@ -538,7 +755,7 @@ export async function createDevice(userId: string, name: string): Promise<{ devi
   if ((count.rows[0]?.n ?? 0) >= MAX_PAIRED_DEVICES) {
     throw AppError.badRequest('device_limit_reached', `Maximum ${MAX_PAIRED_DEVICES} paired devices allowed`);
   }
-  const pairingCode = String(Math.floor(100000 + Math.random() * 900000));
+  const pairingCode = String(100000 + randomInt(0, 900000));
   const expiresAt = Date.now() + 10 * 60 * 1000;
   const deviceId = newId(PREFIX.DEVICE);
   await pool.query(
@@ -625,7 +842,7 @@ export async function revokeDevice(userId: string, deviceId: string, req?: Reque
     resourceId: deviceId,
     ip: req?.ip ?? null,
     userAgent: req?.headers['user-agent'] ?? null,
-    traceId: req?.ctx?.traceId ?? null,
+    correlationId: req?.ctx?.correlationId ?? null,
   });
 }
 

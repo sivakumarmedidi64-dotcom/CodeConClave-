@@ -11,11 +11,17 @@
  * assistant messages persisted after that id (missed while disconnected) as
  * `delta` frames — each carrying its own `id:` for client-side dedupe.
  */
+export interface DecisionRecordedPayload {
+  decisionRecorded?: { id: string; title: string; status: string } | null;
+}
+
 export type ChatStreamEvent =
   | { type: 'thinking_start'; data: Record<string, never> }
   | { type: 'delta'; data: { delta: string; id?: string | null } }
-  | { type: 'done'; data: unknown }
+  | { type: 'done'; data: { messageId?: string | null } & DecisionRecordedPayload & Record<string, unknown> }
   | { type: 'limit_reached'; data: { showMoon: boolean } }
+  | { type: 'image'; data: { fileId: string; mimeType: string } }
+  | { type: 'external_agent'; data: { externalId: string; status: string; message?: string } }
   | { type: 'error'; data: { code: string; message: string; details?: unknown } };
 
 export interface ChatRequest {
@@ -24,7 +30,10 @@ export interface ChatRequest {
   content: string;
   attachments?: { fileId: string; name: string }[];
   modelId?: string;
-  mode?: 'CHAT' | 'COWORK';
+  mode?: 'CHAT' | 'COWORK' | 'AGENT';
+  imageRequest?: boolean;
+  /** Continuity: client-generated idempotency key for exactly-once retries. */
+  clientId?: string;
 }
 
 export interface SseFrame {
@@ -54,7 +63,8 @@ export async function streamChat(
       ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
     },
     credentials: 'same-origin',
-    body: JSON.stringify(req),
+    // AUTO sentinel (empty string) must never reach the API as a pinned model.
+    body: JSON.stringify({ ...req, modelId: req.modelId ? req.modelId : undefined }),
     signal,
   });
   if (!res.ok || !res.body) {
@@ -87,6 +97,22 @@ export async function streamChat(
         break;
       case 'limit_reached':
         onEvent({ type: 'limit_reached', data: { showMoon: data.showMoon === true } });
+        break;
+      case 'image':
+        onEvent({
+          type: 'image',
+          data: { fileId: typeof data.fileId === 'string' ? data.fileId : '', mimeType: typeof data.mimeType === 'string' ? data.mimeType : '' },
+        });
+        break;
+      case 'external_agent':
+        onEvent({
+          type: 'external_agent',
+          data: {
+            externalId: typeof data.externalId === 'string' ? data.externalId : '',
+            status: typeof data.status === 'string' ? data.status : '',
+            message: typeof data.message === 'string' ? data.message : undefined,
+          },
+        });
         break;
       case 'error':
         onEvent({

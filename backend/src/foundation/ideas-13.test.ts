@@ -38,6 +38,11 @@ const db = vi.hoisted(() => {
 
 vi.mock('../shared/db.js', () => db);
 
+const gateway = vi.hoisted(() => ({ completeWithFallback: vi.fn() }));
+vi.mock('../modules/ai/gateway.js', () => gateway);
+const registry = vi.hoisted(() => ({ configuredProviders: vi.fn<() => string[]>(() => []) }));
+vi.mock('../modules/ai/registry.js', () => registry);
+
 import * as notifications from '../modules/notifications/service.js';
 import {
   createIdea,
@@ -51,6 +56,7 @@ import {
   setIdeaArchived,
   trashIdea,
   restoreIdea,
+  discussIdea,
 } from '../modules/ideas/service.js';
 
 function ideaRow(over: Record<string, unknown> = {}) {
@@ -84,6 +90,9 @@ beforeEach(() => {
   db.state.rows = [];
   db.state.rowCount = 0;
   db.state.resolve = null;
+  gateway.completeWithFallback.mockReset();
+  registry.configuredProviders.mockReset();
+  registry.configuredProviders.mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -329,5 +338,36 @@ describe('project/team scoped access', () => {
       return null;
     };
     await expect(getIdea('u3', 'ide_1')).rejects.toMatchObject({ errorCode: 'insufficient_permission' });
+  });
+});
+
+describe('discussIdea', () => {
+  it('fails honestly with ai_unavailable when no provider is configured', async () => {
+    db.state.resolve = (text) => (text.includes('SELECT i.* FROM ideas i WHERE i.id = $1') ? [ideaRow()] : null);
+    await expect(discussIdea('u1', 'ide_1', { message: 'Is this worth it?' })).rejects.toMatchObject({
+      errorCode: 'ai_unavailable',
+    });
+    expect(gateway.completeWithFallback).not.toHaveBeenCalled();
+  });
+
+  it('returns the model reply with the idea as context and persists nothing', async () => {
+    registry.configuredProviders.mockReturnValue(['ox_alpha']);
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT i.* FROM ideas i WHERE i.id = $1')) return [ideaRow({ description: 'Reduce eye strain' })];
+      if (text.includes('SELECT plan_id FROM users')) return [{ plan_id: 'pro' }];
+      return null;
+    };
+    gateway.completeWithFallback.mockResolvedValue({
+      text: 'Validate with 5 users first.',
+      providerId: 'ox_alpha',
+      modelId: 'glm',
+    });
+    const result = await discussIdea('u1', 'ide_1', { message: 'How do I validate this?' });
+    expect(result.reply).toBe('Validate with 5 users first.');
+    expect(result.providerId).toBe('ox_alpha');
+    const call = gateway.completeWithFallback.mock.calls[0][0];
+    expect(call.messages.some((m: { content: string }) => m.content.includes('Ship dark mode'))).toBe(true);
+    expect(call.messages.some((m: { content: string }) => m.content.includes('Reduce eye strain'))).toBe(true);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO') || c.text.includes('UPDATE'))).toBe(false);
   });
 });

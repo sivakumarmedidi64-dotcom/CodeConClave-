@@ -9,7 +9,7 @@
  * delivered twice. AI narrative is strictly evidence-only via the AI Gateway;
  * without a configured provider the summary is deterministic — never faked.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withSystem, withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
 import { logger } from '../../shared/logger.js';
@@ -123,99 +123,101 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 async function collectEvidence(userId: string, since: Date): Promise<DigestEvidence> {
   const sinceIso = since.toISOString();
   const today = new Date().toISOString().slice(0, 10);
-  const [
-    completedRows,
-    failedRows,
-    approvalRows,
-    projectActivity,
-    teamActivity,
-    research,
-    memoryCount,
-    dnaCount,
-    unreadCount,
-    usageRows,
-  ] = await Promise.all([
-    queryMany<{ id: string; title: string }>(
-      `SELECT id, title FROM tasks
-       WHERE owner_id = $1 AND status = 'COMPLETED' AND completed_at > $2 ORDER BY completed_at DESC LIMIT 20`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ id: string; title: string; recovery_status: string | null }>(
-      `SELECT id, title, recovery_status FROM tasks
-       WHERE owner_id = $1 AND status IN ('FAILED','TIMED_OUT') AND failed_at > $2 ORDER BY failed_at DESC LIMIT 20`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ id: string; risk_level: string }>(
-      `SELECT id, risk_level FROM approvals
-       WHERE owner_id = $1 AND status = 'PENDING' AND expires_at > now() ORDER BY created_at DESC LIMIT 20`,
-      [userId],
-    ),
-    queryMany<{ n: number }>(
-      `SELECT count(*)::int AS n FROM project_activity pa JOIN projects p ON p.id = pa.project_id
-       WHERE p.owner_id = $1 AND pa.created_at > $2`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ n: number }>(
-      `SELECT count(*)::int AS n FROM team_activity ta JOIN team_members tm ON tm.team_id = ta.team_id
-       WHERE tm.user_id = $1 AND tm.status = 'ACTIVE' AND ta.created_at > $2`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ n: number }>(
-      `SELECT count(*)::int AS n FROM coworker_runs cr JOIN tasks t ON t.id = cr.task_id
-       WHERE t.owner_id = $1 AND cr.completed_at > $2`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ n: number }>(
-      'SELECT count(*)::int AS n FROM memories WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
-      [userId, sinceIso],
-    ),
-    queryMany<{ n: number }>(
-      'SELECT count(*)::int AS n FROM dna WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
-      [userId, sinceIso],
-    ),
-    queryMany<{ n: number }>(
-      `SELECT count(*)::int AS n FROM notifications
-       WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false AND created_at > $2`,
-      [userId, sinceIso],
-    ),
-    queryMany<{ input_tokens: number; output_tokens: number; cost: number; calls: number }>(
-      `SELECT COALESCE(SUM(input_tokens),0)::int AS input_tokens,
-              COALESCE(SUM(output_tokens),0)::int AS output_tokens,
-              COALESCE(SUM(estimated_cost_usd),0) AS cost,
-              COUNT(*)::int AS calls
-       FROM model_usage_logs WHERE user_id = $1 AND created_at > $2`,
-      [userId, sinceIso],
-    ),
-  ]);
-  const usage = usageRows[0] ?? { input_tokens: 0, output_tokens: 0, cost: 0, calls: 0 };
-  const messageRows = await queryMany<{ n: number }>(
-    `SELECT COALESCE(SUM(quantity),0)::int AS n FROM usage_events
-     WHERE owner_id = $1 AND name = 'messages' AND bucket = $2`,
-    [userId, today],
-  );
+  return withTenant(userId, async (q) => {
+    const [
+      completedRows,
+      failedRows,
+      approvalRows,
+      projectActivity,
+      teamActivity,
+      research,
+      memoryCount,
+      dnaCount,
+      unreadCount,
+      usageRows,
+] = await Promise.all([
+      await q.query<{ id: string; title: string }>(
+        `SELECT id, title FROM tasks
+         WHERE owner_id = $1 AND status = 'COMPLETED' AND completed_at > $2 ORDER BY completed_at DESC LIMIT 20`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ id: string; title: string; recovery_status: string | null }>(
+        `SELECT id, title, recovery_status FROM tasks
+         WHERE owner_id = $1 AND status IN ('FAILED','TIMED_OUT') AND failed_at > $2 ORDER BY failed_at DESC LIMIT 20`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ id: string; risk_level: string }>(
+        `SELECT id, risk_level FROM approvals
+         WHERE owner_id = $1 AND status = 'PENDING' AND expires_at > now() ORDER BY created_at DESC LIMIT 20`,
+        [userId],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM project_activity pa JOIN projects p ON p.id = pa.project_id
+         WHERE p.owner_id = $1 AND pa.created_at > $2`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM team_activity ta JOIN team_members tm ON tm.team_id = ta.team_id
+         WHERE tm.user_id = $1 AND tm.status = 'ACTIVE' AND ta.created_at > $2`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM coworker_runs cr JOIN tasks t ON t.id = cr.task_id
+         WHERE t.owner_id = $1 AND cr.completed_at > $2`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM memories WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM dna WHERE owner_id = $1 AND deleted_at IS NULL AND created_at > $2',
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM notifications
+         WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false AND created_at > $2`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+      await q.query<{ input_tokens: number; output_tokens: number; cost: number; calls: number }>(
+        `SELECT COALESCE(SUM(input_tokens),0)::int AS input_tokens,
+                COALESCE(SUM(output_tokens),0)::int AS output_tokens,
+                COALESCE(SUM(estimated_cost_usd),0) AS cost,
+                COUNT(*)::int AS calls
+         FROM model_usage_logs WHERE user_id = $1 AND created_at > $2`,
+        [userId, sinceIso],
+      ).then((r) => r.rows),
+    ]);
+    const usage = usageRows[0] ?? { input_tokens: 0, output_tokens: 0, cost: 0, calls: 0 };
+    const messageRows = await q.query<{ n: number }>(
+      `SELECT COALESCE(SUM(quantity),0)::int AS n FROM usage_events
+       WHERE owner_id = $1 AND name = 'messages' AND bucket = $2`,
+      [userId, today],
+    ).then((r) => r.rows);
 
-  return {
-    completedTasks: completedRows.map((r) => ({ id: r.id, title: r.title })),
-    failedTasks: failedRows.map((r) => ({ id: r.id, title: r.title, recoveryStatus: r.recovery_status })),
-    pendingApprovals: approvalRows.map((r) => ({ id: r.id, riskLevel: r.risk_level })),
-    counts: {
-      completed: completedRows.length,
-      failed: failedRows.length,
-      recovered: failedRows.filter((r) => r.recovery_status && r.recovery_status !== 'none').length,
-      pendingApprovals: approvalRows.length,
-      projectActivity: projectActivity[0]?.n ?? 0,
-      teamActivity: teamActivity[0]?.n ?? 0,
-      research: research[0]?.n ?? 0,
-      memoryUpdates: memoryCount[0]?.n ?? 0,
-      dnaUpdates: dnaCount[0]?.n ?? 0,
-      unreadNotifications: unreadCount[0]?.n ?? 0,
-      messages: messageRows[0]?.n ?? 0,
-      aiCalls: usage.calls,
-      inputTokens: usage.input_tokens,
-      outputTokens: usage.output_tokens,
-      estimatedCostUsd: Number(usage.cost ?? 0),
-    },
-  };
+    return {
+      completedTasks: completedRows.map((r) => ({ id: r.id, title: r.title })),
+      failedTasks: failedRows.map((r) => ({ id: r.id, title: r.title, recoveryStatus: r.recovery_status })),
+      pendingApprovals: approvalRows.map((r) => ({ id: r.id, riskLevel: r.risk_level })),
+      counts: {
+        completed: completedRows.length,
+        failed: failedRows.length,
+        recovered: failedRows.filter((r) => r.recovery_status && r.recovery_status !== 'none').length,
+        pendingApprovals: approvalRows.length,
+        projectActivity: projectActivity[0]?.n ?? 0,
+        teamActivity: teamActivity[0]?.n ?? 0,
+        research: research[0]?.n ?? 0,
+        memoryUpdates: memoryCount[0]?.n ?? 0,
+        dnaUpdates: dnaCount[0]?.n ?? 0,
+        unreadNotifications: unreadCount[0]?.n ?? 0,
+        messages: messageRows[0]?.n ?? 0,
+        aiCalls: usage.calls,
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        estimatedCostUsd: Number(usage.cost ?? 0),
+      },
+    };
+  });
 }
 
 export function deterministicDigestText(evidence: DigestEvidence): string {
@@ -248,8 +250,10 @@ async function summarizeDigest(userId: string, evidence: DigestEvidence): Promis
   const deterministic = deterministicDigestText(evidence);
   if (configuredProviders().length === 0) return { text: deterministic, aiGenerated: false };
   try {
-    const planRows = await queryMany<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
-    const planId = (planRows[0]?.plan_id as 'free' | 'pro' | 'team' | 'enterprise') ?? 'free';
+    const planId = await withTenant(userId, async (q) => {
+      const planRows = await q.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
+      return (planRows.rows[0]?.plan_id as 'free' | 'pro' | 'team' | 'enterprise') ?? 'free';
+    });
     const ai = await completeWithFallback({
       ctx: { userId, sessionId: '', planId, tenantId: userId },
       messages: [
@@ -287,19 +291,23 @@ export function toDigestJson(row: DigestDeliveryRow) {
 }
 
 export async function latestDigest(userId: string): Promise<DigestDeliveryRow | null> {
-  const rows = await queryMany<DigestDeliveryRow>(
-    'SELECT * FROM digest_deliveries WHERE owner_id = $1 ORDER BY delivered_at DESC LIMIT 1',
-    [userId],
+  const rows = await withTenant<{ rows: DigestDeliveryRow[] }>(userId, async (q) =>
+    q.query<DigestDeliveryRow>(
+      'SELECT * FROM digest_deliveries WHERE owner_id = $1 ORDER BY delivered_at DESC LIMIT 1',
+      [userId],
+    ),
   );
-  return rows[0] ?? null;
+  return rows.rows[0] ?? null;
 }
 
 export async function lastPeriodKey(userId: string, frequency: DigestFrequency): Promise<string | null> {
-  const rows = await queryMany<{ period_key: string }>(
-    'SELECT period_key FROM digest_deliveries WHERE owner_id = $1 AND frequency = $2 ORDER BY delivered_at DESC LIMIT 1',
-    [userId, frequency],
+  const rows = await withTenant<{ rows: { period_key: string }[] }>(userId, async (q) =>
+    q.query<{ period_key: string }>(
+      'SELECT period_key FROM digest_deliveries WHERE owner_id = $1 AND frequency = $2 ORDER BY delivered_at DESC LIMIT 1',
+      [userId, frequency],
+    ),
   );
-  return rows[0]?.period_key ?? null;
+  return rows.rows[0]?.period_key ?? null;
 }
 
 /**
@@ -322,11 +330,13 @@ export async function deliverDigest(userId: string, frequency: DigestFrequency, 
   const { text: summaryText, aiGenerated } = await summarizeDigest(userId, evidence);
 
   const id = newId(PREFIX.DIGEST);
-  const result = await pool.query(
-    `INSERT INTO digest_deliveries (id, owner_id, frequency, period_key, period_start, period_end, evidence, summary_text, ai_generated)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
-     ON CONFLICT (owner_id, frequency, period_key) DO NOTHING`,
-    [id, userId, frequency, periodKey, periodStart, now, JSON.stringify(evidence), summaryText, aiGenerated],
+  const result = await withTenant<{ rowCount: number | null }>(userId, async (q) =>
+    q.query(
+      `INSERT INTO digest_deliveries (id, owner_id, frequency, period_key, period_start, period_end, evidence, summary_text, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+       ON CONFLICT (owner_id, frequency, period_key) DO NOTHING`,
+      [id, userId, frequency, periodKey, periodStart, now, JSON.stringify(evidence), summaryText, aiGenerated],
+    ),
   );
   if ((result.rowCount ?? 0) === 0) return null;
 
@@ -363,8 +373,10 @@ export async function deliverDigest(userId: string, frequency: DigestFrequency, 
     resourceId: id,
     detail: { frequency, periodKey, aiGenerated, emailEligible },
   });
-  const rows = await queryMany<DigestDeliveryRow>('SELECT * FROM digest_deliveries WHERE id = $1', [id]);
-  return rows[0] ?? null;
+  const rows = await withTenant<{ rows: DigestDeliveryRow[] }>(userId, async (q) =>
+    q.query<DigestDeliveryRow>('SELECT * FROM digest_deliveries WHERE id = $1', [id]),
+  );
+  return rows.rows[0] ?? null;
 }
 
 function escapeHtml(s: string): string {
@@ -384,14 +396,16 @@ export interface DigestUserPrefRow {
  * sweep). Returns the number of digests delivered.
  */
 export async function sweepDigests(now = new Date(), limit = 500): Promise<number> {
-  const users = await queryMany<DigestUserPrefRow>(
-    `SELECT owner_id, prefs FROM notification_preferences
-     WHERE (prefs->>'daily_digest')::boolean IS TRUE OR (prefs->>'weekly_digest')::boolean IS TRUE
-     ORDER BY updated_at LIMIT $1`,
-    [limit],
+  const users = await withSystem<{ rows: DigestUserPrefRow[] }>(async (q) =>
+    q.query<DigestUserPrefRow>(
+      `SELECT owner_id, prefs FROM notification_preferences
+       WHERE (prefs->>'daily_digest')::boolean IS TRUE OR (prefs->>'weekly_digest')::boolean IS TRUE
+       ORDER BY updated_at LIMIT $1`,
+      [limit],
+    ),
   );
   let delivered = 0;
-  for (const u of users) {
+  for (const u of users.rows) {
     try {
       const plan = await digestPlanFor(u.owner_id, u.prefs);
       if (plan.frequency === 'none') continue;

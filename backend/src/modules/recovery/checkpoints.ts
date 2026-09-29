@@ -6,7 +6,7 @@
  * in-flight agent run), and approval state — enough to restore or fork from.
  * Secret material is never copied: only references (ids) and non-secret rows.
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, RecoveryEventType } from '@codeconclave/shared';
@@ -37,21 +37,25 @@ export interface CreateCheckpointInput {
 }
 
 /** Snapshot of approval state for a task (or null when no approval exists). */
-async function captureApprovalState(task: TaskRow): Promise<Record<string, unknown> | null> {
+async function captureApprovalState(userId: string, task: TaskRow): Promise<Record<string, unknown> | null> {
   if (!task.approval_id) return null;
-  const row = await queryOne<Record<string, unknown>>('SELECT * FROM approvals WHERE id = $1', [task.approval_id]);
+  const row = await withTenant(userId, async (q) =>
+    (await q.query<Record<string, unknown>>('SELECT * FROM approvals WHERE id = $1', [task.approval_id])).rows[0] ?? null,
+  );
   if (!row) return { approval_id: task.approval_id };
   return { approval_id: task.approval_id, ...row };
 }
 
 /** Capture the latest attempt checkpoint (stageIndex + completed run ids). */
-async function captureAttemptCheckpoint(taskId: string, attemptId?: string): Promise<{ stageIndex: number; runIdsByOrder: Record<string, string>; checkpointedAt: Date | null }> {
+async function captureAttemptCheckpoint(userId: string, taskId: string, attemptId?: string): Promise<{ stageIndex: number; runIdsByOrder: Record<string, string>; checkpointedAt: Date | null }> {
   const attempts = await listAttempts(taskId);
   const target = attemptId ? attempts.find((a) => a.id === attemptId) ?? attempts[attempts.length - 1] : attempts[attempts.length - 1];
   if (!target) return { stageIndex: 0, runIdsByOrder: {}, checkpointedAt: null };
-  const row = await queryOne<{ checkpoint: unknown; checkpointed_at: Date | null }>(
-    'SELECT checkpoint, checkpointed_at FROM task_attempts WHERE id = $1',
-    [target.id],
+  const row = await withTenant(userId, async (q) =>
+    (await q.query<{ checkpoint: unknown; checkpointed_at: Date | null }>(
+      'SELECT checkpoint, checkpointed_at FROM task_attempts WHERE id = $1',
+      [target.id],
+    )).rows[0] ?? null,
   );
   const raw = row?.checkpoint;
   if (!raw || typeof raw !== 'object') return { stageIndex: 0, runIdsByOrder: {}, checkpointedAt: null };
@@ -78,8 +82,8 @@ export async function createCheckpoint(userId: string, taskId: string, input: Cr
   const attempts = await listAttempts(taskId);
   const steps = await listSteps(taskId);
   const plan = await getPlan(taskId);
-  const attemptCp = await captureAttemptCheckpoint(taskId, input.attemptId);
-  const approval = await captureApprovalState(task);
+  const attemptCp = await captureAttemptCheckpoint(userId, taskId, input.attemptId);
+  const approval = await captureApprovalState(userId, task);
 
   const id = newId(PREFIX.TASK_CHECKPOINT);
   const taskState: Record<string, unknown> = { ...task };
@@ -109,22 +113,24 @@ export async function createCheckpoint(userId: string, taskId: string, input: Cr
     stage_index: attemptCp.stageIndex,
     run_ids_by_order: attemptCp.runIdsByOrder,
   };
-  await pool.query(
-    `INSERT INTO task_checkpoints (id, task_id, attempt_id, owner_id, label, reason, stage_index, task_state, plan_state, execution_metadata, approval_state)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb)`,
-    [
-      id,
-      taskId,
-      input.attemptId ?? null,
-      userId,
-      input.label ?? null,
-      input.reason ?? null,
-      attemptCp.stageIndex,
-      JSON.stringify(taskState),
-      JSON.stringify(planState),
-      JSON.stringify(executionMetadata),
-      JSON.stringify(approval),
-    ],
+  await withTenant(userId, async (q) =>
+    q.query(
+      `INSERT INTO task_checkpoints (id, task_id, attempt_id, owner_id, label, reason, stage_index, task_state, plan_state, execution_metadata, approval_state)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb)`,
+      [
+        id,
+        taskId,
+        input.attemptId ?? null,
+        userId,
+        input.label ?? null,
+        input.reason ?? null,
+        attemptCp.stageIndex,
+        JSON.stringify(taskState),
+        JSON.stringify(planState),
+        JSON.stringify(executionMetadata),
+        JSON.stringify(approval),
+      ],
+    ),
   );
   await recordRecoveryHistory(taskId, userId, RecoveryEventType.CHECKPOINTED, {
     checkpointId: id,
@@ -145,9 +151,11 @@ export async function createCheckpoint(userId: string, taskId: string, input: Cr
 
 /** Tenant-scoped checkpoint lookup. */
 export async function getCheckpoint(userId: string, checkpointId: string): Promise<CheckpointRow> {
-  const rows = await queryMany<CheckpointRow>(
-    'SELECT * FROM task_checkpoints WHERE id = $1 AND owner_id = $2',
-    [checkpointId, userId],
+  const rows = await withTenant(userId, async (q) =>
+    (await q.query<CheckpointRow>(
+      'SELECT * FROM task_checkpoints WHERE id = $1 AND owner_id = $2',
+      [checkpointId, userId],
+    )).rows,
   );
   if (!rows[0]) throw AppError.notFound('Checkpoint');
   return rows[0];
@@ -155,8 +163,10 @@ export async function getCheckpoint(userId: string, checkpointId: string): Promi
 
 /** All checkpoints for a task (newest first). */
 export async function listCheckpoints(userId: string, taskId: string): Promise<CheckpointRow[]> {
-  return queryMany<CheckpointRow>(
-    'SELECT * FROM task_checkpoints WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at DESC',
-    [taskId, userId],
+  return withTenant(userId, async (q) =>
+    (await q.query<CheckpointRow>(
+      'SELECT * FROM task_checkpoints WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at DESC',
+      [taskId, userId],
+    )).rows,
   );
 }

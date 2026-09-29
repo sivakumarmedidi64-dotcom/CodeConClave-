@@ -7,7 +7,7 @@
  * the request; the task is the work item. Comments are tenant-scoped and can
  * be resolved once their task completes.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -40,9 +40,11 @@ function assertProject(userId: string, projectId: string): Promise<unknown> {
 }
 
 export async function listPreviewComments(userId: string, projectId: string): Promise<PreviewCommentRow[]> {
-  return queryMany<PreviewCommentRow>(
-    'SELECT * FROM preview_comments WHERE owner_id = $1 AND project_id = $2 ORDER BY created_at DESC',
-    [userId, projectId],
+  return withTenant<PreviewCommentRow[]>(userId, async (q) =>
+    (await q.query<PreviewCommentRow>(
+      'SELECT * FROM preview_comments WHERE owner_id = $1 AND project_id = $2 ORDER BY created_at DESC',
+      [userId, projectId],
+    )).rows,
   );
 }
 
@@ -62,10 +64,12 @@ export async function addPreviewComment(userId: string, input: AddPreviewComment
     description: `Element "${selector}" in the live preview was flagged:\n\n${comment}`,
     riskLevel: 'MEDIUM',
   });
-  await pool.query(
-    `INSERT INTO preview_comments (id, owner_id, project_id, preview_version, selector, comment, task_id, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')`,
-    [id, userId, input.projectId, session.version, selector, comment, task.id],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO preview_comments (id, owner_id, project_id, preview_version, selector, comment, task_id, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN')`,
+      [id, userId, input.projectId, session.version, selector, comment, task.id],
+    ),
   );
   await recordAudit({
     action: AuditAction.PREVIEW_COMMENT_CREATED,
@@ -82,20 +86,28 @@ export async function addPreviewComment(userId: string, input: AddPreviewComment
     resourceId: id,
     metadata: { taskId: task.id, projectId: input.projectId },
   }).catch(() => undefined);
-  return (await queryMany<PreviewCommentRow>('SELECT * FROM preview_comments WHERE id = $1', [id]))[0]!;
+  return (
+    await withTenant<PreviewCommentRow[]>(userId, async (q) =>
+      (await q.query<PreviewCommentRow>('SELECT * FROM preview_comments WHERE id = $1 AND owner_id = $2', [id, userId])).rows,
+    )
+  )[0]!;
 }
 
 export async function resolvePreviewComment(userId: string, commentId: string): Promise<PreviewCommentRow> {
-  const rows = await queryMany<PreviewCommentRow>(
-    'SELECT * FROM preview_comments WHERE id = $1 AND owner_id = $2',
-    [commentId, userId],
+  const rows = await withTenant<PreviewCommentRow[]>(userId, async (q) =>
+    (await q.query<PreviewCommentRow>(
+      'SELECT * FROM preview_comments WHERE id = $1 AND owner_id = $2',
+      [commentId, userId],
+    )).rows,
   );
   const comment = rows[0];
   if (!comment) throw AppError.notFound('Preview comment');
   if (comment.status !== 'OPEN') throw AppError.conflict('comment_not_open', `Comment is ${comment.status}`);
-  await pool.query(
-    `UPDATE preview_comments SET status = 'RESOLVED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
-    [commentId, userId],
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE preview_comments SET status = 'RESOLVED', updated_at = now() WHERE id = $1 AND owner_id = $2`, [
+      commentId,
+      userId,
+    ]),
   );
   await recordAudit({
     action: AuditAction.PREVIEW_COMMENT_RESOLVED,

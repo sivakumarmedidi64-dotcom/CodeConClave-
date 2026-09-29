@@ -163,7 +163,7 @@ export async function executePluginAction(opts: ExecutePluginOptions): Promise<P
   if (!decision.allowed) throw policyDeniedError(decision);
 
   // 7. CREDENTIALS — decrypted server-side only.
-  const creds = await readPluginCredentials(connection.id);
+  const creds = await readPluginCredentials(opts.userId, connection.id);
   const needsOAuth = adapter.oauth?.required ?? false;
   if (needsOAuth && !creds.kinds['refresh_token']) {
     await transitionConnectionState(connection.id, 'REAUTH_REQUIRED', { lastError: 'refresh_token_missing' });
@@ -303,7 +303,7 @@ async function saveMemoryProvenance(
 export async function healthCheckPlugin(userId: string, connectionId: string): Promise<{ ok: boolean; state: string; latencyMs: number; detail?: string }> {
   const connection = await getConnection(userId, connectionId);
   const adapter = await loadAdapter(connection.plugin_type);
-  const creds = await readPluginCredentials(connection.id);
+  const creds = await readPluginCredentials(userId, connection.id);
   const needsOAuth = adapter.oauth?.required ?? false;
   if (needsOAuth && !creds.kinds['refresh_token']) {
     await transitionConnectionState(connection.id, 'REAUTH_REQUIRED', { lastError: 'refresh_token_missing', actorUserId: userId });
@@ -424,10 +424,10 @@ export async function completePluginOAuth(code: string, stateToken: string): Pro
   if (!payload.refresh_token) {
     throw AppError.badRequest('google_refresh_token_missing', 'Google returned no refresh token (consent required)');
   }
-  await storePluginCredential(connectionId, 'refresh_token', payload.refresh_token, userId);
-  if (payload.access_token) await storePluginCredential(connectionId, 'access_token', payload.access_token, userId);
+  await storePluginCredential(userId, connectionId, 'refresh_token', payload.refresh_token, userId);
+  if (payload.access_token) await storePluginCredential(userId, connectionId, 'access_token', payload.access_token, userId);
   const grantedScopes = (payload.scope ?? '').split(' ').filter(Boolean);
-  await storePluginCredential(connectionId, 'oauth_scopes', JSON.stringify(grantedScopes), userId);
+  await storePluginCredential(userId, connectionId, 'oauth_scopes', JSON.stringify(grantedScopes), userId);
   await transitionConnectionState(connectionId, 'CONNECTED', { lastError: null, actorUserId: userId });
   await recordAudit({
     action: AuditAction.PLUGIN_REAUTHED,

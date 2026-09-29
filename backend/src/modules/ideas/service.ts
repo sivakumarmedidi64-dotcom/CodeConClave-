@@ -7,13 +7,16 @@
  * reversible state changes. AI-derived ideas keep ai_generated + provenance and
  * are never silently converted to verified memory.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
 import { notify } from '../notifications/service.js';
 import { requireProjectRole } from '../auth/rbac.js';
 import { requireTeamRole } from '../teams/service.js';
+import { completeWithFallback } from '../ai/gateway.js';
+import type { GatewayContext } from '../ai/gateway.js';
+import { configuredProviders } from '../ai/registry.js';
 import {
   AuditAction,
   IdeaStatus,
@@ -74,12 +77,14 @@ export const IDEA_TENANT_SQL =
   `OR i.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE'))`;
 
 export async function getIdeaRow(userId: string, ideaId: string): Promise<IdeaRow> {
-  const row = await queryOne<IdeaRow>(
-    `SELECT i.* FROM ideas i WHERE i.id = $1 AND ${IDEA_TENANT_SQL}`,
-    [ideaId, userId],
+  const row = await withTenant<{ rows: IdeaRow[] }>(userId, (q) =>
+    q.query<IdeaRow>(
+      `SELECT i.* FROM ideas i WHERE i.id = $1 AND ${IDEA_TENANT_SQL}`,
+      [ideaId, userId],
+    ),
   );
-  if (!row) throw AppError.notFound('Idea');
-  return row;
+  if (!row.rows[0]) throw AppError.notFound('Idea');
+  return row.rows[0];
 }
 
 /** Access to a known idea: owner, project member, or ACTIVE team member. */
@@ -154,16 +159,20 @@ export async function listIdeas(userId: string, filters: IdeaListFilters = {}) {
   const whereSql = clauses.join('\n  AND ');
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
   params.push(limit, filters.offset ?? 0);
-  const totalRow = await queryOne<{ n: number }>(
-    `SELECT count(*)::int AS n FROM ideas i WHERE ${whereSql}`,
-    params.slice(0, params.length - 2),
+  const totalRow = await withTenant<{ rows: { n: number }[] }>(userId, (q) =>
+    q.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM ideas i WHERE ${whereSql}`,
+      params.slice(0, params.length - 2),
+    ),
   );
-  const rows = await queryMany<IdeaRow>(
-    `SELECT i.* FROM ideas i WHERE ${whereSql}
+  const rows = await withTenant<{ rows: IdeaRow[] }>(userId, (q) =>
+    q.query<IdeaRow>(
+      `SELECT i.* FROM ideas i WHERE ${whereSql}
      ORDER BY i.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params,
+      params,
+    ),
   );
-  return { items: rows, total: totalRow?.n ?? 0 };
+  return { items: rows.rows, total: totalRow.rows[0]?.n ?? 0 };
 }
 
 export async function getIdea(userId: string, ideaId: string) {
@@ -202,30 +211,32 @@ export async function createIdea(userId: string, input: CreateIdeaInput) {
   }
   const id = newId(PREFIX.IDEA);
   const status = input.status ?? IdeaStatus.PROPOSED;
-  const rows = await queryMany<IdeaRow>(
-    `INSERT INTO ideas
-       (id, owner_id, team_id, project_id, title, description, tags, category, priority, status,
-        assignee_id, references, provenance, ai_generated)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12::jsonb,$13,$14)
-     RETURNING *`,
-    [
-      id,
-      userId,
-      input.projectId ? null : (input.teamId ?? null),
-      input.projectId ?? null,
-      input.title,
-      input.description ?? null,
-      input.tags ?? [],
-      input.category ?? null,
-      input.priority ?? 'MEDIUM',
-      status,
-      input.assigneeId ?? null,
-      JSON.stringify(input.references ?? []),
-      input.provenance ?? null,
-      input.aiGenerated ?? false,
-    ],
+  const rows = await withTenant<{ rows: IdeaRow[] }>(userId, (q) =>
+    q.query<IdeaRow>(
+      `INSERT INTO ideas
+         (id, owner_id, team_id, project_id, title, description, tags, category, priority, status,
+          assignee_id, references, provenance, ai_generated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8,$9,$10,$11,$12::jsonb,$13,$14)
+       RETURNING *`,
+      [
+        id,
+        userId,
+        input.projectId ? null : (input.teamId ?? null),
+        input.projectId ?? null,
+        input.title,
+        input.description ?? null,
+        input.tags ?? [],
+        input.category ?? null,
+        input.priority ?? 'MEDIUM',
+        status,
+        input.assigneeId ?? null,
+        JSON.stringify(input.references ?? []),
+        input.provenance ?? null,
+        input.aiGenerated ?? false,
+      ],
+    ),
   );
-  const row = rows[0] as IdeaRow;
+  const row = rows.rows[0] as IdeaRow;
   await recordAudit({
     action: AuditAction.IDEA_CREATED,
     actorUserId: userId,
@@ -278,11 +289,13 @@ export async function updateIdea(userId: string, ideaId: string, input: UpdateId
   if (input.assigneeId !== undefined) set('assignee_id', input.assigneeId);
   if (!sets.length) return toIdeaJson(current);
   const nextAssignee = input.assigneeId !== undefined ? input.assigneeId : current.assignee_id;
-  const rows = await queryMany<IdeaRow>(
-    `UPDATE ideas SET ${sets.join(', ')} WHERE id = $${params.length + 1} RETURNING *`,
-    [...params, ideaId],
+  const rows = await withTenant<{ rows: IdeaRow[] }>(userId, (q) =>
+    q.query<IdeaRow>(
+      `UPDATE ideas SET ${sets.join(', ')} WHERE id = $${params.length + 1} RETURNING *`,
+      [...params, ideaId],
+    ),
   );
-  const updated = rows[0] as IdeaRow;
+  const updated = rows.rows[0] as IdeaRow;
   await recordAudit({
     action: AuditAction.IDEA_UPDATED,
     actorUserId: userId,
@@ -314,9 +327,11 @@ export async function updateIdea(userId: string, ideaId: string, input: UpdateId
 export async function setIdeaArchived(userId: string, ideaId: string, archived: boolean) {
   const row = await getIdeaRow(userId, ideaId);
   await assertIdeaAccess(userId, row);
-  const rows = await queryMany<IdeaRow>(
-    'UPDATE ideas SET archived = $1 WHERE id = $2 RETURNING *',
-    [archived, ideaId],
+  const rows = await withTenant<{ rows: IdeaRow[] }>(userId, (q) =>
+    q.query<IdeaRow>(
+      'UPDATE ideas SET archived = $1 WHERE id = $2 RETURNING *',
+      [archived, ideaId],
+    ),
   );
   await recordAudit({
     action: AuditAction.IDEA_ARCHIVED,
@@ -327,14 +342,14 @@ export async function setIdeaArchived(userId: string, ideaId: string, archived: 
     resourceId: ideaId,
     detail: { archived },
   });
-  return toIdeaJson(rows[0] as IdeaRow);
+  return toIdeaJson(rows.rows[0] as IdeaRow);
 }
 
 export async function trashIdea(userId: string, ideaId: string) {
   const row = await getIdeaRow(userId, ideaId);
   await assertIdeaAccess(userId, row);
   if (row.deleted_at) throw AppError.conflict('already_trashed', 'Idea is already trashed');
-  await pool.query('UPDATE ideas SET deleted_at = now() WHERE id = $1', [ideaId]);
+  await withTenant(userId, (q) => q.query('UPDATE ideas SET deleted_at = now() WHERE id = $1', [ideaId]));
   await recordAudit({
     action: AuditAction.IDEA_TRASHED,
     actorUserId: userId,
@@ -350,7 +365,7 @@ export async function restoreIdea(userId: string, ideaId: string) {
   const row = await getIdeaRow(userId, ideaId);
   await assertIdeaAccess(userId, row);
   if (!row.deleted_at) throw AppError.conflict('not_trashed', 'Idea is not trashed');
-  await pool.query('UPDATE ideas SET deleted_at = NULL WHERE id = $1', [ideaId]);
+  await withTenant(userId, (q) => q.query('UPDATE ideas SET deleted_at = NULL WHERE id = $1', [ideaId]));
   await recordAudit({
     action: AuditAction.IDEA_RESTORED,
     actorUserId: userId,
@@ -370,16 +385,20 @@ export async function voteIdea(userId: string, ideaId: string, on: boolean) {
   await assertIdeaAccess(userId, row);
   if (row.deleted_at) throw AppError.conflict('not_found', 'Idea is not available');
   if (on) {
-    await pool.query(
-      'INSERT INTO idea_votes (id, idea_id, user_id) VALUES ($1,$2,$3) ON CONFLICT (idea_id, user_id) DO NOTHING',
-      [newId(PREFIX.IDEA_VOTE), ideaId, userId],
+    await withTenant(userId, (q) =>
+      q.query(
+        'INSERT INTO idea_votes (id, idea_id, user_id) VALUES ($1,$2,$3) ON CONFLICT (idea_id, user_id) DO NOTHING',
+        [newId(PREFIX.IDEA_VOTE), ideaId, userId],
+      ),
     );
   } else {
-    await pool.query('DELETE FROM idea_votes WHERE idea_id = $1 AND user_id = $2', [ideaId, userId]);
+    await withTenant(userId, (q) => q.query('DELETE FROM idea_votes WHERE idea_id = $1 AND user_id = $2', [ideaId, userId]));
   }
-  await pool.query(
-    'UPDATE ideas SET vote_count = (SELECT count(*)::int FROM idea_votes WHERE idea_id = $1) WHERE id = $1',
-    [ideaId],
+  await withTenant(userId, (q) =>
+    q.query(
+      'UPDATE ideas SET vote_count = (SELECT count(*)::int FROM idea_votes WHERE idea_id = $1) WHERE id = $1',
+      [ideaId],
+    ),
   );
   await recordAudit({
     action: AuditAction.IDEA_VOTED,
@@ -396,11 +415,13 @@ export async function voteIdea(userId: string, ideaId: string, on: boolean) {
 
 export async function ideaVoteState(userId: string, ideaId: string): Promise<boolean> {
   await getIdeaRow(userId, ideaId);
-  const rows = await queryMany<{ n: number }>(
-    'SELECT count(*)::int AS n FROM idea_votes WHERE idea_id = $1 AND user_id = $2',
-    [ideaId, userId],
+  const rows = await withTenant<{ rows: { n: number }[] }>(userId, (q) =>
+    q.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM idea_votes WHERE idea_id = $1 AND user_id = $2',
+      [ideaId, userId],
+    ),
   );
-  return (rows[0]?.n ?? 0) > 0;
+  return (rows.rows[0]?.n ?? 0) > 0;
 }
 
 // ---------------------------------------------------------------- comments
@@ -436,19 +457,23 @@ export async function addIdeaComment(
   await assertIdeaAccess(userId, idea);
   if (idea.deleted_at) throw AppError.conflict('not_found', 'Idea is not available');
   if (input.parentId) {
-    const parent = await queryOne<IdeaCommentRow>(
-      'SELECT * FROM idea_comments WHERE id = $1 AND idea_id = $2',
-      [input.parentId, ideaId],
+    const parent = await withTenant<{ rows: IdeaCommentRow[] }>(userId, (q) =>
+      q.query<IdeaCommentRow>(
+        'SELECT * FROM idea_comments WHERE id = $1 AND idea_id = $2',
+        [input.parentId, ideaId],
+      ),
     );
-    if (!parent) throw AppError.notFound('Comment');
+    if (!parent.rows[0]) throw AppError.notFound('Comment');
   }
   const id = newId(PREFIX.IDEA_COMMENT);
-  const rows = await queryMany<IdeaCommentRow>(
-    `INSERT INTO idea_comments (id, idea_id, author_id, parent_id, content)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [id, ideaId, userId, input.parentId ?? null, input.content],
+  const rows = await withTenant<{ rows: IdeaCommentRow[] }>(userId, (q) =>
+    q.query<IdeaCommentRow>(
+      `INSERT INTO idea_comments (id, idea_id, author_id, parent_id, content)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [id, ideaId, userId, input.parentId ?? null, input.content],
+    ),
   );
-  await pool.query('UPDATE ideas SET comment_count = comment_count + 1 WHERE id = $1', [ideaId]);
+  await withTenant(userId, (q) => q.query('UPDATE ideas SET comment_count = comment_count + 1 WHERE id = $1', [ideaId]));
   await recordAudit({
     action: AuditAction.IDEA_COMMENTED,
     actorUserId: userId,
@@ -458,35 +483,128 @@ export async function addIdeaComment(
     resourceId: ideaId,
     detail: { commentId: id },
   });
-  return toIdeaCommentJson(rows[0] as IdeaCommentRow);
+  return toIdeaCommentJson(rows.rows[0] as IdeaCommentRow);
 }
 
 export async function listIdeaComments(userId: string, ideaId: string) {
   const idea = await getIdeaRow(userId, ideaId);
   await assertIdeaAccess(userId, idea);
-  const rows = await queryMany<IdeaCommentRow>(
-    `SELECT * FROM idea_comments WHERE idea_id = $1
+  const rows = await withTenant<{ rows: IdeaCommentRow[] }>(userId, (q) =>
+    q.query<IdeaCommentRow>(
+      `SELECT * FROM idea_comments WHERE idea_id = $1
      ORDER BY created_at ASC LIMIT 200`,
-    [ideaId],
+      [ideaId],
+    ),
   );
-  return rows.map(toIdeaCommentJson);
+  return rows.rows.map(toIdeaCommentJson);
 }
 
 export async function deleteIdeaComment(userId: string, ideaId: string, commentId: string) {
   const idea = await getIdeaRow(userId, ideaId);
   await assertIdeaAccess(userId, idea);
-  const comment = await queryOne<IdeaCommentRow>(
-    'SELECT * FROM idea_comments WHERE id = $1 AND idea_id = $2',
-    [commentId, ideaId],
+  const comment = await withTenant<{ rows: IdeaCommentRow[] }>(userId, (q) =>
+    q.query<IdeaCommentRow>(
+      'SELECT * FROM idea_comments WHERE id = $1 AND idea_id = $2',
+      [commentId, ideaId],
+    ),
   );
-  if (!comment) throw AppError.notFound('Comment');
-  if (comment.author_id !== userId && idea.owner_id !== userId) {
+  if (!comment.rows[0]) throw AppError.notFound('Comment');
+  if (comment.rows[0].author_id !== userId && idea.owner_id !== userId) {
     throw AppError.forbidden('insufficient_permission', 'Only the author or idea owner can delete this comment');
   }
-  await pool.query('UPDATE idea_comments SET deleted_at = now() WHERE id = $1', [commentId]);
-  await pool.query(
-    'UPDATE ideas SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = $1',
-    [ideaId],
+  await withTenant(userId, (q) => q.query('UPDATE idea_comments SET deleted_at = now() WHERE id = $1', [commentId]));
+  await withTenant(userId, (q) =>
+    q.query(
+      'UPDATE ideas SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = $1',
+      [ideaId],
+    ),
   );
   return { id: commentId, deleted: true };
+}
+
+// ---------------------------------------------------------------- AI discussion
+
+export interface DiscussIdeaMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface DiscussIdeaInput {
+  message: string;
+  history?: DiscussIdeaMessage[];
+}
+
+export interface DiscussIdeaResult {
+  reply: string;
+  providerId: string;
+  modelId: string;
+  aiAvailable: boolean;
+}
+
+/**
+ * Discuss a specific idea with the configured AI gateway. This is read-only:
+ * it persists no workspace state and never mutates the idea. When no provider
+ * is configured it fails honestly with `ai_unavailable` instead of inventing a
+ * reply.
+ */
+export async function discussIdea(
+  userId: string,
+  ideaId: string,
+  input: DiscussIdeaInput,
+): Promise<DiscussIdeaResult> {
+  const row = await getIdeaRow(userId, ideaId);
+  await assertIdeaAccess(userId, row);
+  if (configuredProviders().length === 0) {
+    throw AppError.unavailable('ai_unavailable', 'No AI provider is configured for idea discussion');
+  }
+  const user = await withTenant<{ rows: { plan_id: string }[] }>(userId, (q) => q.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]));
+  const ctx: GatewayContext = {
+    userId,
+    sessionId: ideaId,
+    planId: (user.rows[0]?.plan_id ?? 'free') as GatewayContext['planId'],
+  };
+  const context = [
+    `Title: ${row.title}`,
+    row.description ? `Description: ${row.description}` : null,
+    row.category ? `Category: ${row.category}` : null,
+    row.tags?.length ? `Tags: ${row.tags.join(', ')}` : null,
+    row.status ? `Status: ${row.status}` : null,
+    row.priority ? `Priority: ${row.priority}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const history: DiscussIdeaMessage[] = (input.history ?? [])
+    .slice(-10)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+
+  let completion;
+  try {
+    completion = await completeWithFallback({
+      ctx,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a sharp product-thinking partner helping the user refine one idea. ' +
+            'Discuss trade-offs, risks, open questions and concrete next steps. Be concise. ' +
+            'Do not claim to have performed actions you have not actually performed.',
+        },
+        { role: 'system', content: `Idea under discussion:\n${context}` },
+        ...history,
+        { role: 'user', content: input.message },
+      ],
+      opts: { computeClass: 'A', privacyClass: 'STANDARD' },
+      maxTokens: 1200,
+      temperature: 0.6,
+    });
+  } catch {
+    throw AppError.unavailable('ai_discussion_failed', 'Idea discussion could not be completed');
+  }
+
+  return {
+    reply: completion.text,
+    providerId: completion.providerId,
+    modelId: completion.modelId,
+    aiAvailable: true,
+  };
 }

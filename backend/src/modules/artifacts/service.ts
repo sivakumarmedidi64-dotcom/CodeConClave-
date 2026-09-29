@@ -4,7 +4,7 @@
  * verified content (inline or storage-backed), merged task + coworker
  * artifact listing, downloads and artifact→file references.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { sha256Hex } from '../../shared/crypto.js';
@@ -84,16 +84,21 @@ export interface CreateArtifactInput {
 }
 
 export async function createTaskArtifact(input: CreateArtifactInput): Promise<ArtifactView> {
-  const task = await queryOne<{ project_id: string; owner_id: string }>(
-    'SELECT project_id, owner_id FROM tasks WHERE id = $1',
-    [input.taskId],
+  const task = await withTenant<{ project_id: string; owner_id: string } | null>(input.userId, (db) =>
+    db
+      .query<{ project_id: string; owner_id: string }>('SELECT project_id, owner_id FROM tasks WHERE id = $1', [input.taskId])
+      .then((r) => r.rows[0] ?? null),
   );
   if (!task) throw AppError.notFound('Task');
 
   if (task.owner_id !== input.userId) {
-    const member = await queryOne<{ role: string }>(
-      'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
-      [task.project_id, input.userId],
+    const member = await withTenant<{ role: string } | null>(input.userId, (db) =>
+      db
+        .query<{ role: string }>('SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2', [
+          task.project_id,
+          input.userId,
+        ])
+        .then((r) => r.rows[0] ?? null),
     );
     if (!member || !ALLOWED_ROLES.has(member.role)) {
       throw AppError.forbidden('artifact_access_denied', 'You do not have permission to add artifacts to this task');
@@ -116,15 +121,17 @@ export async function createTaskArtifact(input: CreateArtifactInput): Promise<Ar
     await storage.put(storageKey!, buffer);
   }
 
-  await pool.query(
-    `INSERT INTO artifacts
-       (id, task_id, name, kind, storage_key, sha256, size_bytes, content,
-        attempt_id, verification, created_by, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`,
-    [
-      id, input.taskId, input.name, input.kind, storageKey, sha, sizeBytes, content,
-      input.attemptId ?? null, input.verification ?? null, input.userId,
-    ],
+  await withTenant(input.userId, (db) =>
+    db.query(
+      `INSERT INTO artifacts
+         (id, task_id, name, kind, storage_key, sha256, size_bytes, content,
+          attempt_id, verification, created_by, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())`,
+      [
+        id, input.taskId, input.name, input.kind, storageKey, sha, sizeBytes, content,
+        input.attemptId ?? null, input.verification ?? null, input.userId,
+      ],
+    ),
   );
 
   await recordAudit({
@@ -137,7 +144,9 @@ export async function createTaskArtifact(input: CreateArtifactInput): Promise<Ar
     detail: { taskId: input.taskId, kind: input.kind, name: input.name, sizeBytes },
   });
 
-  const row = await queryOne<ArtifactRow>('SELECT * FROM artifacts a WHERE a.id = $1', [id]);
+  const row = await withTenant<ArtifactRow | null>(input.userId, (db) =>
+    db.query<ArtifactRow>('SELECT * FROM artifacts a WHERE a.id = $1', [id]).then((r) => r.rows[0] ?? null),
+  );
   if (!row) throw new Error('artifact insert returned no row');
   return toView(row, 'task');
 }
@@ -176,27 +185,35 @@ export async function listArtifacts(userId: string, filters: ArtifactFilters = {
     coworkerClauses.push(`ca.kind = $${coworkerParams.length}`);
   }
 
-  const taskRows = await queryMany<ArtifactRow>(
-    `SELECT a.id, a.name, a.kind, a.sha256, a.size_bytes, a.content, a.storage_key,
-            a.verification, a.attempt_id, a.created_at, a.task_id, t.title AS task_title
-     FROM artifacts a
-     JOIN tasks t ON t.id = a.task_id
-     JOIN projects p ON p.id = t.project_id
-     WHERE ${taskClauses.join('\n  AND ')}
-     ORDER BY a.created_at DESC`,
-    taskParams,
+  const taskRows = await withTenant<ArtifactRow[]>(userId, (db) =>
+    db
+      .query<ArtifactRow>(
+        `SELECT a.id, a.name, a.kind, a.sha256, a.size_bytes, a.content, a.storage_key,
+                a.verification, a.attempt_id, a.created_at, a.task_id, t.title AS task_title
+         FROM artifacts a
+         JOIN tasks t ON t.id = a.task_id
+         JOIN projects p ON p.id = t.project_id
+         WHERE ${taskClauses.join('\n  AND ')}
+         ORDER BY a.created_at DESC`,
+        taskParams,
+      )
+      .then((r) => r.rows),
   );
-  const coworkerRows = await queryMany<ArtifactRow>(
-    `SELECT ca.id, ca.name, ca.kind, ca.sha256, ca.size_bytes, ca.content, ca.storage_key,
-            ca.verification, ca.attempt_id, ca.created_at, ca.run_id, cr.coworker_type,
-            t.id AS task_id, t.title AS task_title
-     FROM coworker_artifacts ca
-     JOIN coworker_runs cr ON cr.id = ca.run_id
-     JOIN tasks t ON t.id = cr.task_id
-     JOIN projects p ON p.id = t.project_id
-     WHERE ${coworkerClauses.join('\n  AND ')}
-     ORDER BY ca.created_at DESC`,
-    coworkerParams,
+  const coworkerRows = await withTenant<ArtifactRow[]>(userId, (db) =>
+    db
+      .query<ArtifactRow>(
+        `SELECT ca.id, ca.name, ca.kind, ca.sha256, ca.size_bytes, ca.content, ca.storage_key,
+                ca.verification, ca.attempt_id, ca.created_at, ca.run_id, cr.coworker_type,
+                t.id AS task_id, t.title AS task_title
+         FROM coworker_artifacts ca
+         JOIN coworker_runs cr ON cr.id = ca.run_id
+         JOIN tasks t ON t.id = cr.task_id
+         JOIN projects p ON p.id = t.project_id
+         WHERE ${coworkerClauses.join('\n  AND ')}
+         ORDER BY ca.created_at DESC`,
+        coworkerParams,
+      )
+      .then((r) => r.rows),
   );
 
   const all = [
@@ -208,12 +225,16 @@ export async function listArtifacts(userId: string, filters: ArtifactFilters = {
 }
 
 async function assertArtifactAccess(userId: string, artifactId: string): Promise<ArtifactRow> {
-  const row = await queryOne<ArtifactRow>(
-    `SELECT a.* FROM artifacts a
-     JOIN tasks t ON t.id = a.task_id
-     JOIN projects p ON p.id = t.project_id
-     WHERE a.id = $1 AND (${ARTIFACT_TENANT})`,
-    [artifactId, userId],
+  const row = await withTenant<ArtifactRow | null>(userId, (db) =>
+    db
+      .query<ArtifactRow>(
+        `SELECT a.* FROM artifacts a
+         JOIN tasks t ON t.id = a.task_id
+         JOIN projects p ON p.id = t.project_id
+         WHERE a.id = $1 AND (${ARTIFACT_TENANT})`,
+        [artifactId, userId],
+      )
+      .then((r) => r.rows[0] ?? null),
   );
   if (!row) throw AppError.notFound('Artifact');
   return row;
@@ -224,9 +245,10 @@ export async function downloadArtifact(
   artifactId: string,
 ): Promise<{ content: string; encoding: 'utf8' | 'base64'; mimeType: string | null; name: string }> {
   const artifact = await assertArtifactAccess(userId, artifactId);
-  const row = await queryOne<{ content: string | null; storage_key: string | null }>(
-    'SELECT content, storage_key FROM artifacts WHERE id = $1',
-    [artifactId],
+  const row = await withTenant<{ content: string | null; storage_key: string | null } | null>(userId, (db) =>
+    db
+      .query<{ content: string | null; storage_key: string | null }>('SELECT content, storage_key FROM artifacts WHERE id = $1', [artifactId])
+      .then((r) => r.rows[0] ?? null),
   );
   let content: string;
   let encoding: 'utf8' | 'base64';
@@ -265,11 +287,15 @@ export interface ReferenceRow {
 
 export async function artifactReferences(userId: string, artifactId: string): Promise<ReferenceRow[]> {
   await assertArtifactAccess(userId, artifactId);
-  const rows = await queryMany<ReferenceRow>(
-    `SELECT fr.id, fr.file_id, fr.ref_type, fr.ref_id, fr.created_by, fr.created_at
-     FROM file_references fr
-     WHERE fr.ref_type = 'artifact' AND fr.ref_id = $1`,
-    [artifactId],
+  const rows = await withTenant<ReferenceRow[]>(userId, (db) =>
+    db
+      .query<ReferenceRow>(
+        `SELECT fr.id, fr.file_id, fr.ref_type, fr.ref_id, fr.created_by, fr.created_at
+         FROM file_references fr
+         WHERE fr.ref_type = 'artifact' AND fr.ref_id = $1`,
+        [artifactId],
+      )
+      .then((r) => r.rows),
   );
   return rows;
 }

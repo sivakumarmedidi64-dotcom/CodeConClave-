@@ -6,7 +6,7 @@
  * validation persists nothing. AI-derived ideas carry ai_generated=true and a
  * brainstorm provenance.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
@@ -87,21 +87,29 @@ function toBrainstormIdeaJson(b: BrainstormIdeaRow) {
 }
 
 export async function getSession(userId: string, sessionId: string): Promise<BrainstormSessionRow> {
-  const row = await queryOne<BrainstormSessionRow>(
-    `SELECT * FROM brainstorming_sessions WHERE id = $1
-       AND (owner_id = $2 OR id IN (
-         SELECT session_id FROM brainstorming_participants WHERE user_id = $2
-       ))`,
-    [sessionId, userId],
+  const row = await withTenant<BrainstormSessionRow | null>(userId, (db) =>
+    db
+      .query<BrainstormSessionRow>(
+        `SELECT * FROM brainstorming_sessions WHERE id = $1
+           AND (owner_id = $2 OR id IN (
+             SELECT session_id FROM brainstorming_participants WHERE user_id = $2
+           ))`,
+        [sessionId, userId],
+      )
+      .then((r) => r.rows[0] ?? null),
   );
   if (!row) throw AppError.notFound('Brainstorm session');
   return row;
 }
 
 async function requireHost(userId: string, sessionId: string): Promise<string> {
-  const rows = await queryMany<{ role: string }>(
-    'SELECT role FROM brainstorming_participants WHERE session_id = $1 AND user_id = $2',
-    [sessionId, userId],
+  const rows = await withTenant<Array<{ role: string }>>(userId, (db) =>
+    db
+      .query<{ role: string }>(
+        'SELECT role FROM brainstorming_participants WHERE session_id = $1 AND user_id = $2',
+        [sessionId, userId],
+      )
+      .then((r) => r.rows),
   );
   const role = rows[0]?.role ?? null;
   if (role !== 'HOST') throw AppError.forbidden('host_only', 'Only the session host can do this');
@@ -120,15 +128,21 @@ export interface CreateBrainstormInput {
 
 export async function createSession(userId: string, input: CreateBrainstormInput) {
   const id = newId(PREFIX.BRAINSTORM);
-  const sessionRows = await queryMany<BrainstormSessionRow>(
-    `INSERT INTO brainstorming_sessions (id, owner_id, title, description, grouping)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [id, userId, input.title, input.description ?? null, input.grouping ?? BrainstormGrouping.NONE],
+  const sessionRows = await withTenant<BrainstormSessionRow[]>(userId, (db) =>
+    db
+      .query<BrainstormSessionRow>(
+        `INSERT INTO brainstorming_sessions (id, owner_id, title, description, grouping)
+         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [id, userId, input.title, input.description ?? null, input.grouping ?? BrainstormGrouping.NONE],
+      )
+      .then((r) => r.rows),
   );
-  await pool.query(
-    `INSERT INTO brainstorming_participants (id, session_id, user_id, role)
-     VALUES ($1,$2,$3,'HOST')`,
-    [newId(PREFIX.BRAINSTORM_PARTICIPANT), id, userId],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO brainstorming_participants (id, session_id, user_id, role)
+       VALUES ($1,$2,$3,'HOST')`,
+      [newId(PREFIX.BRAINSTORM_PARTICIPANT), id, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.BRAINSTORM_CREATED,
@@ -146,31 +160,41 @@ export async function addParticipant(userId: string, sessionId: string, particip
   const session = await getSession(userId, sessionId);
   await requireHost(userId, sessionId);
   if (session.status !== 'ACTIVE') throw AppError.conflict('session_not_active', 'Session is not active');
-  await pool.query(
-    `INSERT INTO brainstorming_participants (id, session_id, user_id, role)
-     VALUES ($1,$2,$3,'PARTICIPANT') ON CONFLICT (session_id, user_id) DO NOTHING`,
-    [newId(PREFIX.BRAINSTORM_PARTICIPANT), sessionId, participantUserId],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO brainstorming_participants (id, session_id, user_id, role)
+       VALUES ($1,$2,$3,'PARTICIPANT') ON CONFLICT (session_id, user_id) DO NOTHING`,
+      [newId(PREFIX.BRAINSTORM_PARTICIPANT), sessionId, participantUserId],
+    ),
   );
   await notify(participantUserId, NotificationType.BRAINSTORM_INVITE, `You were invited to a brainstorm: ${session.title}`, {
     resourceType: 'brainstorm',
     resourceId: sessionId,
     body: `Join the brainstorm "${session.title}" and share your ideas.`,
   });
-  const rows = await queryMany<BrainstormParticipantRow>(
-    'SELECT * FROM brainstorming_participants WHERE session_id = $1 ORDER BY joined_at ASC',
-    [sessionId],
+  const rows = await withTenant<BrainstormParticipantRow[]>(userId, (db) =>
+    db
+      .query<BrainstormParticipantRow>(
+        'SELECT * FROM brainstorming_participants WHERE session_id = $1 ORDER BY joined_at ASC',
+        [sessionId],
+      )
+      .then((r) => r.rows),
   );
   return rows.map(toParticipantJson);
 }
 
 export async function listSessions(userId: string) {
-  const rows = await queryMany<BrainstormSessionRow>(
-    `SELECT s.* FROM brainstorming_sessions s
-     WHERE s.owner_id = $1 OR s.id IN (
-       SELECT session_id FROM brainstorming_participants WHERE user_id = $1
-     )
-     ORDER BY s.created_at DESC LIMIT 200`,
-    [userId],
+  const rows = await withTenant<BrainstormSessionRow[]>(userId, (db) =>
+    db
+      .query<BrainstormSessionRow>(
+        `SELECT s.* FROM brainstorming_sessions s
+         WHERE s.owner_id = $1 OR s.id IN (
+           SELECT session_id FROM brainstorming_participants WHERE user_id = $1
+         )
+         ORDER BY s.created_at DESC LIMIT 200`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   return rows.map(toSessionJson);
 }
@@ -183,13 +207,21 @@ export interface SessionDetail {
 
 export async function getSessionDetail(userId: string, sessionId: string): Promise<SessionDetail> {
   const session = await getSession(userId, sessionId);
-  const participants = await queryMany<BrainstormParticipantRow>(
-    'SELECT * FROM brainstorming_participants WHERE session_id = $1 ORDER BY joined_at ASC',
-    [sessionId],
-  );
-  const ideas = await queryMany<BrainstormIdeaRow>(
-    'SELECT * FROM brainstorming_ideas WHERE session_id = $1 ORDER BY created_at ASC LIMIT 200',
-    [sessionId],
+  const [participants, ideas] = await withTenant<[BrainstormParticipantRow[], BrainstormIdeaRow[]]>(userId, (db) =>
+    Promise.all([
+      db
+        .query<BrainstormParticipantRow>(
+          'SELECT * FROM brainstorming_participants WHERE session_id = $1 ORDER BY joined_at ASC',
+          [sessionId],
+        )
+        .then((r) => r.rows),
+      db
+        .query<BrainstormIdeaRow>(
+          'SELECT * FROM brainstorming_ideas WHERE session_id = $1 ORDER BY created_at ASC LIMIT 200',
+          [sessionId],
+        )
+        .then((r) => r.rows),
+    ]),
   );
   return {
     session: toSessionJson(session),
@@ -215,17 +247,21 @@ export async function captureIdea(userId: string, sessionId: string, input: Capt
     aiGenerated: false,
     references: [],
   });
-  const rows = await queryMany<BrainstormIdeaRow>(
-    `INSERT INTO brainstorming_ideas (id, session_id, idea_id, created_by, proposal, grouping, ai_generated)
-     VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING *`,
-    [
-      newId(PREFIX.BRAINSTORM_IDEA),
-      sessionId,
-      idea.id,
-      userId,
-      input.proposal,
-      input.grouping ?? null,
-    ],
+  const rows = await withTenant<BrainstormIdeaRow[]>(userId, (db) =>
+    db
+      .query<BrainstormIdeaRow>(
+        `INSERT INTO brainstorming_ideas (id, session_id, idea_id, created_by, proposal, grouping, ai_generated)
+         VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING *`,
+        [
+          newId(PREFIX.BRAINSTORM_IDEA),
+          sessionId,
+          idea.id,
+          userId,
+          input.proposal,
+          input.grouping ?? null,
+        ],
+      )
+      .then((r) => r.rows),
   );
   await recordAudit({
     action: AuditAction.BRAINSTORM_IDEA_CAPTURED,
@@ -275,7 +311,9 @@ export async function generateIdeas(userId: string, sessionId: string, input: Ge
   if (configuredProviders().length === 0) {
     throw AppError.unavailable('ai_unavailable', 'No AI provider is configured for idea generation');
   }
-  const user = await queryOne<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
+  const user = await withTenant<{ plan_id: string } | null>(userId, (db) =>
+    db.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]).then((r) => r.rows[0] ?? null),
+  );
   const ctx: GatewayContext = { userId, sessionId, planId: (user?.plan_id ?? 'free') as GatewayContext['planId'] };
 
   let completion;
@@ -327,17 +365,21 @@ export async function generateIdeas(userId: string, sessionId: string, input: Ge
       aiGenerated: true,
       references: [],
     });
-    const rows = await queryMany<BrainstormIdeaRow>(
-      `INSERT INTO brainstorming_ideas (id, session_id, idea_id, created_by, proposal, grouping, ai_generated)
-       VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *`,
-      [
-        newId(PREFIX.BRAINSTORM_IDEA),
-        sessionId,
-        created.id,
-        userId,
-        created.title,
-        null,
-      ],
+    const rows = await withTenant<BrainstormIdeaRow[]>(userId, (db) =>
+      db
+        .query<BrainstormIdeaRow>(
+          `INSERT INTO brainstorming_ideas (id, session_id, idea_id, created_by, proposal, grouping, ai_generated)
+           VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING *`,
+          [
+            newId(PREFIX.BRAINSTORM_IDEA),
+            sessionId,
+            created.id,
+            userId,
+            created.title,
+            null,
+          ],
+        )
+        .then((r) => r.rows),
     );
     persisted.push({ brainstormIdea: toBrainstormIdeaJson(rows[0] as BrainstormIdeaRow), idea: created });
   }
@@ -364,9 +406,11 @@ export async function completeSession(userId: string, sessionId: string) {
   const session = await getSession(userId, sessionId);
   await requireHost(userId, sessionId);
   if (session.status !== 'ACTIVE') throw AppError.conflict('session_not_active', 'Session is not active');
-  await pool.query(
-    "UPDATE brainstorming_sessions SET status = 'COMPLETED', ended_at = now() WHERE id = $1",
-    [sessionId],
+  await withTenant(userId, (db) =>
+    db.query(
+      "UPDATE brainstorming_sessions SET status = 'COMPLETED', ended_at = now() WHERE id = $1",
+      [sessionId],
+    ),
   );
   await recordAudit({
     action: AuditAction.BRAINSTORM_COMPLETED,
@@ -384,9 +428,11 @@ export async function archiveSession(userId: string, sessionId: string) {
   const session = await getSession(userId, sessionId);
   await requireHost(userId, sessionId);
   if (session.status === 'ARCHIVED') throw AppError.conflict('already_archived', 'Session is already archived');
-  await pool.query(
-    "UPDATE brainstorming_sessions SET status = 'ARCHIVED', ended_at = COALESCE(ended_at, now()) WHERE id = $1",
-    [sessionId],
+  await withTenant(userId, (db) =>
+    db.query(
+      "UPDATE brainstorming_sessions SET status = 'ARCHIVED', ended_at = COALESCE(ended_at, now()) WHERE id = $1",
+      [sessionId],
+    ),
   );
   await recordAudit({
     action: AuditAction.BRAINSTORM_ARCHIVED,

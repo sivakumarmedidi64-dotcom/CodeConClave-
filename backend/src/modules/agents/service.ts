@@ -18,7 +18,7 @@
  * entitlement, health, capabilities, budget) - an agent's model_id must be in
  * the eligible set; otherwise routing picks the ranked eligible model.
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withSystem, withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { recordAudit } from '../audit/service.js';
@@ -153,25 +153,44 @@ async function limitsFor(userId: string): Promise<{ MAX_AGENTS: number; AGENT_MA
   return plan === 'pro' ? PRO_LIMITS : plan === 'team' ? TEAM_LIMITS : FREE_LIMITS;
 }
 
+/**
+ * Server-authoritative agent allowance ("My Agents N/M"). Counts only the
+ * user's own rows in ai_agents — internal specialist routing (Architect,
+ * Coder, Reviewer, …) is a coworker/role concept, never counted here.
+ */
+export async function agentUsage(userId: string): Promise<{ count: number; max: number; plan: PlanId }> {
+  const plan = await effectivePlan(userId);
+  const limits = await limitsFor(userId);
+  const existing = await withTenant<{ rows: { n: number }[] }>(userId, async (q) =>
+    q.query<{ n: number }>('SELECT count(*)::int AS n FROM ai_agents WHERE owner_id = $1', [userId]),
+  );
+  return { count: existing.rows[0]?.n ?? 0, max: limits.MAX_AGENTS, plan };
+}
+
 // ---------------------------------------------------------------- CRUD
 
 export async function listAgents(userId: string): Promise<AgentRow[]> {
-  const rows = await queryMany<AgentRow>(
-    `SELECT a.*, r.status AS run_status, r.objective AS run_objective, r.completed_tasks, r.total_tasks, r.failed_tasks, r.spent_usd
-     FROM ai_agents a
-     LEFT JOIN ai_agent_runs r ON r.id = a.current_run_id
-     WHERE a.owner_id = $1 ORDER BY a.created_at DESC`,
-    [userId],
+  const result = await withTenant<{ rows: AgentRow[] }>(userId, async (q) =>
+    q.query<AgentRow>(
+      `SELECT a.*, r.status AS run_status, r.objective AS run_objective, r.completed_tasks, r.total_tasks, r.failed_tasks, r.spent_usd
+       FROM ai_agents a
+       LEFT JOIN ai_agent_runs r ON r.id = a.current_run_id
+       WHERE a.owner_id = $1 ORDER BY a.created_at DESC`,
+      [userId],
+    ),
   );
+  const rows = result.rows;
   const planMax = MAX_TRUST_BY_PLAN[await effectivePlan(userId)];
   for (const row of rows) row.effective_trust_level = clampTrust(row.trust_level ?? 'L2', planMax);
   return rows;
 }
 
 export async function getAgent(userId: string, agentId: string): Promise<AgentRow> {
-  const rows = await queryMany<AgentRow>('SELECT * FROM ai_agents WHERE id = $1 AND owner_id = $2', [agentId, userId]);
-  if (!rows[0]) throw AppError.notFound('Agent');
-  const agent = rows[0];
+  const run = await withTenant<{ rows: AgentRow[] }>(userId, async (q) =>
+    q.query<AgentRow>('SELECT * FROM ai_agents WHERE id = $1 AND owner_id = $2', [agentId, userId]),
+  );
+  if (!run.rows[0]) throw AppError.notFound('Agent');
+  const agent = run.rows[0];
   agent.effective_trust_level = clampTrust(agent.trust_level ?? 'L2', MAX_TRUST_BY_PLAN[await effectivePlan(userId)]);
   return agent;
 }
@@ -208,8 +227,10 @@ export async function createAgent(
   const name = input.name.trim().slice(0, 120);
   if (!name) throw AppError.badRequest('agent_name_required', 'Agent name is required');
   const limits = await limitsFor(userId);
-  const existing = await queryMany<{ n: number }>('SELECT count(*)::int AS n FROM ai_agents WHERE owner_id = $1', [userId]);
-  if ((existing[0]?.n ?? 0) >= limits.MAX_AGENTS) {
+  const existing = await withTenant<{ rows: { n: number }[] }>(userId, async (q) =>
+    q.query<{ n: number }>('SELECT count(*)::int AS n FROM ai_agents WHERE owner_id = $1', [userId]),
+  );
+  if ((existing.rows[0]?.n ?? 0) >= limits.MAX_AGENTS) {
     throw AppError.badRequest('agent_limit_reached', `Plan allows at most ${limits.MAX_AGENTS} agents`);
   }
   const { modelId } = await assertModelEligible(userId, input.role, input.modelId);
@@ -221,24 +242,29 @@ export async function createAgent(
   const planMax = MAX_TRUST_BY_PLAN[plan];
   const trustLevel = clampTrust(input.trustLevel ?? 'L2', planMax);
   const id = newId(PREFIX.AGENT);
-  await pool.query(
-    `INSERT INTO ai_agents (id, owner_id, name, role, objective, capabilities, model_provider, model_id, max_tasks_per_run, max_retries, trust_level)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11)`,
-    [
-      id,
-      userId,
-      name,
-      input.role,
-      input.objective?.trim().slice(0, 2000) ?? null,
-      JSON.stringify(Array.isArray(input.capabilities) ? input.capabilities.slice(0, 20) : []),
-      input.modelProvider ?? null,
-      modelId,
-      maxTasks,
-      maxRetries,
-      trustLevel,
-    ],
+  await withTenant(userId, async (q) =>
+    q.query(
+      `INSERT INTO ai_agents (id, owner_id, name, role, objective, capabilities, model_provider, model_id, max_tasks_per_run, max_retries, trust_level)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11)`,
+      [
+        id,
+        userId,
+        name,
+        input.role,
+        input.objective?.trim().slice(0, 2000) ?? null,
+        JSON.stringify(Array.isArray(input.capabilities) ? input.capabilities.slice(0, 20) : []),
+        input.modelProvider ?? null,
+        modelId,
+        maxTasks,
+        maxRetries,
+        trustLevel,
+      ],
+    ),
   );
-  const row = (await queryMany<AgentRow>('SELECT * FROM ai_agents WHERE id = $1', [id]))[0] ?? {
+  const created = await withTenant<{ rows: AgentRow[] }>(userId, async (q) =>
+    q.query<AgentRow>('SELECT * FROM ai_agents WHERE id = $1', [id]),
+  );
+  const row = created.rows[0] ?? {
     id,
     owner_id: userId,
     name,
@@ -282,7 +308,9 @@ export async function setAgentTrust(userId: string, agentId: string, level: stri
       `Trust level ${level} exceeds the maximum for your plan (${planMax}).`,
     );
   }
-  await pool.query('UPDATE ai_agents SET trust_level = $1, updated_at = now() WHERE id = $2 AND owner_id = $3', [level, agentId, userId]);
+  await withTenant(userId, async (q) =>
+    q.query('UPDATE ai_agents SET trust_level = $1, updated_at = now() WHERE id = $2 AND owner_id = $3', [level, agentId, userId]),
+  );
   await recordAudit({
     action: AuditAction.AGENT_TRUST_CHANGED,
     actorUserId: userId,
@@ -335,7 +363,7 @@ export async function updateAgent(
     params.push(Math.min(Math.max(input.maxRetries, 0), 5));
     fields.push(`max_retries = $${params.length}`);
   }
-  await pool.query(`UPDATE ai_agents SET ${fields.join(', ')} WHERE id = $1 AND owner_id = $2`, params);
+  await withTenant(userId, async (q) => q.query(`UPDATE ai_agents SET ${fields.join(', ')} WHERE id = $1 AND owner_id = $2`, params));
   await recordAudit({
     action: AuditAction.AGENT_UPDATED,
     actorUserId: userId,
@@ -349,8 +377,10 @@ export async function updateAgent(
 }
 
 async function getModelProvider(modelId: string): Promise<string | null> {
-  const rows = await queryMany<{ provider_id: string }>('SELECT provider_id FROM ai_model_registry WHERE model_id = $1', [modelId]);
-  return rows[0]?.provider_id ?? null;
+  const rows = await withSystem<{ rows: { provider_id: string }[] }>(async (q) =>
+    q.query<{ provider_id: string }>('SELECT provider_id FROM ai_model_registry WHERE model_id = $1', [modelId]),
+  );
+  return rows.rows[0]?.provider_id ?? null;
 }
 
 export async function deleteAgent(userId: string, agentId: string): Promise<void> {
@@ -358,7 +388,7 @@ export async function deleteAgent(userId: string, agentId: string): Promise<void
   if (agent.status !== 'IDLE' && agent.current_run_id) {
     throw AppError.conflict('agent_busy', 'Agent has an active run; cancel or wait for it to finish');
   }
-  await pool.query('DELETE FROM ai_agents WHERE id = $1 AND owner_id = $2', [agentId, userId]);
+  await withTenant(userId, async (q) => q.query('DELETE FROM ai_agents WHERE id = $1 AND owner_id = $2', [agentId, userId]));
   await recordAudit({
     action: AuditAction.AGENT_DELETED,
     actorUserId: userId,
@@ -376,22 +406,29 @@ export async function listRuns(userId: string, agentId?: string): Promise<AgentR
   const agentClause = agentId ? 'AND agent_id = $2' : '';
   const params: unknown[] = [userId];
   if (agentId) params.push(agentId);
-  return queryMany<AgentRunRow>(
-    `SELECT * FROM ai_agent_runs WHERE owner_id = $1 ${agentClause} ORDER BY created_at DESC LIMIT 50`,
-    params,
+  const rows = await withTenant<{ rows: AgentRunRow[] }>(userId, async (q) =>
+    q.query<AgentRunRow>(
+      `SELECT * FROM ai_agent_runs WHERE owner_id = $1 ${agentClause} ORDER BY created_at DESC LIMIT 50`,
+      params,
+    ),
   );
+  return rows.rows;
 }
 
 export async function getRun(userId: string, runId: string): Promise<AgentRunRow> {
-  const rows = await queryMany<AgentRunRow>('SELECT * FROM ai_agent_runs WHERE id = $1 AND owner_id = $2', [runId, userId]);
-  if (!rows[0]) throw AppError.notFound('AgentRun');
-  return rows[0];
+  const rows = await withTenant<{ rows: AgentRunRow[] }>(userId, async (q) =>
+    q.query<AgentRunRow>('SELECT * FROM ai_agent_runs WHERE id = $1 AND owner_id = $2', [runId, userId]),
+  );
+  if (!rows.rows[0]) throw AppError.notFound('AgentRun');
+  return rows.rows[0];
 }
 
 export async function getRunInternal(runId: string): Promise<AgentRunRow> {
-  const rows = await queryMany<AgentRunRow>('SELECT * FROM ai_agent_runs WHERE id = $1', [runId]);
-  if (!rows[0]) throw AppError.notFound('AgentRun');
-  return rows[0];
+  const rows = await withSystem<{ rows: AgentRunRow[] }>(async (q) =>
+    q.query<AgentRunRow>('SELECT * FROM ai_agent_runs WHERE id = $1', [runId]),
+  );
+  if (!rows.rows[0]) throw AppError.notFound('AgentRun');
+  return rows.rows[0];
 }
 
 async function setRunState(runId: string, status: string, error?: string | null): Promise<void> {
@@ -403,7 +440,7 @@ async function setRunState(runId: string, status: string, error?: string | null)
     params.push(error);
     fields.push(`error = $${params.length}`);
   }
-  await pool.query(`UPDATE ai_agent_runs SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withSystem(async (q) => q.query(`UPDATE ai_agent_runs SET ${fields.join(', ')} WHERE id = $1`, params));
 }
 
 export async function startRun(
@@ -428,11 +465,13 @@ export async function startRun(
   const trustLevel = await effectiveTrustLevel(userId, agent.trust_level ?? 'L2');
 
   if (input.projectId) {
-    const projects = await queryMany<{ id: string }>(
-      'SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL',
-      [input.projectId, userId],
+    const projects = await withTenant<{ rows: { id: string }[] }>(userId, async (q) =>
+      q.query<{ id: string }>(
+        'SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL',
+        [input.projectId, userId],
+      ),
     );
-    if (!projects[0]) throw AppError.notFound('Project');
+    if (!projects.rows[0]) throw AppError.notFound('Project');
   }
 
   // Fan-out: bounded by the agent's max_tasks_per_run AND the plan limit.
@@ -444,10 +483,12 @@ export async function startRun(
   const budget = Math.min(input.budgetUsd ?? limits.AGENT_MAX_BUDGET_USD, Math.max(limits.AGENT_MAX_BUDGET_USD, 0.1));
   const deadlineMinutes = Math.min(Math.max(input.deadlineMinutes ?? 120, 5), 24 * 60);
   const deadlineAt = new Date(Date.now() + deadlineMinutes * 60_000);
-  await pool.query(
-    `INSERT INTO ai_agent_runs (id, agent_id, owner_id, project_id, status, objective, total_tasks, budget_usd, deadline_at)
-     VALUES ($1,$2,$3,$4,'THINKING',$5,$6,$7, now() + make_interval(mins => $8))`,
-    [runId, agentId, userId, input.projectId ?? null, objective, subtasks.length, budget, deadlineMinutes],
+  await withTenant(userId, async (q) =>
+    q.query(
+      `INSERT INTO ai_agent_runs (id, agent_id, owner_id, project_id, status, objective, total_tasks, budget_usd, deadline_at)
+       VALUES ($1,$2,$3,$4,'THINKING',$5,$6,$7, now() + make_interval(mins => $8))`,
+      [runId, agentId, userId, input.projectId ?? null, objective, subtasks.length, budget, deadlineMinutes],
+    ),
   );
 
   // Create the run's tasks through the EXISTING task engine (permissions,
@@ -465,14 +506,14 @@ export async function startRun(
       maxAttempts: Math.min(agent.max_retries + 1, 5),
       priority: 100 - i,
     });
-    await pool.query(`UPDATE tasks SET agent_run_id = $1 WHERE id = $2`, [runId, task.id]);
+    await withTenant(userId, async (q) => q.query(`UPDATE tasks SET agent_run_id = $1 WHERE id = $2`, [runId, task.id]));
     if (previousTaskId) await addTaskDependency(task.id, previousTaskId);
     previousTaskId = task.id;
     taskIds.push(task.id);
   }
 
   await setRunState(runId, 'RUNNING');
-  await pool.query(`UPDATE ai_agents SET status = 'RUNNING', current_run_id = $1 WHERE id = $2`, [runId, agentId]);
+  await withTenant(userId, async (q) => q.query(`UPDATE ai_agents SET status = 'RUNNING', current_run_id = $1 WHERE id = $2`, [runId, agentId]));
   await recordAudit({
     action: AuditAction.AGENT_RUN_STARTED,
     actorUserId: userId,
@@ -506,12 +547,14 @@ export async function startRun(
 }
 
 async function defaultProjectId(userId: string): Promise<string> {
-  const rows = await queryMany<{ id: string }>(
-    'SELECT id FROM projects WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1',
-    [userId],
+  const rows = await withTenant<{ rows: { id: string }[] }>(userId, async (q) =>
+    q.query<{ id: string }>(
+      'SELECT id FROM projects WHERE owner_id = $1 AND deleted_at IS NULL ORDER BY created_at LIMIT 1',
+      [userId],
+    ),
   );
-  if (!rows[0]) throw AppError.badRequest('project_required', 'Agent runs require a project (create one first)');
-  return rows[0].id;
+  if (!rows.rows[0]) throw AppError.badRequest('project_required', 'Agent runs require a project (create one first)');
+  return rows.rows[0].id;
 }
 
 export async function cancelRun(userId: string, runId: string): Promise<AgentRunRow> {
@@ -524,7 +567,7 @@ export async function cancelRun(userId: string, runId: string): Promise<AgentRun
     }
   }
   await setRunState(runId, 'FAILED', 'cancelled_by_user');
-  await pool.query(`UPDATE ai_agents SET status = 'IDLE', current_run_id = NULL WHERE id = $1`, [run.agent_id]);
+  await withTenant(userId, async (q) => q.query(`UPDATE ai_agents SET status = 'IDLE', current_run_id = NULL WHERE id = $1`, [run.agent_id]));
   await recordAudit({
     action: AuditAction.AGENT_RUN_CANCELLED,
     actorUserId: userId,
@@ -538,20 +581,25 @@ export async function cancelRun(userId: string, runId: string): Promise<AgentRun
 }
 
 export async function runTasks(runId: string): Promise<Array<{ id: string; status: string; title: string; attempted: boolean }>> {
-  return queryMany<{ id: string; status: string; title: string; attempted: boolean }>(
-    `SELECT id, status, title, (attempt_count > 0) AS attempted FROM tasks WHERE agent_run_id = $1 ORDER BY priority DESC, created_at ASC`,
-    [runId],
+  const rows = await withSystem<{ rows: { id: string; status: string; title: string; attempted: boolean }[] }>(async (q) =>
+    q.query<{ id: string; status: string; title: string; attempted: boolean }>(
+      `SELECT id, status, title, (attempt_count > 0) AS attempted FROM tasks WHERE agent_run_id = $1 ORDER BY priority DESC, created_at ASC`,
+      [runId],
+    ),
   );
+  return rows.rows;
 }
 
 async function runSpend(runId: string): Promise<number> {
-  const rows = await queryMany<{ total: string }>(
-    `SELECT COALESCE(SUM(m.estimated_cost_usd),0) AS total
-     FROM model_usage_logs m JOIN tasks t ON t.id = m.task_id
-     WHERE t.agent_run_id = $1`,
-    [runId],
+  const rows = await withSystem<{ rows: { total: string }[] }>(async (q) =>
+    q.query<{ total: string }>(
+      `SELECT COALESCE(SUM(m.estimated_cost_usd),0) AS total
+       FROM model_usage_logs m JOIN tasks t ON t.id = m.task_id
+       WHERE t.agent_run_id = $1`,
+      [runId],
+    ),
   );
-  return Number(rows[0]?.total ?? 0);
+  return Number(rows.rows[0]?.total ?? 0);
 }
 
 // ---------------------------------------------------------------- accounting hook
@@ -563,12 +611,14 @@ async function runSpend(runId: string): Promise<number> {
  */
 export async function agentTaskChanged(taskId: string): Promise<void> {
   try {
-    const rows = await queryMany<{ agent_run_id: string | null }>(
-      'SELECT agent_run_id FROM tasks WHERE id = $1 AND agent_run_id IS NOT NULL',
-      [taskId],
+    const rows = await withSystem<{ rows: { agent_run_id: string | null }[] }>(async (q) =>
+      q.query<{ agent_run_id: string | null }>(
+        'SELECT agent_run_id FROM tasks WHERE id = $1 AND agent_run_id IS NOT NULL',
+        [taskId],
+      ),
     );
-    if (!rows[0]?.agent_run_id) return;
-    await recomputeRun(rows[0].agent_run_id);
+    if (!rows.rows[0]?.agent_run_id) return;
+    await recomputeRun(rows.rows[0].agent_run_id);
   } catch (err) {
     // Accounting is best-effort; the task engine is the source of truth.
   }
@@ -577,8 +627,9 @@ export async function agentTaskChanged(taskId: string): Promise<void> {
 export async function recomputeRun(runId: string): Promise<void> {
   const run = await getRunInternal(runId).catch(() => null);
   if (!run || ['COMPLETED', 'FAILED', 'BLOCKED'].includes(run.status)) return;
-  const agent = await queryOne<AgentRow>('SELECT * FROM ai_agents WHERE id = $1', [run.agent_id]);
-  if (!agent) return;
+  const agent = await withSystem<{ rows: AgentRow[] }>(async (q) => q.query<AgentRow>('SELECT * FROM ai_agents WHERE id = $1', [run.agent_id]));
+  if (!agent.rows[0]) return;
+  const agentRow = agent.rows[0];
   const tasks = await runTasks(runId);
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === 'COMPLETED').length;
@@ -589,11 +640,13 @@ export async function recomputeRun(runId: string): Promise<void> {
   const spent = await runSpend(runId);
   const deadlinePassed = run.deadline_at !== null && run.deadline_at.getTime() <= Date.now();
   const overBudget = spent > run.budget_usd;
-  const overRetries = agent.max_retries > 0 && retriesUsed > agent.max_retries;
+  const overRetries = agentRow.max_retries > 0 && retriesUsed > agentRow.max_retries;
 
-  await pool.query(
-    `UPDATE ai_agent_runs SET completed_tasks = $2, failed_tasks = $3, retries_used = $4, spent_usd = $5 WHERE id = $1`,
-    [runId, completed, failed, Math.max(0, retriesUsed - 1), spent],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE ai_agent_runs SET completed_tasks = $2, failed_tasks = $3, retries_used = $4, spent_usd = $5 WHERE id = $1`,
+      [runId, completed, failed, Math.max(0, retriesUsed - 1), spent],
+    ),
   );
 
   let nextStatus: string;
@@ -624,11 +677,13 @@ export async function recomputeRun(runId: string): Promise<void> {
   if (nextStatus !== run.status) {
     await setRunState(runId, nextStatus, error);
     const terminal = nextStatus === 'COMPLETED' || nextStatus === 'FAILED' || nextStatus === 'BLOCKED';
-    await pool.query(
-      terminal
-        ? `UPDATE ai_agents SET status = 'IDLE', current_run_id = NULL, updated_at = now() WHERE id = $1`
-        : `UPDATE ai_agents SET status = $2, updated_at = now() WHERE id = $1`,
-      terminal ? [agent.id] : [agent.id, nextStatus],
+    await withSystem(async (q) =>
+      q.query(
+        terminal
+          ? `UPDATE ai_agents SET status = 'IDLE', current_run_id = NULL, updated_at = now() WHERE id = $1`
+          : `UPDATE ai_agents SET status = $2, updated_at = now() WHERE id = $1`,
+        terminal ? [agentRow.id] : [agentRow.id, nextStatus],
+      ),
     );
     if (terminal) {
       await notify(
@@ -636,7 +691,7 @@ export async function recomputeRun(runId: string): Promise<void> {
         nextStatus === 'COMPLETED' ? NotificationType.AGENT_COMPLETED : nextStatus === 'FAILED' ? NotificationType.AGENT_FAILED : NotificationType.AGENT_BLOCKED,
         nextStatus === 'COMPLETED' ? 'Agent completed' : nextStatus === 'FAILED' ? 'Agent failed' : 'Agent blocked',
         {
-          body: `${agent.name}: ${run.objective ?? run.id}`,
+          body: `${agentRow.name}: ${run.objective ?? run.id}`,
           resourceType: 'ai_agent_run',
           resourceId: runId,
           metadata: { status: nextStatus, error },
@@ -648,10 +703,10 @@ export async function recomputeRun(runId: string): Promise<void> {
           projectId: run.project_id ?? undefined,
           type: 'EPISODIC',
           source: 'AI_INFERRED',
-          content: `Agent ${agent.name} (${agent.role}) ${nextStatus.toLowerCase()}: ${run.objective ?? ''}`,
+          content: `Agent ${agentRow.name} (${agentRow.role}) ${nextStatus.toLowerCase()}: ${run.objective ?? ''}`,
           confidence: 0.7,
           provenance: `agent_run:${runId}`,
-          structured: { agentId: agent.id, role: agent.role, runId, status: nextStatus, tasksCompleted: completed, tasksFailed: failed },
+          structured: { agentId: agentRow.id, role: agentRow.role, runId, status: nextStatus, tasksCompleted: completed, tasksFailed: failed },
         });
       } catch {
         /* memory is best-effort */
@@ -663,11 +718,11 @@ export async function recomputeRun(runId: string): Promise<void> {
         tenantId: run.owner_id,
         resourceType: 'ai_agent_run',
         resourceId: runId,
-        detail: { agentId: agent.id, status: nextStatus, error, spentUsd: spent, tasksCompleted: completed, tasksFailed: failed },
+        detail: { agentId: agentRow.id, status: nextStatus, error, spentUsd: spent, tasksCompleted: completed, tasksFailed: failed },
       });
     }
   } else {
-    await pool.query(`UPDATE ai_agent_runs SET updated_at = now() WHERE id = $1`, [runId]);
+    await withSystem(async (q) => q.query(`UPDATE ai_agent_runs SET updated_at = now() WHERE id = $1`, [runId]));
   }
 }
 
@@ -677,13 +732,15 @@ export async function recomputeRun(runId: string): Promise<void> {
  * is stuck in the queue). Terminal runs are left untouched.
  */
 export async function sweepAgentRuns(): Promise<number> {
-  const runs = await queryMany<AgentRunRow>(
-    `SELECT * FROM ai_agent_runs WHERE status IN ('THINKING','RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_DEPENDENCY') LIMIT 100`,
+  const runs = await withSystem<{ rows: AgentRunRow[] }>(async (q) =>
+    q.query<AgentRunRow>(
+      `SELECT * FROM ai_agent_runs WHERE status IN ('THINKING','RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_DEPENDENCY') LIMIT 100`,
+    ),
   );
-  for (const run of runs) {
+  for (const run of runs.rows) {
     await recomputeRun(run.id);
   }
-  return runs.length;
+  return runs.rows.length;
 }
 
 /** Suggested model for a role: the top eligible model per the role's routing. */

@@ -1,0 +1,71 @@
+{
+  "product": "CodeConClave Pro (Web + Windows Desktop, one shared backend)",
+  "version": "0.1.0",
+  "prompt": "5/5",
+  "document": "FINAL_PRODUCTION_READINESS_AUDIT",
+  "feature_basis": { "denominator": 336, "removed": 0, "unmapped": 0 },
+  "areas": {
+    "AI_CHAT": "PASS",
+    "MODEL_ROUTING": "PASS",
+    "MULTIMODAL": "PASS",
+    "IMAGE_GENERATION": "PASS",
+    "EXTERNAL_AGENTS": "PASS",
+    "MEMORY": "PASS",
+    "AUTONOMOUS_COWORK": "PASS",
+    "CONTROL_PLANE": "PASS",
+    "GOOGLE_AUTH": "CODE_VALIDATED",
+    "ONBOARDING": "PASS",
+    "FREE_ROLLING_USAGE": "PASS",
+    "WEB_APP": "PASS",
+    "DESKTOP_APP": "PASS",
+    "WINDOWS_INSTALLER": "BUILT",
+    "OFFLINE_RESUME": "PASS_AUTOMATED",
+    "SECURITY": "PASS",
+    "DATABASE": "PASS",
+    "PAYMENT_REGRESSION": "PASS_FROZEN",
+    "LIVE_RAZORPAY": "HUMAN_ONLY",
+    "PRODUCTION_PROVIDER_PROBE": "HUMAN_ONLY",
+    "SECRET_SCAN": "PASS",
+    "MIGRATIONS": "PASS"
+  },
+  "tests": {
+    "backend": { "files": 156, "tests": 2860, "passed": 2852, "skipped": 8, "failed": 0 },
+    "frontend": { "files": 74, "tests": 408, "passed": 408, "failed": 0 },
+    "desktop": { "files": 5, "tests": 58, "passed": 58, "failed": 0 },
+    "payment_proof": { "tests": 16, "passed": 16, "failed": 0 },
+    "targeted_ai_provider_control": { "files": 8, "tests": 238, "passed": 238, "failed": 0 },
+    "typecheck": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS", "shared": "PASS" },
+    "builds": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS", "installer_nsis_x64": "PASS" }
+  },
+  "secret_scan": { "files": 852, "skipped": 0, "findings": 0 },
+  "migrations": { "applied": 76, "pending": 0, "checksum_drift": 0, "rls": "enabled across public schema tables" },
+  "real_provider_calls": ["google text+multimodal 200", "qwen 200", "nemotron SSE 200 persisted", "gemini image-gen real 429 (honest failure)", "z_code glm-5.3 real route 401-wrapped"],
+  "provider_ledger": {
+    "AVAILABLE": ["google", "qwen"],
+    "DEGRADED": ["nemotron", "openai", "anthropic", "grok", "gemma"],
+    "NOT_CONFIGURED": ["mistral", "deepseek", "kimi", "north", "devin"],
+    "CONFIGURED_NEVER_ATTEMPTED": ["ox_alpha", "manus"],
+    "OFFLINE": ["z_code_5_3"],
+    "NOT_INTEGRATED": ["big_pickle"]
+  },
+  "key_invalid": ["ox_alpha", "z_code_5_3"],
+  "environment_blocked": ["manus", "big_pickle"],
+  "unverified": ["devin"],
+  "findings": { "open": 0, "notes": "remediation audit REM-01..REM-08: 7 resolved, 1 verified no-change, 0 open" },
+  "human_acceptance_items": {
+    "count": 4,
+    "completed": 0,
+    "remaining": 4,
+    "items": [
+      { "id": "GOOGLE_OAUTH_CONSENT_FLOW", "status": "NOT_PERFORMED", "human_only": true },
+      { "id": "LIVE_RAZORPAY_HOSTED_LINK", "status": "NOT_PERFORMED", "human_only": true },
+      { "id": "WINDOWS_NSIS_INSTALL_AND_OFFLINE_RESUME", "status": "NOT_PERFORMED", "human_only": true, "nsis_install": "HUMAN_ONLY", "offline_resume_automated": "PASS", "offline_resume_human": "NOT_PERFORMED" },
+      { "id": "PRODUCTION_PROVIDER_REPROBE", "status": "NOT_PERFORMED", "human_only": true }
+    ]
+  },
+  "gate": {
+    "final_production_readiness_gate": "CONDITIONAL_PASS",
+    "deployment": "NOT_ALLOWED",
+    "deployment_allowed_when": "all 4 HUMAN_ONLY acceptance items completed by a human and audit re-run"
+  }
+}

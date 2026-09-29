@@ -5,7 +5,7 @@
  * written here — deduplication happens at read time when the same underlying
  * action was recorded in both an activity table and audit_logs.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { requireProjectRole } from '../auth/rbac.js';
 import { requireTeamRole } from '../teams/service.js';
@@ -131,9 +131,11 @@ export async function getActivityFeed(userId: string, query: ActivityQuery = {})
 
   const union = selects.join('\n  UNION ALL\n  ');
   const params = scope === 'home' ? [userId] : [userId, scope === 'project' ? query.projectId : query.teamId];
-  const rows = await queryMany<ActivityRow>(
-    `SELECT * FROM (${union}) e ORDER BY e.created_at DESC, e.source LIMIT $${params.length + 1}`,
-    [...params, limit],
+  const rows = await withTenant<ActivityRow[]>(userId, async (q) =>
+    (await q.query<ActivityRow>(
+      `SELECT * FROM (${union}) e ORDER BY e.created_at DESC, e.source LIMIT $${params.length + 1}`,
+      [...params, limit],
+    )).rows,
   );
 
   const seen = new Set<string>();

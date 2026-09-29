@@ -8,7 +8,7 @@
  * except the one-time connect credential (stored encrypted, never echoed).
  */
 import { Router } from 'express';
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { jsonResult } from '../auth/schemas.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
@@ -79,7 +79,7 @@ export const pluginRoutes = (): Router => {
         if (oauth) {
           throw AppError.badRequest('oauth_credential_rejected', 'This plugin uses OAuth; use the authorize flow instead');
         }
-        await storePluginCredential(connection.id, credential.kind, credential.value, req.ctx.user!.id);
+        await storePluginCredential(req.ctx.user!.id, connection.id, credential.kind, credential.value, req.ctx.user!.id);
         await connectPluginFinalize(req.ctx.user!.id, connection.id, pluginType);
       } else if (!oauth) {
         await connectPluginFinalize(req.ctx.user!.id, connection.id, pluginType);
@@ -165,11 +165,11 @@ export const pluginRoutes = (): Router => {
     asyncRoute(async (req, res) => {
       const connection = await getConnection(req.ctx.user!.id, req.params.id!);
       const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 20)));
-      const rows = await pool.query(
+      const rows = await withTenant(req.ctx.user!.id, (q) => q.query(
         `SELECT checked_at, ok, latency_ms, consecutive_failures, last_error, detail
          FROM plugin_health WHERE connection_id = $1 ORDER BY checked_at DESC LIMIT $2`,
         [connection.id, limit],
-      );
+      ));
       res.json(jsonResult({ history: rows.rows }));
     }),
   );
@@ -197,6 +197,8 @@ export const pluginRoutes = (): Router => {
   router.post(
     '/connections/:id/events',
     asyncRoute(async (req, res) => {
+      // Tenant gate: only the connection owner may record events on it.
+      await getConnection(req.ctx.user!.id, req.params.id!);
       const eventType = String(req.body?.eventType ?? '');
       if (!eventType) throw AppError.badRequest('event_type_required', 'eventType is required');
       await recordPluginEvent(req.params.id!, eventType, (req.body?.payload as Record<string, unknown>) ?? {});
@@ -279,7 +281,7 @@ async function connectPluginFinalize(userId: string, connectionId: string, plugi
   try {
     const adapter = getAdapter(pluginType);
     if (!adapter) return;
-    const creds = await readPluginCredentials(connectionId);
+    const creds = await readPluginCredentials(userId, connectionId);
     await adapter.authenticate(
       { id: connectionId, owner_id: userId, plugin_type: pluginType as never, scopes: [] },
       creds,

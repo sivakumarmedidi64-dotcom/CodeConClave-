@@ -40,6 +40,8 @@ export interface User {
   displayName: string | null;
   avatarUrl: string | null;
   googleSub: string | null;
+  role: string | null;
+  primaryUseCase: string | null;
   mfaEnabled: boolean;
   mfaSecretEncrypted: string | null;
   recoveryCodesHash: string | null;
@@ -110,6 +112,11 @@ export interface Conversation {
 export interface Message {
   id: string;
   conversationId: string;
+  /** Monotonic per-conversation order (server identity sequence). Sync/continuity
+   *  uses it for incremental pull (messages after a known seq). */
+  seq: number;
+  /** Client-generated idempotency key (USER messages only; null for AI/system). */
+  clientId: string | null;
   sender: 'USER' | 'AI' | 'SYSTEM' | 'COWORKER';
   coworkerType: CoworkerType | null;
   role: 'user' | 'assistant' | 'system';
@@ -125,6 +132,13 @@ export interface Message {
   editCount: number;
   threadId: string | null;
   createdAt: Date;
+  /**
+   * Generated/attached image artifact (IMAGE_GENERATION). The file is stored
+   * server-side (files gateway); only the file id + mime travel in the
+   * contract so secrets/large blobs never reach the client contract.
+   */
+  imageFileId?: string | null;
+  imageMime?: string | null;
 }
 
 export interface Memory {
@@ -273,6 +287,57 @@ export interface AiModelDescriptor {
   deprecationDate: string | null;
   /** Coding-optimized model (registry 0042); preferred for code workloads. */
   codingOptimized: boolean;
+  /**
+   * Image generation / editing capability (Provider Integration 2026).
+   * Canonical yet explicit — a model is image-generation/editing-capable ONLY
+   * when its registry row says so (registry columns image_generation /
+   * image_editing). Absent fields are treated as false; they are never derived
+   * from provider id or vision heuristics. This keeps the registry honest for
+   * text-only, multimodal, and dedicated image-generation models alike.
+   */
+  imageGeneration?: boolean;
+  imageEditing?: boolean;
+  /**
+   * Capability category (Provider Expansion 2026): distinguishes model-style
+   * text/code/multimodal providers from external autonomous-agent resources.
+   * MODEL = chat/completion adapter; EXTERNAL_AGENT = out-of-band job lifecycle
+   * (e.g. Devin). Both enter the same CodeConClave orchestration system; only
+   * the adapter capability layer differs.
+   */
+  capabilityCategory: 'MODEL' | 'EXTERNAL_AGENT';
+}
+
+/**
+ * Canonical capability class (Provider Experience 2026) — the web/desktop
+ * consumer-facing abstraction derived from the registry descriptor. One
+ * truthful label per model:
+ *  - NORMAL_MODEL        text/code chat model (no image in/out)
+ *  - MULTIMODAL_MODEL    accepts IMAGE_INPUT (VISION) for analysis
+ *  - IMAGE_GENERATOR     produces images (IMAGE_GENERATION / IMAGE_EDITING)
+ *  - EXTERNAL_AGENT      out-of-band autonomous-agent lifecycle (e.g. Devin/Manus)
+ * Derived server-side (capabilityClassOf), never client-invented.
+ */
+export type CapabilityClass = 'NORMAL_MODEL' | 'MULTIMODAL_MODEL' | 'IMAGE_GENERATOR' | 'EXTERNAL_AGENT';
+
+/**
+ * Structured model capability matrix (Model Routing 2026).
+ * Each field declares ONLY capabilities that are actually SUPPORTED — derived
+ * honestly from registry metadata (supports_vision/supports_tools/
+ * supports_function_calling) and verified provider facts. Never invented.
+ * Separate concepts: SUPPORTED vs CONFIGURED vs AVAILABLE vs HEALTHY vs
+ * VERIFIED are distinct states tracked by the router/provider-health system.
+ */
+export interface ModelCapabilities {
+  text: boolean;
+  reasoning: boolean;
+  coding: boolean;
+  vision: boolean;
+  imageGeneration: boolean;
+  imageEditing: boolean;
+  structuredOutput: boolean;
+  streaming: boolean;
+  toolCalling: boolean;
+  autonomousAgent: boolean;
 }
 
 export interface ModelUsageLog {

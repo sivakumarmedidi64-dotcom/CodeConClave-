@@ -16,7 +16,7 @@
  *  - Branch: fork from a checkpoint (or the current state) into a new task.
  *  - Modify future steps: re-persist the plan entries of a task.
  */
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, RecoveryEventType } from '@codeconclave/shared';
@@ -24,6 +24,7 @@ import { recordAudit } from '../audit/service.js';
 import {
   createTask, getTask, getTaskInternal, type TaskRow,
 } from '../execution/tasks.js';
+import { guardTransition } from '../autonomy/state-machine.js';
 import { getPlan, persistPlan, type PlanEntryInput } from '../execution/planner.js';
 import { createCheckpoint, getCheckpoint, type CheckpointRow } from './checkpoints.js';
 import { recordRecoveryHistory } from './history.js';
@@ -73,10 +74,11 @@ export async function pauseTask(userId: string, taskId: string, input: PauseInpu
       /* agent cancellation is best-effort; pause still proceeds */
     }
   }
-  await pool.query(
+  guardTransition(task.status, 'PAUSED');
+  await withTenant(userId, (q) => q.query(
     `UPDATE tasks SET status = 'PAUSED', paused_at = now(), paused_by = $2, paused_reason = $3, updated_at = now() WHERE id = $1`,
     [taskId, userId, input.reason ?? null],
-  );
+  ));
   await recordRecoveryHistory(taskId, userId, RecoveryEventType.PAUSED, { reason: input.reason ?? null }, userId);
   await recordAudit({
     action: AuditAction.TASK_PAUSED,
@@ -99,13 +101,14 @@ export async function resumeTask(userId: string, taskId: string, input: ResumeIn
   if (input.modifySteps?.entries?.length) {
     await applyFutureSteps(userId, taskId, { entries: input.modifySteps.entries, reason: input.reason ?? 'modified before resume' });
   }
-  await pool.query(
+  guardTransition(task.status, 'CREATED');
+  await withTenant(userId, (q) => q.query(
     `UPDATE tasks
         SET status = 'CREATED', paused_at = NULL, paused_by = NULL, paused_reason = NULL,
             recovery_status = 'RECOVERED', updated_at = now()
       WHERE id = $1`,
     [taskId],
-  );
+  ));
   await recordRecoveryHistory(taskId, userId, RecoveryEventType.RESUMED, { reason: input.reason ?? null, modified: Boolean(input.modifySteps?.entries?.length) }, userId);
   await recordAudit({
     action: AuditAction.TASK_RESUMED,
@@ -262,17 +265,17 @@ async function forkFromCheckpoint(
   }
   const meta = checkpoint.execution_metadata as { stage_index?: number; run_ids_by_order?: Record<string, string> };
   if (typeof meta?.stage_index === 'number' && meta.stage_index > 0) {
-    await pool.query(
+    await withTenant(userId, (q) => q.query(
       `INSERT INTO task_attempts (id, task_id, attempt_number, started_at, checkpoint, checkpointed_at)
        VALUES ($1,$2,1, now(), $3::jsonb, now())`,
       [newId(PREFIX.TASK_ATTEMPT), forked.id, JSON.stringify({ stageIndex: meta.stage_index, runIdsByOrder: meta.run_ids_by_order ?? {} })],
-    );
+    ));
   }
   const branchId = newId(PREFIX.TASK_BRANCH);
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO task_branches (id, source_task_id, checkpoint_id, branched_task_id, owner_id, label, reason)
      VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [branchId, taskId, checkpoint.id, forked.id, userId, label, null],
-  );
+  ));
   return { branchTask: await getTask(userId, forked.id), branchId };
 }

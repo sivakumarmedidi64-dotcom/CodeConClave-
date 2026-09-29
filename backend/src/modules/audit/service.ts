@@ -17,7 +17,8 @@ export interface AuditRecordInput {
   detail?: Record<string, unknown> | null;
   ip?: string | null;
   userAgent?: string | null;
-  traceId?: string | null;
+  correlationId?: string | null;
+  success?: boolean;
 }
 
 export async function recordAudit(input: AuditRecordInput): Promise<void> {
@@ -26,8 +27,8 @@ export async function recordAudit(input: AuditRecordInput): Promise<void> {
     await q.query(
       `INSERT INTO audit_logs
          (id, actor_user_id, tenant_scope, tenant_id, action, resource_type, resource_id,
-          detail, ip, user_agent, trace_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          detail, ip, user_agent, correlation_id, success)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         id,
         input.actorUserId ?? null,
@@ -39,7 +40,8 @@ export async function recordAudit(input: AuditRecordInput): Promise<void> {
         input.detail ? JSON.stringify(input.detail) : null,
         input.ip ?? null,
         input.userAgent ?? null,
-        input.traceId ?? null,
+        input.correlationId ?? null,
+        input.success ?? true,
       ],
     );
   }).catch((err) => {
@@ -74,7 +76,7 @@ export async function listAudit(query: AuditQuery) {
   params.push(limit, query.offset ?? 0);
   const result = await pool.query(
     `SELECT id, actor_user_id, tenant_scope, tenant_id, action, resource_type, resource_id,
-            detail, ip, trace_id, created_at
+            detail, ip, correlation_id, created_at
      FROM audit_logs ${whereSql}
      ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,

@@ -4,7 +4,7 @@
  * states. fetch is mocked end-to-end against the real api client.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from '../auth/AuthProvider';
@@ -133,6 +133,38 @@ describe('Topbar notifications bell', () => {
     );
     await userEvent.click(screen.getByLabelText('Notifications'));
     await waitFor(() => expect(screen.getByText('Could not load notifications.')).toBeInTheDocument());
+  });
+
+  it('closes the notifications panel on Escape', async () => {
+    renderTopbar(
+      authed(async (url) => {
+        if (url.includes('/notifications/unread-count')) return jsonResponse({ data: { count: 0 } });
+        if (url.includes('/notifications')) return jsonResponse({ data: { notifications: NOTIFICATIONS } });
+        return jsonResponse({ data: {} });
+      }),
+    );
+    await userEvent.click(screen.getByLabelText('Notifications'));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeInTheDocument());
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Notifications' })).not.toBeInTheDocument());
+  });
+
+  it('cancels a pending debounced search on unmount (no stray request)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchFn, unmount } = renderTopbar(
+        authed(async (url) => {
+          if (url.includes('/notifications/unread-count')) return jsonResponse({ data: { count: 0 } });
+          return jsonResponse({ data: {} });
+        }),
+      );
+      fireEvent.change(screen.getByLabelText('Global search'), { target: { value: 'dark' } });
+      unmount();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchFn.mock.calls.some(([u]) => String(u).includes('/api/v1/search'))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('routes an idea search result to the Ideas workspace', async () => {

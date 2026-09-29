@@ -65,6 +65,14 @@ const usage = {
   estimated: { computeCostUsd: 0.0014, sources: 1 },
   limits: { dailyMessages: 20, maxProjects: 1, storageGb: 2 },
   resetDate: '2026-08-16T00:00:00.000Z',
+  rolling: {
+    used: 7,
+    limit: 20,
+    windowHours: 24,
+    windowStart: '2026-08-15T00:00:00.000Z',
+    resetsAt: '2026-08-16T00:00:00.000Z',
+    remaining: 13,
+  },
 };
 
 function renderPage(handler: (url: string, init?: RequestInit) => Promise<Response>) {
@@ -110,13 +118,13 @@ afterEach(() => {
 
 async function openTab(name: string) {
   const userEventApi = userEvent.setup();
-  await userEventApi.click(screen.getByRole('button', { name }));
+  await userEventApi.click(screen.getByRole('tab', { name }));
 }
 
 describe('billing — server-driven pricing + cancellation + usage (Phase 14)', () => {
   it('derives the upgrade price from the server capability catalog', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('button', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
     await openTab('billing');
     await waitFor(() => expect(screen.getByText('Upgrade to PRO (₹1499)')).toBeInTheDocument());
     expect(screen.queryByText('Upgrade to PRO (₹999)')).toBeNull();
@@ -138,7 +146,7 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
         ],
       }),
     );
-    await waitFor(() => screen.getByRole('button', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
     await openTab('billing');
     const cancelBtn = await screen.findByRole('button', { name: 'Request cancellation' });
     await userEvent.click(cancelBtn);
@@ -154,13 +162,13 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
 
   it('renders measured, estimated and configured-limit usage from the server', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('button', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
     await openTab('billing');
-    await waitFor(() => expect(screen.getByText('Messages today')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Messages this window')).toBeInTheDocument());
     expect(screen.getByText('Measured')).toBeTruthy();
     expect(screen.getByText('Estimated')).toBeTruthy();
     expect(screen.getByText('Configured limit')).toBeTruthy();
-    expect(screen.getByText('7')).toBeTruthy();
+    expect(screen.getByText(/13 left/)).toBeTruthy();
     expect(screen.getByText('20')).toBeTruthy();
     expect(screen.getByText(/\$0\.0014/)).toBeTruthy();
   });
@@ -169,7 +177,7 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
 describe('notifications — timezone + honest browser capability (Phase 14)', () => {
   it('persists the timezone with the notification preferences', async () => {
     const { fetchFn } = renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('button', { name: 'notifications' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
     await openTab('notifications');
     await waitFor(() => screen.getByLabelText('Timezone (IANA, used for quiet hours & digests)'));
     await userEvent.type(screen.getByLabelText('Timezone (IANA, used for quiet hours & digests)'), 'Asia/Kolkata');
@@ -186,7 +194,7 @@ describe('notifications — timezone + honest browser capability (Phase 14)', ()
 
   it('reports unsupported environments honestly and offers an enable button', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('button', { name: 'notifications' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
     await openTab('notifications');
     await waitFor(() => expect(screen.getByText(/does not support the Notification API/)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Enable browser notifications' })).toBeTruthy();
@@ -199,7 +207,7 @@ describe('notifications — timezone + honest browser capability (Phase 14)', ()
     }
     (window as unknown as Record<string, unknown>).Notification = FakeNotification;
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('button', { name: 'notifications' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
     await openTab('notifications');
     await waitFor(() => expect(screen.getByText(/Permission granted/)).toBeInTheDocument());
   });
@@ -243,7 +251,7 @@ describe('providers — server-derived status (Phase 14)', () => {
 
   it('renders provider statuses with capability chips and reauth CTA', async () => {
     renderPage(apiHandler({ providers }));
-    await waitFor(() => screen.getByRole('button', { name: 'providers' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'providers' }));
     await openTab('providers');
     await waitFor(() => expect(screen.getByText('Resend')).toBeInTheDocument());
     expect(screen.getByText('Available')).toBeTruthy();
@@ -255,7 +263,7 @@ describe('providers — server-derived status (Phase 14)', () => {
 
   it('never renders provider secrets', async () => {
     renderPage(apiHandler({ providers }));
-    await waitFor(() => screen.getByRole('button', { name: 'providers' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'providers' }));
     await openTab('providers');
     await waitFor(() => expect(screen.getByText('Resend')).toBeInTheDocument());
     expect(screen.queryByText(/sk-live|rzp_live|re_test|sk-ant/i)).toBeNull();

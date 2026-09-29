@@ -1,8 +1,9 @@
 /**
  * CodeConClave — application shell + routing.
- * Sidebar is the canonical 18-item navigation; /login,/register,/mfa are
- * standalone auth routes. The shell hosts the command palette, focus mode
- * (collapsed sidebar, persisted server-side) and the mobile drawer.
+ * Sidebar is the canonical frozen 22-item navigation (see Sidebar.tsx +
+ * Sidebar.test.tsx EXPECTED_ORDER); /login,/register,/mfa are standalone auth
+ * routes. The shell hosts the command palette, focus mode (collapsed sidebar,
+ * persisted server-side) and the mobile drawer.
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
@@ -12,10 +13,14 @@ import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { OfflineBanner } from './components/OfflineBanner';
 import { CommandPalette } from './components/CommandPalette';
+import { ProCelebration } from './components/ProCelebration';
+import { PaymentGateModal } from './components/PaymentGateModal';
+import type { WorkspaceAccess } from './lib/types';
 import { api } from './lib/api';
 import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
 import { LoginPage } from './pages/LoginPage';
+import { LandingPage } from './pages/LandingPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { MfaPage } from './pages/MfaPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
@@ -31,6 +36,7 @@ import { WorkPage } from './pages/WorkPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AutomationPage } from './pages/AutomationPage';
 import { RecoveryPage } from './pages/RecoveryPage';
+import { DemoPaymentActivatePage } from './pages/DemoPaymentActivatePage';
 import { ControlPage } from './pages/ControlPage';
 import { CoworkersPage } from './pages/CoworkersPage';
 import { TeamsPage } from './pages/TeamsPage';
@@ -42,15 +48,58 @@ import { TrashPage } from './pages/TrashPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ApprovalsPage } from './pages/ApprovalsPage';
+import { ReviewListPage } from './pages/ReviewListPage';
+import { ReviewDetailPage } from './pages/ReviewDetailPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { IntelligencePage } from './pages/IntelligencePage';
+import { ProductionPage } from './pages/ProductionPage';
+import { DeploymentPage } from './pages/DeploymentPage';
+import { AdminDashboard } from './pages/admin/AdminDashboard';
+import { AdminUsers } from './pages/admin/AdminUsers';
+import { AdminAIUsage } from './pages/admin/AdminAIUsage';
+import { AdminPayments } from './pages/admin/AdminPayments';
 
 function Shell() {
   const { status, user } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [access, setAccess] = useState<WorkspaceAccess | null>(null);
+  const [accessState, setAccessState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => initOfflineSync(), []);
+
+  // Server-authoritative workspace gate. PaymentGateModal is cosmetic chrome;
+  // the backend re-enforces 402 on every /api/v1/* router. When the access
+  // endpoint is unreachable we fail closed to the payment gate so nothing
+  // overexposes paid-only chrome; every workspace call still gets gated.
+  useEffect(() => {
+    if (status !== 'authed' || !user) return;
+    let cancelled = false;
+    setAccessState('loading');
+    void api<{ access?: WorkspaceAccess }>('/api/v1/access')
+      .then((res) => {
+        if (cancelled) return;
+        const acc = res?.access;
+        if (acc && typeof acc.unlocked === 'boolean') {
+          setAccess(acc);
+          setAccessState('ready');
+          return;
+        }
+        // No authoritative signal (endpoint unreachable surface zero):
+        // fail CLOSED to the payment gate. The backend also 402s gated routers.
+        setAccess({ unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' });
+        setAccessState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAccess({ unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' });
+        setAccessState('ready');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, user]);
 
   useEffect(() => {
     if (status !== 'authed' || !user) return;
@@ -139,13 +188,24 @@ function Shell() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
+  // Server-authoritative workspace gate: no free application tier. After
+  // login/signup a locked account gets the payment popup — the only surface a
+  // non-paying user sees (backend independently 402s every gated router; this
+  // is chrome, not authority). The popup is non-dismissible until unlocked.
+  if (access && !access.unlocked) {
+    return <PaymentGateModal />;
+  }
+
   return (
     <div className={`cc-shell${collapsed ? ' cc-shell--collapsed' : ''}${drawerOpen ? ' cc-shell--drawer-open' : ''}`}>
       <Sidebar user={user} />
       {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
       <OfflineBanner />
       <Topbar onMenuClick={toggleSidebar} />
-      <main className="cc-main">
+      <a className="cc-skip-link" href="#main">
+        Skip to content
+      </a>
+      <main id="main" className="cc-main">
         <Routes>
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<HomePage />} />
@@ -158,7 +218,8 @@ function Shell() {
           <Route path="/terminal" element={<TerminalPage />} />
 <Route path="/work" element={<WorkPage />} />
 <Route path="/automation" element={<AutomationPage />} />
-<Route path="/recovery" element={<RecoveryPage />} />
+          <Route path="/recovery" element={<RecoveryPage />} />
+          <Route path="/demo/payment/activate" element={<DemoPaymentActivatePage />} />
 <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/coworkers" element={<CoworkersPage />} />
           <Route path="/teams" element={<TeamsPage />} />
@@ -170,11 +231,22 @@ function Shell() {
           <Route path="/trash" element={<TrashPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/billing" element={<Navigate to="/settings?tab=billing" replace />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/reviews" element={<ReviewListPage />} />
+          <Route path="/reviews/:id" element={<ReviewDetailPage />} />
+          <Route path="/intelligence" element={<IntelligencePage />} />
+          <Route path="/production" element={<ProductionPage />} />
+          <Route path="/deployment" element={<DeploymentPage />} />
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/ai-usage" element={<AdminAIUsage />} />
+          <Route path="/admin/payments" element={<AdminPayments />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
       <CommandPalette onToggleFocus={toggleSidebar} />
+      <ProCelebration />
     </div>
   );
 }
@@ -184,6 +256,7 @@ export default function App() {
     <AuthProvider>
       <ToastProvider>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/mfa" element={<MfaPage />} />

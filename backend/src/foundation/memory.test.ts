@@ -6,6 +6,13 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const FIX = {
+  gh: 'ghp_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345',
+  aws: 'AKIA' + 'IOSFODNN7EXAMPLE',
+  slack: 'xoxb-' + '1234567890-abcdefghij',
+  stripe: 'sk_live_' + 'ABC1234567890XYZ9876543210NOPE',
+};
+
 const db = vi.hoisted(() => {
   const state: {
     calls: { text: string; params: unknown[] }[];
@@ -48,7 +55,7 @@ vi.mock('../modules/audit/service.js', () => ({ recordAudit }));
 import { AppError } from '../shared/errors.js';
 import { env } from '../config/env.js';
 import { MemoryType as MT, MemorySource as MS } from '@codeconclave/shared';
-import { createMemory, listMemories, embeddingFor, backfillEmbedding } from '../modules/memory/service.js';
+import { createMemory, listMemories, updateMemory, extractEpisodicMemory, embeddingFor, backfillEmbedding } from '../modules/memory/service.js';
 
 function memoryRow(id: string): Record<string, unknown> {
   return {
@@ -117,6 +124,81 @@ describe('createMemory — isolation + confidence', () => {
     await createMemory('u1', { projectId: 'p1', type: MT.EPISODIC, source: MS.AI_INFERRED, content: 'x' });
     insert = db.state.calls.filter((c) => c.text.includes('INSERT INTO memories')).at(-1)!;
     expect(insert.params[8]).toBe(0.3);
+  });
+
+  it('redacts secrets from content before persisting (never stores raw values)', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT 1 FROM projects')) return [{}];
+      if (text.includes('FROM memories')) return [memoryRow(String(params[0]))];
+      return null;
+    };
+    const raw = 'configure the client with github token ' + FIX.gh + ' and AWS ' + FIX.aws + ' secret';
+    await createMemory('u1', { projectId: 'p1', type: MT.EPISODIC, source: MS.AI_INFERRED, content: raw });
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO memories'))!;
+    const persisted = String(insert.params[6]);
+    expect(persisted).not.toContain(FIX.gh);
+    expect(persisted).not.toContain(FIX.aws);
+    expect(persisted).toContain('[REDACTED:GitHub personal access token]');
+    expect(persisted).toContain('[REDACTED:AWS access key ID]');
+  });
+
+  it('redacts secrets inside structured values before persisting createMemory', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT 1 FROM projects')) return [{}];
+      if (text.includes('FROM memories')) return [memoryRow(String(params[0]))];
+      return null;
+    };
+    await createMemory('u1', {
+      projectId: 'p1',
+      type: MT.SEMANTIC,
+      source: MS.USER_STATED,
+      content: 'kube context note',
+      structured: { env: 'prod', credential: FIX.gh, nest: { token: FIX.slack } },
+    });
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO memories'))!;
+    const persisted = String(insert.params[7]);
+    expect(persisted).not.toContain(FIX.gh);
+    expect(persisted).not.toContain(FIX.slack);
+    expect(persisted).toContain('[REDACTED:GitHub personal access token]');
+    expect(persisted).toContain('[REDACTED:Slack token]');
+    expect(String(insert.params[6])).toContain('kube context note');
+  });
+
+  it('updateMemory redacts content at the storage boundary (raw secret → sanitized)', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM memories')) return [memoryRow(String(params[0]))];
+      return null;
+    };
+    await updateMemory('u1', 'm1', { content: 'use Stripe ' + FIX.stripe, confidence: 0.7 });
+    const update = db.state.calls.find((c) => c.text.startsWith('UPDATE memories SET content'))!;
+    const persisted = String(update.params[1]);
+    expect(persisted).not.toContain(FIX.stripe);
+    expect(persisted).toContain('[REDACTED:Stripe secret key]');
+  });
+
+  it('updateMemory keeps already-redacted values valid and preserves normal code snippets', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM memories')) return [memoryRow(String(params[0]))];
+      return null;
+    };
+    const alreadyRedacted = 'token was [REDACTED:API key] and code: `apiKey: process.env.FOO` normal';
+    await updateMemory('u1', 'm1', { content: alreadyRedacted });
+    const update = db.state.calls.find((c) => c.text.startsWith('UPDATE memories SET content'))!;
+    expect(String(update.params[1])).toBe(alreadyRedacted);
+  });
+
+  it('extractEpisodicMemory never persists raw secret material from the exchange', async () => {
+    db.state.rows = [];
+    await extractEpisodicMemory({
+      userId: 'u1',
+      conversationId: 'c1',
+      content: 'my api key is ' + FIX.gh + ' keep it safe',
+      response: 'stored',
+    });
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO memories'))!;
+    const persisted = String(insert.params[3]);
+    expect(persisted).not.toContain(FIX.gh);
+    expect(persisted).toContain('[REDACTED:GitHub personal access token]');
   });
 
   it('rejects writes to a project the user cannot access', async () => {

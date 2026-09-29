@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { Agent } from '../lib/types';
 import { useToast } from './Toast';
+import { Icon } from './Icon';
 
 interface FirstWinState {
   projects: number;
@@ -92,10 +93,10 @@ export function FirstWinCard() {
             style={{ textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', gap: 8, alignItems: 'center' }}
             onClick={() => navigate(s.to)}
           >
-            <span aria-hidden="true" style={{ color: s.done ? '#1e7d46' : '#64748b', fontWeight: 700 }}>
-              {s.done ? '✓' : '○'}
+            <span aria-hidden="true" style={{ color: s.done ? 'var(--cc-accent)' : 'var(--cc-text-muted)', fontWeight: 700, display: 'inline-flex' }}>
+              <Icon name={s.done ? 'check' : 'sparkle'} size={12} />
             </span>
-            <span style={{ textDecoration: s.done ? 'line-through' : 'none', color: s.done ? '#64748b' : 'inherit' }}>
+            <span style={{ textDecoration: s.done ? 'line-through' : 'none', color: s.done ? 'var(--cc-text-muted)' : 'inherit' }}>
               {s.label}
             </span>
           </button>

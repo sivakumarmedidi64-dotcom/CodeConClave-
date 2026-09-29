@@ -6,7 +6,7 @@
  * (exponential backoff) and finally the dead-letter queue. LOCAL tasks are
  * handed to WAITING_FOR_LOCAL_AGENT (never faked).
  */
-import { pool, queryOne } from '../../shared/db.js';
+import { withTenant, pool, queryOne } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 import {
   beginAttempt,
@@ -43,6 +43,7 @@ import {
 } from './planner.js';
 import { recordAudit } from '../audit/service.js';
 import { AuditAction } from './policy-shared.js';
+import { AppError } from '../../shared/errors.js';
 import { autoSaveTaskDna } from '../dna/service.js';
 import { recordLatencyMetric } from '../../observability/metrics.js';
 
@@ -79,6 +80,20 @@ async function loadOrGeneratePlan(task: TaskRow): Promise<PersistedPlan> {
     title: task.title,
     description: task.description,
   });
+}
+
+/**
+ * Cooperative cancellation gate. cancelTask only flips the row — without this
+ * check the worker would run every remaining stage (and all their side
+ * effects) after the user cancelled. Checked before each pipeline group and
+ * before the final completion writes.
+ */
+async function abortIfCancelled(taskId: string, attemptId: string): Promise<void> {
+  const current = await getTaskInternal(taskId);
+  if (current.status === 'CANCELLED') {
+    await finishAttempt(attemptId, 'CANCELLED');
+    throw AppError.conflict('task_cancelled', 'Task was cancelled; execution stops before further side effects');
+  }
 }
 
 /**
@@ -147,6 +162,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
     // Handoffs preserve the full context between stages.
     let previousGroupLast: CoworkerRunRow | null = null;
     for (const group of runsByGroup) {
+      await abortIfCancelled(task.id, attempt.id);
       if (previousGroupLast) {
         const summary =
           (previousGroupLast.output && (previousGroupLast.output as { handoff?: string }).handoff) ||
@@ -168,6 +184,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
               title: task.title,
               description: task.description,
               plan: JSON.stringify({ planId: plan.id, goal: plan.goal }),
+              projectId: (task as { project_id?: string }).project_id ?? null,
             });
             await finishStep(runStep.id, 'COMPLETED', { runId: run.id });
           } catch (err) {
@@ -222,7 +239,9 @@ export async function executeTask(task: TaskRow): Promise<void> {
       steps.push(artifactStep.id);
     }
 
-    // 6. complete
+    // 6. complete (re-check: a cancel during verification/artifacts must not
+    // be overwritten by completion writes)
+    await abortIfCancelled(task.id, attempt.id);
     await setTaskStatus(task.id, 'VERIFIED');
     await setTaskStatus(task.id, 'COMPLETED');
     // Phase 6: auto-save project DNA (background; never blocks or fails the task).
@@ -247,6 +266,21 @@ export async function executeTask(task: TaskRow): Promise<void> {
     logger.info('task completed', { taskId: task.id, steps });
     recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
   } catch (err) {
+    if (err instanceof AppError && err.errorCode === 'task_cancelled') {
+      // Cooperative cancel, already finished as CANCELLED above: audit quietly
+      // and return. Never route through the failure/retry path (a CANCELLED
+      // task must not be retried or dead-lettered).
+      await recordAudit({
+        action: AuditAction.TASK_CANCELLED,
+        actorUserId: task.owner_id,
+        scope: 'USER',
+        tenantId: task.owner_id,
+        resourceType: 'task',
+        resourceId: task.id,
+        detail: { attemptId: attempt.id, at: 'cooperative' },
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     await finishAttempt(attempt.id, 'FAILURE', message.slice(0, 500));
     recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
@@ -311,7 +345,9 @@ export async function getTaskTimeline(userId: string, taskId: string) {
   const plan = await getPlan(taskId);
   const dependencies = await listTaskDependencies(taskId);
   const failureInfo = await getTaskFailureInfo(taskId);
-  const dlqRow = await queryOne<Record<string, unknown>>('SELECT * FROM task_dlq WHERE task_id = $1', [taskId]);
+  const dlqRow = await withTenant<Record<string, unknown> | null>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>('SELECT * FROM task_dlq WHERE task_id = $1', [taskId])).rows[0] ?? null,
+  );
   return {
     task,
     attempts: await listAttempts(taskId),

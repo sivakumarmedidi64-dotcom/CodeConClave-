@@ -39,9 +39,9 @@ export function Moon({
 /** Free-limit moon: shown once per downgrade transition, max 150px. */
 export function FreeLimitMoon({ name }: { name: string | null | undefined }) {
   return (
-    <div className="cc-free-limit-moon" role="img" aria-label={`Free limit — ${name ?? 'user'}`}>
+    <div className="cc-free-limit-moon" role="img" aria-label={`Usage limit — ${name ?? 'user'}`}>
       <Moon name={name} size="lg" />
-      <p className="cc-hint">Free tier daily limit reached</p>
+      <p className="cc-hint">Usage limit reached for this rolling window</p>
     </div>
   );
 }

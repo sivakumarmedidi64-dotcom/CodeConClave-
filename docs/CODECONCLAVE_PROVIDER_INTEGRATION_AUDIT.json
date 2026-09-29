@@ -1,0 +1,37 @@
+{
+  "gate": "PROVIDER_INTEGRATION_GATE",
+  "prompt": 3,
+  "verdict": "CONDITIONAL_PASS",
+  "generatedAt": "2026-09-07T21:00:00.000Z",
+  "noNewAiEngine": true,
+  "reusedGatewayAndRouter": true,
+  "noPaymentChanges": true,
+  "noFeatureRemoval": true,
+  "featuresRemoved": 0,
+  "featuresUnmapped": 0,
+  "noSecretsExposed": true,
+  "noDeployment": true,
+  "providers": [
+    { "providerId": "google", "row": "gemini-3.7-flash", "enabled": true, "realCall": true, "status": "VERIFIED" },
+    { "providerId": "google", "row": "gemini-3-pro-image", "enabled": true, "realCall": false, "capabilityLive": true, "status": "VERIFIED" },
+    { "providerId": "qwen", "row": "qwen3.5-flash", "enabled": true, "realCall": true, "status": "VERIFIED" },
+    { "providerId": "gemma", "row": "gemma-4-31b-it", "enabled": true, "realCall": true, "status": "VERIFIED" },
+    { "providerId": "ox_alpha", "row": "stealth/ox-alpha", "enabled": false, "realCall": false, "status": "KEY_INVALID" },
+    { "providerId": "z_code_5_3", "row": "glm-5.3", "enabled": false, "realCall": false, "status": "KEY_INVALID" },
+    { "providerId": "manus", "row": "manus-1.6", "enabled": false, "realCall": false, "status": "ENVIRONMENT_BLOCKED" }
+  ],
+  "testSuites": {
+    "backend": { "files": 152, "passed": 2814, "skipped": 8 },
+    "payment": { "passed": 16 },
+    "frontend": { "files": 73, "passed": 401 },
+    "desktop": { "files": 5, "passed": 58 }
+  },
+  "builds": { "shared": true, "backend": true, "frontend": true, "desktop": true },
+  "secretScan": { "files": 846, "findings": 0 },
+  "migrationsApplied": ["0071_provider_integrations", "0072_provider_integration_enable"],
+  "remediationRequired": [
+    "OX_ALPHA_API_KEY must be a real OpenRouter key (sk-or-v1-)",
+    "Z_AI_API_KEY must be a genuine Z.ai key (GLM Coding Plan)",
+    "Manus needs a safe read-only verification path or founder approval before enabling"
+  ]
+}

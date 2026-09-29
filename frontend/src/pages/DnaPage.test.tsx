@@ -79,6 +79,22 @@ describe('DnaPage', () => {
     expect(screen.getByText(/v3/)).toBeInTheDocument();
   });
 
+  it('shows the DNA loading animation while blocks load', async () => {
+    let release: (r: Response) => void = () => {};
+    const pending = new Promise<Response>((res) => {
+      release = res;
+    });
+    stubFetch(async (url) => {
+      if (url === '/api/v1/projects') return jsonResponse({ data: { projects: [{ id: 'p1', name: 'Acme' }] } });
+      if (url.includes('/api/v1/dna') && url.includes('projectId')) return pending;
+      return jsonResponse({ data: {} });
+    });
+    renderDna();
+    await waitFor(() => expect(screen.getByTestId('dna-loader')).toBeInTheDocument());
+    release(jsonResponse({ data: { blocks: [BLOCK] } }));
+    await waitFor(() => expect(screen.getByText('Prefer small diffs')).toBeInTheDocument());
+  });
+
   it('loads versions and compares them', async () => {
     stubFetch(dnaHandler());
     renderDna();

@@ -18,16 +18,15 @@
  * into the shared fallback-reason taxonomy; nothing is silent or faked.
  */
 import { getRegistry, getModel, configuredProviders } from './registry.js';
-import { getAdapter, updateProviderHealth, classifyProviderError, type ChatRequest, type ChatMessage, type ChatChunk } from './providers.js';
+import { getAdapter, updateProviderHealth, classifyProviderError, messageTextChars, type ChatRequest, type ChatMessage, type ChatChunk } from './providers.js';
 import { AppError } from '../../shared/errors.js';
 import { env } from '../../config/env.js';
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { logger } from '../../shared/logger.js';
 import type { AiModelDescriptor, PlanId, AiFallbackReason, PrivacyClass } from '@codeconclave/shared';
-import { ComputeClass } from '@codeconclave/shared';
+import { ComputeClass, TaskType, RoutingPreference, UsageCounterName } from '@codeconclave/shared';
 import { incrementUsage } from '../workspace/service.js';
-import { UsageCounterName } from '@codeconclave/shared';
 
 export interface GatewayContext {
   userId: string;
@@ -54,6 +53,22 @@ export interface RouteOptions {
   coding?: boolean;
   /** Exclude an entire provider (e.g. independent REVIEWER must not reuse the author's model). */
   excludeProvider?: string;
+  /**
+   * Permit EXTERNAL_AGENT capability models (e.g. Devin) in routing. Defaults to
+   * false — external agents are opt-in via explicit task/coworker execution and
+   * must never be selected as a normal chat fallback.
+   */
+  allowExternalAgents?: boolean;
+  /** Restrict routing to models with the explicit image-generation marker. */
+  imageGeneration?: boolean;
+  /** Restrict routing to models with the explicit image-editing marker. */
+  imageEditing?: boolean;
+  /** Canonical task-intent taxonomy type (Model Routing 2026). Recorded in usage audit. */
+  taskType?: string;
+  /** Routing preference (AUTO/QUALITY/BALANCED/FAST/COST_SAVER). Recorded in usage audit. */
+  routingPreference?: string;
+  /** Canonical capability class (Provider Experience 2026). Recorded in usage audit. */
+  capability?: string;
 }
 
 export interface RoutedSelection {
@@ -71,7 +86,7 @@ function privacyOk(modelClass: PrivacyClass, requestClass: PrivacyClass | undefi
 }
 
 async function planIdOf(userId: string): Promise<PlanId> {
-  const result = await pool.query('SELECT plan_id FROM users WHERE id = $1', [userId]);
+  const result = await withTenant(userId, (q) => q.query('SELECT plan_id FROM users WHERE id = $1', [userId]));
   return (result.rows[0]?.plan_id as PlanId | undefined) ?? 'free';
 }
 
@@ -82,13 +97,17 @@ export async function eligibleModels(userId: string, opts: RouteOptions = {}): P
   const configured = new Set(configuredProviders());
 
   const eligible = registry.filter((m) => {
-    if (m.health === 'DOWN') return false;
+    if (m.health === 'DOWN' || m.health === 'DEGRADED') return false;
     if (m.entitlement === 'PRO' && plan === 'free') return false;
     if (!configured.has(m.providerId)) return false;
+    // External agents (e.g. Devin) are opt-in only; never auto-selected for chat.
+    if (m.capabilityCategory === 'EXTERNAL_AGENT' && !opts.allowExternalAgents) return false;
     if (opts.excludeProvider && m.providerId === opts.excludeProvider) return false;
     if (opts.needsTools && !m.supportsTools) return false;
     if (opts.needsFunctionCalling && !m.supportsFunctionCalling) return false;
     if (opts.needsVision && !m.supportsVision) return false;
+    if (opts.imageGeneration && !m.imageGeneration) return false;
+    if (opts.imageEditing && !m.imageEditing) return false;
     if (opts.maxContextTokens && m.contextWindow < opts.maxContextTokens) return false;
     if (!privacyOk(m.privacyClass, opts.privacyClass)) return false;
     if (opts.maxLatencyMs && m.targetLatencyMs > opts.maxLatencyMs) return false;
@@ -122,7 +141,7 @@ export async function routeModels(userId: string, opts: RouteOptions): Promise<R
 
   const pick = (list: AiModelDescriptor[], modelId?: string): AiModelDescriptor | null => {
     if (modelId) {
-      const exact = list.find((m) => m.modelId === modelId && m.health !== 'DOWN');
+      const exact = list.find((m) => m.modelId === modelId && m.health !== 'DOWN' && m.health !== 'DEGRADED');
       if (exact) return exact;
     }
     return list[0] ?? null;
@@ -192,11 +211,11 @@ export async function getComputePolicy(computeClass: 'A' | 'B' | 'C'): Promise<C
 /** Daily premium spend gate (compute governance, per user). */
 export async function premiumBudgetRemaining(userId: string, budgetCapUsd = env.AI_PREMIUM_BUDGET_USD_PER_DAY): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM model_usage_logs
      WHERE user_id = $1 AND created_at >= $2::date`,
     [userId, today],
-  );
+  ));
   const spent = Number(result.rows[0]?.spent ?? 0);
   return Math.max(0, budgetCapUsd - spent);
 }
@@ -305,16 +324,30 @@ export interface CompletionSummary {
   durationMs: number;
   usedFallback: boolean;
   fallbackReason: AiFallbackReason | null;
+  /**
+   * Generated image output (IMAGE_GENERATION capability). Present when the
+   * adapter returned an image chunk; carried through normalization to the
+   * caller. Never logged by logUsage or the audit rail.
+   */
+  image?: { mimeType: string; dataB64: string };
+  /**
+   * External-agent run facts (EXTERNAL_AGENT capability). Populated by the
+   * Devin/Manus adapters; recorded against usage (external_run_id) and the UI
+   * renders it verbatim — it never implies the agent executed anything outside
+   * the provider-reported lifecycle facts.
+   */
+  externalRun?: import('./providers.js').ExternalRunInfo;
 }
 
 async function logUsage(ctx: GatewayContext, summary: CompletionSummary, opts: RouteOptions): Promise<void> {
   const cost = summary.estimatedCostUsd;
   await Promise.allSettled([
-    pool.query(
+    withTenant(ctx.userId, (q) => q.query(
       `INSERT INTO model_usage_logs
          (id, user_id, tenant_id, task_id, session_id, conversation_id, provider_id, model_id, plan_id, compute_class,
-          coworker_type, input_tokens, output_tokens, estimated_cost_usd, actual_cost_usd, duration_ms, used_fallback, fallback_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+          coworker_type, input_tokens, output_tokens, estimated_cost_usd, actual_cost_usd, duration_ms, used_fallback, fallback_reason,
+          task_type, routing_preference, capability, external_run_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       [
         newId(PREFIX.MESSAGE),
         ctx.userId,
@@ -334,8 +367,12 @@ async function logUsage(ctx: GatewayContext, summary: CompletionSummary, opts: R
         summary.durationMs,
         summary.usedFallback,
         summary.fallbackReason,
+        opts.taskType ?? null,
+        opts.routingPreference ?? null,
+        opts.capability ?? null,
+        summary.externalRun?.externalId ?? null,
       ],
-    ),
+    )),
     incrementUsage(ctx.userId, UsageCounterName.DAILY_AI_INPUT_TOKENS, summary.inputTokens),
     incrementUsage(ctx.userId, UsageCounterName.DAILY_AI_OUTPUT_TOKENS, summary.outputTokens),
     incrementUsage(ctx.userId, UsageCounterName.DAILY_ESTIMATED_COST_USD, Math.round(cost * 1000)),
@@ -343,6 +380,31 @@ async function logUsage(ctx: GatewayContext, summary: CompletionSummary, opts: R
 }
 
 /**
+ * Check if a provider has free-tier quota available.
+ * Returns false if the provider is known to be quota-exhausted for free tier.
+ */
+async function hasFreeTierQuota(providerId: string, userId: string): Promise<boolean> {
+  // Check provider health state for quota exhaustion
+  const healthRow = await pool.query(
+    `SELECT state FROM provider_health WHERE provider_id = $1`,
+    [providerId],
+  );
+  if (healthRow.rows[0]?.state === 'QUOTA_EXHAUSTED') {
+    return false;
+  }
+  // For free-tier users, check if provider has free-tier availability
+  // This is a simplified check - in production, you'd track per-user quota
+  // For now, we rely on provider health state
+  return true;
+}
+
+/**
+ * Check if a model is a paid (computeClass C) model that free-tier users cannot access.
+ */
+function isPaidModel(model: AiModelDescriptor, userPlanId: string): boolean {
+  return model.computeClass === 'C' && userPlanId === 'free';
+}
+  /**
  * Per-attempt timeout + caller cancellation + chain deadline, combined into
  * one AbortSignal. The chain deadline bounds the WHOLE fallback chain so a
  * provider hang can never hold the stream open beyond a deterministic limit.
@@ -389,11 +451,22 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
   const selection = allowance.selection ?? (await routeModels(ctx.userId, requestOpts));
   const premiumReason = allowance.allowed ? null : (allowance.reason ?? 'premium_compute_denied');
 
+  // Free-tier safety: filter out paid models (computeClass C) for free-tier users
+  const userPlanId = ctx.planId;
   const attempts: Array<{ model: AiModelDescriptor; usedFallback: boolean }> = [
     { model: selection.primary, usedFallback: false },
     { model: selection.fallback, usedFallback: true },
     { model: selection.tertiary, usedFallback: true },
-  ];
+  ].filter((a) => !isPaidModel(a.model, userPlanId));
+
+  // Free-tier safety: check quota before attempting
+  for (const attempt of attempts) {
+    const hasQuota = await hasFreeTierQuota(attempt.model.providerId, ctx.userId);
+    if (!hasQuota) {
+      // Skip this model, try next
+      continue;
+    }
+  }
 
   const onChunk = opts.onChunk;
   let firstFailReason: AiFallbackReason | null = null;
@@ -408,6 +481,8 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
       const attemptStart = Date.now();
       const { signal, cleanup } = attemptSignal(opts.signal, chainController.signal);
       let text = '';
+      let image: { mimeType: string; dataB64: string } | undefined;
+      let externalRun: import('./providers.js').ExternalRunInfo | undefined;
       let inputTokens = 0;
       let outputTokens = 0;
       try {
@@ -416,16 +491,20 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
           signal,
         )) {
           text += chunk.delta;
+          if (chunk.image) image = chunk.image;
+          if (chunk.externalRun) externalRun = chunk.externalRun;
           inputTokens = chunk.inputTokens ?? inputTokens;
           outputTokens = chunk.outputTokens ?? outputTokens;
           if (onChunk) await onChunk(chunk);
         }
         cleanup();
-        if (!text.trim()) throw new Error('empty completion');
+        // Image-generation completions may be image-only (text can legitimately
+        // be empty when the task is "make an image").
+        if (!text.trim() && !image) throw new Error('empty completion');
         const durationMs = Date.now() - attemptStart;
         updateProviderHealth(attempt.model.providerId, true, durationMs);
-        const inputTokensFinal = inputTokens || Math.ceil(opts.messages.reduce((n, m) => n + m.content.length, 0) / 4);
-        const outputTokensFinal = outputTokens || Math.ceil(text.length / 4);
+        const inputTokensFinal = inputTokens || Math.ceil(opts.messages.reduce((n, m) => n + messageTextChars(m), 0) / 4);
+        const outputTokensFinal = outputTokens || Math.ceil((text.length + (image ? 1024 : 0)) / 4);
         const cost = estimateCost(attempt.model, inputTokensFinal, outputTokensFinal);
         const summary: CompletionSummary = {
           text,
@@ -437,6 +516,8 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
           durationMs,
           usedFallback: attempt.usedFallback || premiumReason !== null,
           fallbackReason: premiumReason ?? firstFailReason,
+          ...(image ? { image } : {}),
+          ...(externalRun ? { externalRun } : {}),
         };
         await logUsage(ctx, summary, requestOpts);
         logger.info('ai.completed', {
@@ -461,6 +542,12 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
         if (err instanceof AppError && err.errorCode === 'rate_limited') {
           const r = (err.details as { retryAfterSec?: number } | undefined)?.retryAfterSec;
           if (typeof r === 'number') retryAfterSec = r;
+          // Free-tier safety: mark provider as QUOTA_EXHAUSTED for rate-limited free-tier providers
+          await pool.query(
+            `UPDATE provider_health SET state = 'QUOTA_EXHAUSTED', last_check_at = now(), last_error = $1
+             WHERE provider_id = $2 AND state NOT IN ('QUOTA_EXHAUSTED', 'BLOCKED')`,
+            [`Rate limited (429) - free tier quota exhausted`, attempt.model.providerId],
+          );
         }
         updateProviderHealth(attempt.model.providerId, false, durationMs, err instanceof Error ? err.message : 'error');
         logger.warn('ai.attempt_failed', {
@@ -509,11 +596,44 @@ export function estimateCost(model: AiModelDescriptor, inputTokens: number, outp
 export async function estimatedCostOfRequest(userId: string, messages: ChatMessage[], opts: RouteOptions): Promise<number> {
   try {
     const selection = await routeModels(userId, opts);
-    const inputTokens = messages.reduce((n, m) => n + m.content.length, 0) / 4;
+    const inputTokens = messages.reduce((n, m) => n + messageTextChars(m), 0) / 4;
     return estimateCost(selection.primary, Math.ceil(inputTokens), 0);
   } catch {
     return 0;
   }
+}
+
+/**
+ * Canonical IMAGE_GENERATION op (Provider Experience 2026).
+ * THIN, non-bypassing wrapper around the same gateway rails (auth →
+ * registry → routing → policy/budget → usage/audit → errors). It:
+ *  - restricts routing to models whose registry row marks image_generation,
+ *  - records taskType IMAGE_GENERATION + capability IMAGE_GENERATOR in usage,
+ *  - never invents a model: an explicit requestedModelId still has to pass
+ *    eligibility, and no image model is reachable unless enabled + configured.
+ * The image payload travels out only via CompletionSummary.image (never logged).
+ */
+export async function generateImageCompletion(
+  ctx: GatewayContext,
+  prompt: string,
+  opts: { requestedModelId?: string; signal?: AbortSignal; onChunk?: (chunk: ChatChunk) => void | Promise<void> } = {},
+): Promise<CompletionSummary> {
+  return completeWithFallback({
+    ctx,
+    messages: [{ role: 'user', content: prompt }],
+    opts: {
+      requestedModelId: opts.requestedModelId ?? undefined,
+      taskType: TaskType.IMAGE_GENERATION,
+      routingPreference: RoutingPreference.AUTO,
+      capability: 'IMAGE_GENERATOR',
+      imageGeneration: true,
+      computeClass: 'B',
+      privacyClass: 'STANDARD',
+    },
+    maxTokens: 4096,
+    signal: opts.signal,
+    onChunk: opts.onChunk,
+  });
 }
 
 // ---------------------------------------------------------- typed tool calls

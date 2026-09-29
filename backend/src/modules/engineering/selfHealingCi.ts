@@ -18,7 +18,7 @@
  * Reuses the existing task engine (createTask), approvals, audit,
  * notifications.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, pool, queryMany } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType, RiskLevel } from '@codeconclave/shared';
@@ -125,7 +125,9 @@ function diagnose(logs: string): Diagnosis {
 }
 
 export async function getCiRun(userId: string, ciRunId: string): Promise<CiRunRow> {
-  const rows = await queryMany<CiRunRow>('SELECT * FROM ci_runs WHERE id = $1 AND owner_id = $2', [ciRunId, userId]);
+  const rows = await withTenant<CiRunRow[]>(userId, async (q) =>
+    (await q.query<CiRunRow>('SELECT * FROM ci_runs WHERE id = $1 AND owner_id = $2', [ciRunId, userId])).rows,
+  );
   if (!rows[0]) throw AppError.notFound('CI run');
   return rows[0];
 }
@@ -133,7 +135,9 @@ export async function getCiRun(userId: string, ciRunId: string): Promise<CiRunRo
 export async function listCiRuns(userId: string, projectId?: string): Promise<CiRunRow[]> {
   const where = projectId ? 'owner_id = $1 AND project_id = $2' : 'owner_id = $1';
   const params = projectId ? [userId, projectId] : [userId];
-  return queryMany<CiRunRow>(`SELECT * FROM ci_runs WHERE ${where} ORDER BY created_at DESC`, params);
+  return withTenant<CiRunRow[]>(userId, async (q) =>
+    (await q.query<CiRunRow>(`SELECT * FROM ci_runs WHERE ${where} ORDER BY created_at DESC`, params)).rows,
+  );
 }
 
 /** Record a CI failure: intake logs, diagnose, open a repair task. */
@@ -150,7 +154,7 @@ export async function recordCiFailure(userId: string, input: RecordCiFailureInpu
     description: `Self-healing repair for failed pipeline ${input.pipeline}. Diagnosis: ${diagnosis.rootCause}.`,
     riskLevel: diagnosis.severity === 'HIGH' || diagnosis.severity === 'CRITICAL' ? 'HIGH' : 'MEDIUM',
   });
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO ci_runs
        (id, owner_id, project_id, pipeline, commit_ref, log_ref, log_summary, status, diagnosis, task_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'FAILED',$8,$9)`,
@@ -158,7 +162,7 @@ export async function recordCiFailure(userId: string, input: RecordCiFailureInpu
       id, userId, input.projectId, input.pipeline, input.commitRef, input.logRef ?? null,
       input.logs.slice(0, 1000), JSON.stringify(diagnosis), task.id,
     ],
-  );
+  ));
   await recordAudit({
     action: AuditAction.CI_FAILURE_RECORDED,
     actorUserId: userId,
@@ -179,10 +183,10 @@ export async function proposeCiFix(userId: string, ciRunId: string): Promise<CiR
   const proposal = diagnosis
     ? { action: diagnosis.action, severity: diagnosis.severity, description: diagnosis.description }
     : { action: 'manual_investigation', severity: 'LOW', description: 'No diagnosis recorded.' };
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE ci_runs SET status = 'FIX_PROPOSED', fix_proposal = $1, updated_at = now() WHERE id = $2 AND owner_id = $3`,
     [JSON.stringify(proposal), ciRunId, userId],
-  );
+  ));
   await recordAudit({
     action: AuditAction.CI_FIX_PROPOSED,
     actorUserId: userId,
@@ -237,10 +241,10 @@ export async function applyCiFix(
         resource_ref: ciRunId,
       },
     });
-    await pool.query(
+    await withTenant(userId, (q) => q.query(
       `UPDATE ci_runs SET status = 'WAITING_FOR_APPROVAL', approval_id = $1, updated_at = now() WHERE id = $2 AND owner_id = $3`,
       [approval.id, ciRunId, userId],
-    );
+    ));
     await recordAudit({
       action: AuditAction.CI_FIX_APPROVAL_REQUESTED,
       actorUserId: userId,
@@ -263,10 +267,10 @@ export async function applyCiFix(
     );
     return getCiRun(userId, ciRunId);
   }
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE ci_runs SET status = 'FIX_APPLIED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
     [ciRunId, userId],
-  );
+  ));
   await recordAudit({
     action: AuditAction.CI_FIX_APPLIED,
     actorUserId: userId,
@@ -298,10 +302,10 @@ export async function decideCiFixApproval(
   }
   await decideApproval(userId, run.approval_id, decision, reason);
   const next = decision === 'APPROVE' ? 'FIX_APPLIED' : 'FIX_REJECTED';
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE ci_runs SET status = $1, updated_at = now() WHERE id = $2 AND owner_id = $3`,
     [next, ciRunId, userId],
-  );
+  ));
   await recordAudit({
     action: decision === 'APPROVE' ? AuditAction.CI_FIX_APPROVED : AuditAction.CI_FIX_REJECTED,
     actorUserId: userId,
@@ -325,10 +329,10 @@ export async function recordRetest(
     throw AppError.conflict('ci_retest_not_allowed', `CI run is ${run.status}`);
   }
   const next = result.ok ? 'RETEST_PASSED' : 'RETEST_FAILED';
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE ci_runs SET status = $1, retest_summary = $2, updated_at = now() WHERE id = $3 AND owner_id = $4`,
     [next, result.summary.slice(0, 2000), ciRunId, userId],
-  );
+  ));
   await recordAudit({
     action: AuditAction.CI_RETEST_RECORDED,
     actorUserId: userId,

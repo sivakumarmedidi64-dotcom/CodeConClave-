@@ -744,6 +744,14 @@ describe('SECRET GUARD — findings never contain values', () => {
     expect(out).toContain('[REDACTED');
   });
 
+  it('does not over-redact normal code: env-var references stay intact', () => {
+    const snippet = 'const client = new Client({ apiKey: process.env.OPENAI_API_KEY, secretKey: SomeConfig.secret_access_key });';
+    const out = redactSecrets(snippet);
+    expect(out).toContain('process.env.OPENAI_API_KEY');
+    expect(out).toContain('SomeConfig.secret_access_key');
+    expect(out).not.toContain('[REDACTED');
+  });
+
   it('rejects unknown scan targets', async () => {
     await rejectWith(scanContent(USER, { targetType: 'disk', content: 'x' }), 'invalid_scan_target');
   });

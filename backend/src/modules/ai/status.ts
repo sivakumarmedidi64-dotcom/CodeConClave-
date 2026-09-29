@@ -13,6 +13,7 @@ import type { ProviderStatus as ProviderStatusType } from '@codeconclave/shared'
 import { pool } from '../../shared/db.js';
 import { configuredProviders, getRegistry } from './registry.js';
 import { deriveStatusFromFailure } from './providers.js';
+import { providerGateReason } from './gate.js';
 
 export interface ProviderStatusRow {
   providerId: string;
@@ -72,6 +73,24 @@ export async function providerStatusSnapshot(): Promise<ProviderStatusRow[]> {
   for (const providerId of PROVIDER_ORDER) {
     const row = health.get(providerId);
     const configuredNow = configured.includes(providerId);
+    // Stage 81 provider quality gate: provably-unusable providers are forced to
+    // BLOCKED with the real reason — a present key can never override this.
+    const gateReason = providerGateReason(providerId);
+    if (gateReason) {
+      snapshot.push({
+        providerId,
+        status: ProviderStatus.BLOCKED,
+        label: `Blocked — provider quality gate (${gateReason})`,
+        configured: false,
+        lastCheckAt: row?.last_check_at ?? null,
+        lastError: row?.last_error ?? null,
+        successCount: 0,
+        failureCount: 0,
+        consecutiveFailures: 0,
+        avgLatencyMs: null,
+      });
+      continue;
+    }
     let status: ProviderStatusType;
     if (row?.state === 'BLOCKED') {
       status = ProviderStatus.BLOCKED; // explicit admin block only
@@ -81,6 +100,13 @@ export async function providerStatusSnapshot(): Promise<ProviderStatusRow[]> {
       status = ProviderStatus.AVAILABLE;
     } else if (row?.state === 'DOWN' && row.last_error) {
       status = deriveStatusFromFailure(row.last_error);
+    } else if (row?.state === 'RATE_LIMITED') {
+      // A persisted rate-limit verdict must stay visible as such — collapsing
+      // it to DEGRADED would hide "retry later" and invite confusion with
+      // CodeConClave billing failures.
+      status = ProviderStatus.RATE_LIMITED;
+    } else if (row?.state === 'QUOTA_EXHAUSTED') {
+      status = ProviderStatus.QUOTA_EXHAUSTED;
     } else if (row?.state === 'DEGRADED') {
       status = ProviderStatus.DEGRADED;
     } else if (row?.state === 'DOWN') {

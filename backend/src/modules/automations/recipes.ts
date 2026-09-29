@@ -7,7 +7,7 @@
  * placeholder and copies it into a real, editable automation rule that still
  * flows through the existing plugin permission model and approval pipeline.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -98,36 +98,44 @@ function mapRecipe(row: Record<string, unknown>): WorkflowRecipe {
 
 /** Seed system recipes (idempotent, like the agent catalogue seed). */
 export async function seedSystemRecipes(): Promise<void> {
-  const existing = await queryMany<{ id: string }>(
-    `SELECT id FROM workflow_recipes WHERE system = true AND owner_id = 'system' LIMIT 1`,
-    [],
+  const existing = await withSystem<{ id: string }[]>(async (q) =>
+    (await q.query<{ id: string }>(
+      `SELECT id FROM workflow_recipes WHERE system = true AND owner_id = 'system' LIMIT 1`,
+      [],
+    )).rows,
   );
   if (existing[0]) return;
   for (const r of SYSTEM_RECIPES) {
     const id = newId(PREFIX.WORKFLOW_RECIPE);
-    await pool.query(
-      `INSERT INTO workflow_recipes (id, owner_id, name, description, event_source, event_type, conditions, template, system)
-       VALUES ($1,'system',$2,$3,$4,$5,$6::jsonb,$7::jsonb,true)`,
-      [id, r.name, r.description, r.event_source, r.event_type, JSON.stringify(r.conditions), JSON.stringify(r.template)],
+    await withSystem((q) =>
+      q.query(
+        `INSERT INTO workflow_recipes (id, owner_id, name, description, event_source, event_type, conditions, template, system)
+         VALUES ($1,'system',$2,$3,$4,$5,$6::jsonb,$7::jsonb,true)`,
+        [id, r.name, r.description, r.event_source, r.event_type, JSON.stringify(r.conditions), JSON.stringify(r.template)],
+      ),
     );
   }
 }
 
 export async function listRecipes(userId: string): Promise<WorkflowRecipe[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM workflow_recipes
-     WHERE owner_id = $1 OR (system = true AND owner_id = 'system')
-     ORDER BY system ASC, name ASC`,
-    [userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT * FROM workflow_recipes
+       WHERE owner_id = $1 OR (system = true AND owner_id = 'system')
+       ORDER BY system ASC, name ASC`,
+      [userId],
+    )).rows,
   );
   return rows.map(mapRecipe);
 }
 
 export async function getRecipe(userId: string, recipeId: string): Promise<WorkflowRecipe> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM workflow_recipes
-     WHERE id = $1 AND (owner_id = $2 OR (system = true AND owner_id = 'system'))`,
-    [recipeId, userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT * FROM workflow_recipes
+       WHERE id = $1 AND (owner_id = $2 OR (system = true AND owner_id = 'system'))`,
+      [recipeId, userId],
+    )).rows,
   );
   if (!rows[0]) throw AppError.notFound('Workflow recipe');
   return mapRecipe(rows[0]);
@@ -136,7 +144,9 @@ export async function getRecipe(userId: string, recipeId: string): Promise<Workf
 export async function deleteRecipe(userId: string, recipeId: string): Promise<void> {
   const recipe = await getRecipe(userId, recipeId);
   if (recipe.system) throw AppError.conflict('system_recipe_readonly', 'System recipes cannot be deleted');
-  await pool.query('DELETE FROM workflow_recipes WHERE id = $1 AND owner_id = $2', [recipeId, userId]);
+  await withTenant(userId, (q) =>
+    q.query('DELETE FROM workflow_recipes WHERE id = $1 AND owner_id = $2', [recipeId, userId]),
+  );
   await recordAudit({
     action: AuditAction.WORKFLOW_RECIPE_DELETED,
     actorUserId: userId,

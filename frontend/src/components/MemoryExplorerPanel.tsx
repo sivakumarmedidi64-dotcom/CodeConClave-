@@ -7,9 +7,11 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { buildDecisionMarkdown, downloadDecisionMarkdown } from '../lib/continuity';
 import type {
   ConflictRow,
   DecisionRow,
+  DecisionStatus,
   DetectedConflict,
   HandoffRow,
   PatternRow,
@@ -20,6 +22,15 @@ import { useToast } from './Toast';
 type ExplorerTab = 'decisions' | 'conflicts' | 'continuity';
 
 const IMPACT_COLORS: Record<string, string> = { LOW: '#0f766e', MEDIUM: '#b45309', HIGH: '#dc2626' };
+const STATUS_COLORS: Record<string, string> = {
+  ACTIVE: '#1e7d46',
+  TENTATIVE: '#b45309',
+  SUPERSEDED: '#64748b',
+  REJECTED: '#dc2626',
+  ARCHIVED: '#64748b',
+};
+
+export type { DecisionStatus };
 
 export function MemoryExplorerPanel() {
   const { toast } = useToast();
@@ -68,11 +79,16 @@ function DecisionsTab() {
   const [impact, setImpact] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
   const [rationale, setRationale] = useState('');
   const [busy, setBusy] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<DecisionStatus | ''>('');
+  const [sources, setSources] = useState<Record<string, { id: string; content: string; createdAt: string }[]>>({});
+  const [sourcesOpen, setSourcesOpen] = useState<Record<string, boolean>>({});
+  const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (status: DecisionStatus | '' = '') => {
     setState('loading');
     try {
-      const res = await api<{ decisions: DecisionRow[] }>('/api/v1/memory/decisions');
+      const q = status ? `?status=${encodeURIComponent(status)}` : '';
+      const res = await api<{ decisions: DecisionRow[] }>(`/api/v1/memory/decisions${q}`);
       setDecisions(res.decisions);
       setState('ready');
     } catch {
@@ -81,8 +97,44 @@ function DecisionsTab() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load(statusFilter);
+  }, [statusFilter, load]);
+
+  const loadSources = async (id: string) => {
+    setSourcesOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+    if (sources[id] || sourcesOpen[id]) return;
+    try {
+      const res = await api<{ sources: { id: string; content: string; createdAt: string }[] }>(
+        `/api/v1/memory/decisions/${id}/sources`,
+      );
+      setSources((prev) => ({ ...prev, [id]: res.sources }));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'sources failed', 'error');
+    }
+  };
+
+  const setStatus = async (id: string, status: DecisionStatus) => {
+    try {
+      await api(`/api/v1/memory/decisions/${id}/status`, { method: 'PATCH', body: { status } });
+      toast(`Decision ${status.toLowerCase()}`);
+      await load(statusFilter);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'status update failed', 'error');
+    }
+  };
+
+  const exportMarkdown = async () => {
+    setExporting(true);
+    try {
+      const res = await api<{ decisions: DecisionRow[] }>('/api/v1/memory/decisions');
+      downloadDecisionMarkdown(buildDecisionMarkdown(res.decisions));
+      toast('CodeConClave decision.md downloaded');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'export failed', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const replayNow = async () => {
     setReplaying(true);
@@ -109,7 +161,7 @@ function DecisionsTab() {
       setTitle('');
       setDecision('');
       setRationale('');
-      await load();
+      await load(statusFilter);
       toast('Decision recorded');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'record failed', 'error');
@@ -190,16 +242,38 @@ function DecisionsTab() {
       {state === 'error' && (
         <div className="cc-card cc-error-state">
           <p className="cc-hint">Could not load decisions.</p>
-          <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void load()}>Retry</button>
+          <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void load(statusFilter)}>Retry</button>
         </div>
       )}
+      <div className="cc-card">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="cc-hint">Status:</span>
+            {(['', 'ACTIVE', 'TENTATIVE', 'SUPERSEDED', 'REJECTED', 'ARCHIVED'] as const).map((s) => (
+              <button
+                key={s}
+                className={`cc-btn cc-btn--sm ${statusFilter === s ? 'cc-btn--primary' : 'cc-btn--ghost'}`}
+                onClick={() => setStatusFilter(s as DecisionStatus | '')}
+                aria-pressed={statusFilter === s}
+              >
+                {s === '' ? 'All' : s.toLowerCase()}
+              </button>
+            ))}
+          </div>
+          <button className="cc-btn cc-btn--sm" disabled={exporting} onClick={() => void exportMarkdown()}>
+            {exporting ? 'Exporting…' : 'Export decision.md'}
+          </button>
+        </div>
+      </div>
       {state === 'ready' && decisions.length === 0 && <div className="cc-card cc-empty">No decisions recorded yet.</div>}
       {decisions.map((d) => (
         <div className="cc-card" key={d.id}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className="cc-pill" style={{ background: IMPACT_COLORS[d.impact] ?? '#334155', color: '#fff' }}>{d.impact}</span>
+            <span className="cc-pill" style={{ background: STATUS_COLORS[d.status] ?? '#334155', color: '#fff' }}>{d.status}</span>
+            {d.scope && <span className="cc-pill">{d.scope}</span>}
             <strong>{d.title}</strong>
-            {d.superseded_by_id && <span className="cc-pill">superseded</span>}
+            {d.superseded_by_id && d.status === 'SUPERSEDED' && <span className="cc-pill">superseded</span>}
             <span className="cc-hint cc-mono" style={{ fontSize: 11 }}>{new Date(d.created_at).toLocaleString()}</span>
           </div>
           <p style={{ margin: '6px 0', whiteSpace: 'pre-wrap' }}>{d.decision}</p>
@@ -210,6 +284,40 @@ function DecisionsTab() {
           )}
           {d.consequences.length > 0 && (
             <p className="cc-hint" style={{ margin: '2px 0' }}>Consequences: {d.consequences.join(' · ')}</p>
+          )}
+          {d.source_message_ids.length > 0 && (
+            <button
+              className="cc-btn cc-btn--ghost cc-btn--sm"
+              onClick={() => void loadSources(d.id)}
+              aria-expanded={!!sourcesOpen[d.id]}
+            >
+              {sourcesOpen[d.id] ? 'Hide' : 'Show'} source messages ({d.source_message_ids.length})
+            </button>
+          )}
+          {sourcesOpen[d.id] && (
+            <div className="cc-hint" style={{ marginTop: 4 }}>
+              {(sources[d.id] ?? []).length === 0 && <p>No source message text available.</p>}
+              {(sources[d.id] ?? []).map((s, i) => (
+                <p key={`${d.id}:${i}`} style={{ margin: '2px 0' }}>
+                  <span className="cc-mono">{s.id}</span> — {s.content.slice(0, 120)}
+                </p>
+              ))}
+            </div>
+          )}
+          {(d.status === 'ACTIVE' || d.status === 'TENTATIVE') && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void setStatus(d.id, 'REJECTED')}>
+                Reject
+              </button>
+              <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void setStatus(d.id, 'ARCHIVED')}>
+                Archive
+              </button>
+              {d.status === 'TENTATIVE' && (
+                <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void setStatus(d.id, 'ACTIVE')}>
+                  Confirm active
+                </button>
+              )}
+            </div>
           )}
         </div>
       ))}
@@ -404,7 +512,10 @@ function ContinuityTab() {
         method: 'POST',
         body: { title: res.title, content: res.content },
       });
-      setHandoffs((prev) => [saved.handoff, ...prev]);
+      // Replace-by-id, not blind prepend: the saved row may already be in the
+      // list (list refetch racing the save), and a duplicate id both renders
+      // the handoff twice and trips React's duplicate-key warning.
+      setHandoffs((prev) => [saved.handoff, ...prev.filter((h) => h.id !== saved.handoff.id)]);
       toast('Handoff generated from live state');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'generate failed', 'error');
@@ -472,7 +583,7 @@ function ContinuityTab() {
           <p className="cc-hint">Timeline unavailable.</p>
         )}
         {state === 'ready' && timeline.length === 0 && <p className="cc-hint">No events in the window.</p>}
-        {timeline.map((t, i) => (
+        {timeline.slice(0, 50).map((t, i) => (
           <div key={`${t.type}:${t.id}:${i}`} className="cc-hint" style={{ borderTop: '1px solid #1e293b', padding: '6px 0' }}>
             <span className="cc-pill" style={{ fontSize: 11 }}>{t.type}</span>{' '}
             <strong style={{ fontSize: 13 }}>{t.title}</strong>
@@ -480,6 +591,9 @@ function ContinuityTab() {
             <span className="cc-mono" style={{ fontSize: 11, float: 'right' }}>{new Date(t.at).toLocaleString()}</span>
           </div>
         ))}
+        {timeline.length > 50 && (
+          <p className="cc-hint" style={{ margin: '8px 0 0' }}>Showing the 50 most recent events ({timeline.length} in the window).</p>
+        )}
       </div>
     </div>
   );

@@ -156,6 +156,40 @@ describe('IdeasPage — ideas tab', () => {
     confirmSpy.mockRestore();
   });
 
+  it('discusses an idea with AI and shows the reply', async () => {
+    const fetchFn = stubFetch(async (url, init) => {
+      if (url.includes('/api/v1/ideas/ide_1/discuss') && init?.method === 'POST') {
+        return jsonResponse({ data: { reply: 'Validate with 5 users first.', providerId: 'ox_alpha', modelId: 'glm', aiAvailable: true } });
+      }
+      if (url.includes('/api/v1/ideas')) return jsonResponse({ data: { ideas: [IDEA], total: 1 } });
+      if (url.includes('/api/v1/projects')) return jsonResponse({ data: { projects: [] } });
+      return jsonResponse({ data: {} });
+    });
+    renderIdeas();
+    await userEvent.click(await screen.findByText('Discuss AI'));
+    await userEvent.type(screen.getByPlaceholderText('Discuss this idea with AI…'), 'Is this worth building?');
+    await userEvent.click(screen.getByText('Send'));
+    await waitFor(() => expect(screen.getByText('Validate with 5 users first.')).toBeInTheDocument());
+    const post = fetchFn.mock.calls.find(([u, i]) => u.includes('/discuss') && i?.method === 'POST');
+    expect(JSON.parse(String(post![1]?.body))).toMatchObject({ message: 'Is this worth building?' });
+  });
+
+  it('reports AI discussion failure honestly when no provider is configured', async () => {
+    stubFetch(async (url, init) => {
+      if (url.includes('/api/v1/ideas/ide_1/discuss') && init?.method === 'POST') {
+        return jsonResponse({ error: { code: 'ai_unavailable', message: 'No AI provider is configured for idea discussion' } }, 503);
+      }
+      if (url.includes('/api/v1/ideas')) return jsonResponse({ data: { ideas: [IDEA], total: 1 } });
+      if (url.includes('/api/v1/projects')) return jsonResponse({ data: { projects: [] } });
+      return jsonResponse({ data: {} });
+    });
+    renderIdeas();
+    await userEvent.click(await screen.findByText('Discuss AI'));
+    await userEvent.type(screen.getByPlaceholderText('Discuss this idea with AI…'), 'help');
+    await userEvent.click(screen.getByText('Send'));
+    await waitFor(() => expect(screen.getByText(/No AI provider is configured/)).toBeInTheDocument());
+  });
+
   it('shows an error state with retry', async () => {
     let calls = 0;
     stubFetch(async (url) => {

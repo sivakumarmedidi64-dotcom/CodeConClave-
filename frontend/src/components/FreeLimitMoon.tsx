@@ -51,7 +51,7 @@ export function FreeLimitMoon({
     >
       <div className={`cc-free-limit-card${reduced.current ? ' cc-free-limit-card--static' : ''}`}>
         <div className="cc-moon--free-limit" aria-hidden="true" />
-        <h2 id="cc-free-limit-title">You&apos;ve reached today&apos;s free usage limit.</h2>
+        <h2 id="cc-free-limit-title">You&apos;ve reached your usage limit for this rolling window.</h2>
         <p className="cc-hint">Your work is safe.</p>
         <div className="cc-free-limit-actions">
           <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={() => onUpgrade()}>

@@ -9,7 +9,7 @@
  *   - policy_toggle       (payload: scope, action, riskLevel, requirement, prevEnabled)
  *   - plugin_scope_change  (payload: connectionId, prevScopes)
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -30,9 +30,11 @@ export interface UndoLogRow {
 }
 
 export async function listUndoable(userId: string): Promise<UndoLogRow[]> {
-  return queryMany<UndoLogRow>('SELECT * FROM undo_log WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 100', [
-    userId,
-  ]);
+  return withTenant<UndoLogRow[]>(userId, (q) =>
+    q
+      .query<UndoLogRow>('SELECT * FROM undo_log WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 100', [userId])
+      .then((r) => r.rows),
+  );
 }
 
 export async function recordUndoable(
@@ -46,11 +48,12 @@ export async function recordUndoable(
     throw AppError.badRequest('undo_description_required', 'A description is required');
   }
   const id = newId(PREFIX.UNDO);
-  const { pool } = await import('../../shared/db.js');
-  await pool.query(
-    `INSERT INTO undo_log (id, owner_id, action_type, description, undo_payload, status)
-     VALUES ($1,$2,$3,$4,$5::jsonb,'AVAILABLE')`,
-    [id, userId, input.actionType, input.description.trim(), JSON.stringify(input.payload)],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO undo_log (id, owner_id, action_type, description, undo_payload, status)
+       VALUES ($1,$2,$3,$4,$5::jsonb,'AVAILABLE')`,
+      [id, userId, input.actionType, input.description.trim(), JSON.stringify(input.payload)],
+    ),
   );
   await recordAudit({
     action: AuditAction.UNDO_RECORDED,
@@ -61,12 +64,16 @@ export async function recordUndoable(
     resourceId: id,
     detail: { actionType: input.actionType },
   });
-  return (await queryMany<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1', [id]))[0]!;
+  return (await withTenant<UndoLogRow[]>(userId, (q) =>
+    q.query<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1', [id]).then((r) => r.rows),
+  ))[0]!;
 }
 
 /** Revert an undoable action. Only AVAILABLE entries can be undone. */
 export async function undoAction(userId: string, undoId: string): Promise<UndoLogRow> {
-  const rows = await queryMany<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1 AND owner_id = $2', [undoId, userId]);
+  const rows = await withTenant<UndoLogRow[]>(userId, (q) =>
+    q.query<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1 AND owner_id = $2', [undoId, userId]).then((r) => r.rows),
+  );
   const entry = rows[0];
   if (!entry) throw AppError.notFound('Undo entry');
   if (entry.status !== 'AVAILABLE') {
@@ -79,10 +86,11 @@ export async function undoAction(userId: string, undoId: string): Promise<UndoLo
     if (err instanceof AppError) throw err;
     throw AppError.conflict('undo_failed', `Could not revert: ${(err as Error).message}`);
   }
-  const { pool } = await import('../../shared/db.js');
-  await pool.query(
-    `UPDATE undo_log SET status = 'UNDONE', undone_at = now() WHERE id = $1 AND owner_id = $2`,
-    [undoId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE undo_log SET status = 'UNDONE', undone_at = now() WHERE id = $1 AND owner_id = $2`,
+      [undoId, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.UNDO_PERFORMED,
@@ -93,7 +101,9 @@ export async function undoAction(userId: string, undoId: string): Promise<UndoLo
     resourceId: undoId,
     detail: { actionType: entry.action_type },
   });
-  return (await queryMany<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1', [undoId]))[0]!;
+  return (await withTenant<UndoLogRow[]>(userId, (q) =>
+    q.query<UndoLogRow>('SELECT * FROM undo_log WHERE id = $1', [undoId]).then((r) => r.rows),
+  ))[0]!;
 }
 
 async function revert(kind: string, payload: Record<string, unknown>, userId: string): Promise<void> {

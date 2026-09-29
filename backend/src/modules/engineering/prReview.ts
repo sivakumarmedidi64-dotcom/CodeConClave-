@@ -18,7 +18,7 @@
  * Reuses the existing task engine (createTask), audit, notifications,
  * AI gateway (completeWithFallback), memory (createMemory, best-effort).
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType, MemoryType, MemorySource } from '@codeconclave/shared';
@@ -214,9 +214,13 @@ recommendation: 'Retry the review once provider connectivity is restored.',
 
 /** Get a swarm (tenant-scoped). */
 export async function getSwarm(userId: string, swarmId: string): Promise<ReviewSwarmRow> {
-  const rows = await queryMany<ReviewSwarmRow>(
-    'SELECT * FROM review_swarms WHERE id = $1 AND owner_id = $2',
-    [swarmId, userId],
+  const rows = await withTenant<ReviewSwarmRow[]>(userId, (q) =>
+    q
+      .query<ReviewSwarmRow>(
+        'SELECT * FROM review_swarms WHERE id = $1 AND owner_id = $2',
+        [swarmId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Review swarm');
   return rows[0];
@@ -226,18 +230,21 @@ export async function getSwarm(userId: string, swarmId: string): Promise<ReviewS
 export async function listSwarms(userId: string, projectId?: string): Promise<ReviewSwarmRow[]> {
   const where = projectId ? 'owner_id = $1 AND project_id = $2' : 'owner_id = $1';
   const params = projectId ? [userId, projectId] : [userId];
-  return queryMany<ReviewSwarmRow>(
-    `SELECT * FROM review_swarms WHERE ${where} ORDER BY created_at DESC`,
-    params,
+  return withTenant<ReviewSwarmRow[]>(userId, (q) =>
+    q.query<ReviewSwarmRow>(`SELECT * FROM review_swarms WHERE ${where} ORDER BY created_at DESC`, params).then((r) => r.rows),
   );
 }
 
 /** Get findings for a swarm (tenant-scoped). */
 export async function listSwarmFindings(userId: string, swarmId: string): Promise<ReviewFindingRow[]> {
   await getSwarm(userId, swarmId);
-  return queryMany<ReviewFindingRow>(
-    'SELECT * FROM review_findings WHERE swarm_id = $1 AND owner_id = $2 ORDER BY created_at',
-    [swarmId, userId],
+  return withTenant<ReviewFindingRow[]>(userId, (q) =>
+    q
+      .query<ReviewFindingRow>(
+        'SELECT * FROM review_findings WHERE swarm_id = $1 AND owner_id = $2 ORDER BY created_at',
+        [swarmId, userId],
+      )
+      .then((r) => r.rows),
   );
 }
 
@@ -247,16 +254,22 @@ export async function decideFinding(
   findingId: string,
   decision: 'ACCEPTED' | 'DISMISSED',
 ): Promise<ReviewFindingRow> {
-  const rows = await queryMany<ReviewFindingRow>(
-    'SELECT * FROM review_findings WHERE id = $1 AND owner_id = $2',
-    [findingId, userId],
+  const rows = await withTenant<ReviewFindingRow[]>(userId, (q) =>
+    q
+      .query<ReviewFindingRow>(
+        'SELECT * FROM review_findings WHERE id = $1 AND owner_id = $2',
+        [findingId, userId],
+      )
+      .then((r) => r.rows),
   );
   const finding = rows[0];
   if (!finding) throw AppError.notFound('Finding');
   if (finding.status !== 'OPEN') throw AppError.conflict('finding_not_open', `Finding is ${finding.status}`);
-  await pool.query(
-    `UPDATE review_findings SET status = $1 WHERE id = $2 AND owner_id = $3`,
-    [decision, findingId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE review_findings SET status = $1 WHERE id = $2 AND owner_id = $3`,
+      [decision, findingId, userId],
+    ),
   );
   await recordAudit({
     action: decision === 'ACCEPTED' ? AuditAction.FINDING_ACCEPTED : AuditAction.FINDING_DISMISSED,
@@ -293,13 +306,15 @@ export async function startPrReview(
     description: `Multi-agent review of ${input.prRef} (${SWARM_ROLES.length} independent roles).`,
     riskLevel: 'MEDIUM',
   });
-  await pool.query(
-    `INSERT INTO review_swarms (id, owner_id, project_id, pr_ref, target_ref, title, status, roles, files, task_id)
-     VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9)`,
-    [
-      id, userId, input.projectId, input.prRef, input.targetRef ?? null,
-      input.title ?? `Review ${input.prRef}`, JSON.stringify([...SWARM_ROLES]), JSON.stringify(files), task.id,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO review_swarms (id, owner_id, project_id, pr_ref, target_ref, title, status, roles, files, task_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'PENDING',$7,$8,$9)`,
+      [
+        id, userId, input.projectId, input.prRef, input.targetRef ?? null,
+        input.title ?? `Review ${input.prRef}`, JSON.stringify([...SWARM_ROLES]), JSON.stringify(files), task.id,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.PR_REVIEW_STARTED,
@@ -322,7 +337,9 @@ export async function runPrReview(userId: string, swarmId: string): Promise<Revi
   if (!Array.isArray(swarm.files) || swarm.files.length === 0) {
     throw AppError.conflict('pr_review_no_files', 'Swarm has no reviewable files');
   }
-  await pool.query(`UPDATE review_swarms SET status = 'RUNNING', updated_at = now() WHERE id = $1`, [swarmId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE review_swarms SET status = 'RUNNING', updated_at = now() WHERE id = $1`, [swarmId]),
+  );
 
   let rolesDone = 0;
   let rolesFailed = 0;
@@ -338,16 +355,18 @@ export async function runPrReview(userId: string, swarmId: string): Promise<Revi
       const drafts = findings.length > 0 ? findings : [unavailableFinding(role)];
       for (const f of drafts) {
         const fid = newId(PREFIX.REVIEW_FINDING);
-        await pool.query(
-          `INSERT INTO review_findings
-             (id, swarm_id, owner_id, role, severity, category, title, description,
-              file_path, line_start, line_end, evidence, confidence, recommendation, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'OPEN')`,
-          [
-            fid, swarmId, userId, role, f.severity, f.category, f.title, f.description,
-            f.file_path, f.line_start, f.line_end,
-            JSON.stringify(f.evidence), f.confidence, f.recommendation,
-          ],
+        await withTenant(userId, (q) =>
+          q.query(
+            `INSERT INTO review_findings
+               (id, swarm_id, owner_id, role, severity, category, title, description,
+                file_path, line_start, line_end, evidence, confidence, recommendation, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'OPEN')`,
+            [
+              fid, swarmId, userId, role, f.severity, f.category, f.title, f.description,
+              f.file_path, f.line_start, f.line_end,
+              JSON.stringify(f.evidence), f.confidence, f.recommendation,
+            ],
+          ),
         );
       }
       rolesDone += 1;
@@ -355,12 +374,14 @@ export async function runPrReview(userId: string, swarmId: string): Promise<Revi
       rolesFailed += 1;
       const message = err instanceof Error ? err.message.slice(0, 300) : String(err);
       const fid = newId(PREFIX.REVIEW_FINDING);
-      await pool.query(
-        `INSERT INTO review_findings
-           (id, swarm_id, owner_id, role, severity, category, title, description,
-            file_path, line_start, line_end, evidence, confidence, recommendation, status)
-         VALUES ($1,$2,$3,$4,'INFO','review_failed',$5,$6,NULL,NULL,NULL,'[]',0,NULL,'OPEN')`,
-        [fid, swarmId, userId, role, `${role} review failed`, message],
+      await withTenant(userId, (q) =>
+        q.query(
+          `INSERT INTO review_findings
+             (id, swarm_id, owner_id, role, severity, category, title, description,
+              file_path, line_start, line_end, evidence, confidence, recommendation, status)
+           VALUES ($1,$2,$3,$4,'INFO','review_failed',$5,$6,NULL,NULL,NULL,'[]',0,NULL,'OPEN')`,
+          [fid, swarmId, userId, role, `${role} review failed`, message],
+        ),
       );
       await recordAudit({
         action: AuditAction.PR_REVIEW_ROLE_FAILED,
@@ -376,15 +397,19 @@ export async function runPrReview(userId: string, swarmId: string): Promise<Revi
 
   const status: SwarmStatus =
     rolesFailed === 0 ? 'COMPLETED' : rolesDone === 0 ? 'FAILED' : 'PARTIAL';
-  await pool.query(`UPDATE review_swarms SET status = $1, updated_at = now() WHERE id = $2`, [status, swarmId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE review_swarms SET status = $1, updated_at = now() WHERE id = $2`, [status, swarmId]),
+  );
 
   const all = await listSwarmFindings(userId, swarmId);
   const severityCounts: Record<string, number> = {};
   for (const f of all) severityCounts[f.severity] = (severityCounts[f.severity] ?? 0) + 1;
-  await pool.query(`UPDATE review_swarms SET verdict = $1, updated_at = now() WHERE id = $2`, [
-    JSON.stringify({ rolesDone, rolesFailed, findings: all.length, severityCounts }),
-    swarmId,
-  ]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE review_swarms SET verdict = $1, updated_at = now() WHERE id = $2`, [
+      JSON.stringify({ rolesDone, rolesFailed, findings: all.length, severityCounts }),
+      swarmId,
+    ]),
+  );
 
   await recordAudit({
     action: AuditAction.PR_REVIEW_COMPLETED,

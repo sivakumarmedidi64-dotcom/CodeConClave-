@@ -14,6 +14,7 @@ import { cache } from '../../shared/cache.js';
 import { AppError } from '../../shared/errors.js';
 import { randomToken, sha256Hex } from '../../shared/crypto.js';
 import { newId, PREFIX } from '../../shared/ids.js';
+import { wrapEmailHtml } from '../email/brand.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../shared/logger.js';
 import { enqueueOutbox } from '../outbox/service.js';
@@ -66,9 +67,12 @@ export async function sendVerificationEmail(userId: string, req: Request): Promi
     channel: 'email',
     to: row.email,
     subject: 'Verify your CodeConClave email',
-    html: `<p>Confirm this address to finish setting up your CodeConClave account.</p>
+    html: wrapEmailHtml(
+      'Confirm your email',
+      `<p>Confirm this address to finish setting up your CodeConClave account.</p>
 <p><a href="${verifyUrl}">Verify email</a></p>
 <p class="cc-muted">This link expires in 24 hours and can be used once.</p>`,
+    ),
     data: { userId },
   });
 
@@ -80,7 +84,7 @@ export async function sendVerificationEmail(userId: string, req: Request): Promi
     resourceType: 'email_verification',
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
     detail: { expiresInHours: VERIFICATION_TOKEN_TTL_MS / 3_600_000 },
   });
 
@@ -97,7 +101,7 @@ async function auditFailure(userId: string | null, reason: string, req: Request)
     resourceType: 'email_verification',
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
     detail: { reason },
   });
 }
@@ -148,7 +152,7 @@ export async function verifyEmailToken(token: string, req: Request): Promise<voi
     resourceId: row.user_id,
     ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
-    traceId: req.ctx?.traceId ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
   });
 }
 

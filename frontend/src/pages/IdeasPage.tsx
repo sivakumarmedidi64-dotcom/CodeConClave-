@@ -22,6 +22,7 @@ import type {
   ProjectMember,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { Icon } from '../components/Icon';
 
 const STATUSES: IdeaStatus[] = ['PROPOSED', 'IN_PROGRESS', 'ACCEPTED', 'PLANNED', 'REJECTED', 'DEFERRED', 'DEPRECATED'];
 const PRIORITIES: IdeaPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
@@ -58,6 +59,11 @@ interface IdeaFilters {
   archived: boolean;
 }
 
+interface DiscussIdeaMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 function IdeasTab() {
   const { toast } = useToast();
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -67,6 +73,10 @@ function IdeasTab() {
   const [filters, setFilters] = useState<IdeaFilters>({ q: '', status: '', priority: '', tag: '', archived: false });
   const [openIdeaId, setOpenIdeaId] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, IdeaComment[]>>({});
+  const [discussOpenId, setDiscussOpenId] = useState<string | null>(null);
+  const [discussions, setDiscussions] = useState<Record<string, DiscussIdeaMessage[]>>({});
+  const [discussDraft, setDiscussDraft] = useState<Record<string, string>>({});
+  const [discussBusyId, setDiscussBusyId] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     title: '',
     description: '',
@@ -185,6 +195,32 @@ function IdeasTab() {
       setIdeas((prev) => prev.map((i) => (i.id === ideaId ? { ...i, commentCount: i.commentCount + 1 } : i)));
     } catch (err) {
       toast(err instanceof Error ? err.message : 'comment failed', 'error');
+    }
+  };
+
+  const discuss = async (idea: Idea) => {
+    const message = (discussDraft[idea.id] ?? '').trim();
+    if (!message) return;
+    const prior = discussions[idea.id] ?? [];
+    setDiscussBusyId(idea.id);
+    try {
+      const res = await api<{ reply: string; providerId: string; modelId: string }>(
+        `/api/v1/ideas/${idea.id}/discuss`,
+        { method: 'POST', body: { message, history: prior } },
+      );
+      setDiscussions((prev) => ({
+        ...prev,
+        [idea.id]: [
+          ...prior,
+          { role: 'user', content: message },
+          { role: 'assistant', content: res.reply },
+        ],
+      }));
+      setDiscussDraft((prev) => ({ ...prev, [idea.id]: '' }));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'discussion failed', 'error');
+    } finally {
+      setDiscussBusyId(null);
     }
   };
 
@@ -399,10 +435,17 @@ function IdeasTab() {
                 </button>
                 <button
                   className="cc-btn cc-btn--ghost cc-btn--sm"
+                  title="Discuss this idea with AI"
+                  onClick={() => setDiscussOpenId((cur) => (cur === idea.id ? null : idea.id))}
+                >
+                  <Icon name="sparkle" size={13} /> Discuss AI
+                </button>
+                <button
+                  className="cc-btn cc-btn--ghost cc-btn--sm"
                   onClick={() => void patch(idea.id, { archived: !idea.archived })}
                   title={idea.archived ? 'Unarchive' : 'Archive'}
                 >
-                  {idea.archived ? '↩' : '🗄'}
+                  {idea.archived ? <Icon name="refresh" size={13} /> : <Icon name="database" size={13} />}
                 </button>
                 {idea.deletedAt ? (
                   <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void restore(idea)}>
@@ -426,6 +469,39 @@ function IdeasTab() {
                   </div>
                 ))}
                 <CommentBox ideaId={idea.id} onAdd={addComment} />
+              </div>
+            )}
+            {discussOpenId === idea.id && (
+              <div style={{ marginTop: 10, borderTop: '1px solid var(--cc-border)', paddingTop: 8 }} data-testid={`idea-discuss-${idea.id}`}>
+                <h4>Discuss with AI</h4>
+                <p className="cc-hint">Think through this idea with the configured AI provider. Nothing is changed or saved automatically.</p>
+                {(discussions[idea.id] ?? []).length === 0 && (
+                  <p className="cc-hint">Ask about risks, trade-offs, or how to validate it.</p>
+                )}
+                {(discussions[idea.id] ?? []).map((m, idx) => (
+                  <div key={idx} className="cc-hint" style={{ padding: '3px 0', display: 'flex', gap: 6 }}>
+                    <span className="cc-mono">{m.role === 'assistant' ? 'AI' : 'you'}</span>
+                    <span style={{ whiteSpace: 'pre-wrap' }}>{m.content}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <input
+                    className="cc-input"
+                    placeholder="Discuss this idea with AI…"
+                    value={discussDraft[idea.id] ?? ''}
+                    onChange={(e) => setDiscussDraft((prev) => ({ ...prev, [idea.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void discuss(idea);
+                    }}
+                  />
+                  <button
+                    className="cc-btn cc-btn--sm"
+                    disabled={discussBusyId === idea.id || !(discussDraft[idea.id] ?? '').trim()}
+                    onClick={() => void discuss(idea)}
+                  >
+                    {discussBusyId === idea.id ? 'Thinking…' : 'Send'}
+                  </button>
+                </div>
               </div>
             )}
           </div>

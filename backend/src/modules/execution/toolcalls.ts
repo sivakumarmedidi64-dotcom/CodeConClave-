@@ -4,7 +4,7 @@
  * deterministic policy engine, and (for HIGH/CRITICAL) linked to an approval.
  * Results, denials, timeouts, and errors are all recorded — nothing is faked.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { evaluateToolCall, type PolicyDecision } from './policy.js';
@@ -66,11 +66,14 @@ export async function proposeToolCall(input: {
     incMetric('security.tool_calls_denied');
   }
 
-  await pool.query(
-    `INSERT INTO tool_calls (id, task_id, step_id, tool_name, input, risk_level, status, approval_id)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
-    [id, input.taskId, input.stepId, input.toolName, JSON.stringify(input.toolInput), risk, status, approvalId],
-  );
+  const row = (await withTenant(input.ownerId, async (q) => {
+    await q.query(
+      `INSERT INTO tool_calls (id, task_id, step_id, tool_name, input, risk_level, status, approval_id)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)`,
+      [id, input.taskId, input.stepId, input.toolName, JSON.stringify(input.toolInput), risk, status, approvalId],
+    );
+    return (await q.query<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [id])).rows[0]!;
+  }))!;
   await recordAudit({
     action: decision.allowed ? AuditAction.EXECUTION_TOOL_CALL : AuditAction.EXECUTION_TOOL_DENIED,
     actorUserId: input.ownerId,
@@ -81,7 +84,6 @@ export async function proposeToolCall(input: {
     detail: { tool: input.toolName, risk, deniedBy: decision.allowed ? null : decision.deniedBy },
   });
 
-  const row = (await queryMany<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [id]))[0]!;
   return { call: row, decision, approved: decision.allowed && !decision.requiresApproval };
 }
 
@@ -96,18 +98,22 @@ export async function executeToolCall(
   toolInput: Record<string, unknown>,
   ctx?: ToolExecutionContext,
 ): Promise<ToolCallRow> {
-  const rows = await queryMany<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [toolCallId]);
-  const call = rows[0];
+  const scoped = ctx?.userId
+    ? <T>(fn: (q: import('pg').PoolClient) => Promise<T>) => withTenant(ctx.userId as string, fn)
+    : <T>(fn: (q: import('pg').PoolClient) => Promise<T>) => withSystem(fn);
+  const call = await scoped(async (q) => (await q.query<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [toolCallId])).rows[0] ?? null);
   if (!call) throw AppError.notFound('ToolCall');
   if (call.status === 'DENIED') throw AppError.forbidden('tool_denied', 'Tool call was denied by policy');
 
   const result = await runRegisteredTool(toolName, toolInput, ctx);
-  await pool.query(
-    `UPDATE tool_calls SET status = 'EXECUTED', output = $2::jsonb, started_at = now(), completed_at = now()
-     WHERE id = $1`,
-    [toolCallId, JSON.stringify(result)],
-  );
-  const updated = (await queryMany<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [toolCallId]))[0]!;
+  const updated = await scoped(async (q) => {
+    await q.query(
+      `UPDATE tool_calls SET status = 'EXECUTED', output = $2::jsonb, started_at = now(), completed_at = now()
+       WHERE id = $1`,
+      [toolCallId, JSON.stringify(result)],
+    );
+    return (await q.query<ToolCallRow>('SELECT * FROM tool_calls WHERE id = $1', [toolCallId])).rows[0]!;
+  });
   await recordAudit({
     action: AuditAction.EXECUTION_TOOL_RESULT,
     actorUserId: ctx?.userId ?? null,
@@ -122,7 +128,9 @@ export async function executeToolCall(
 
 /** Deny a PROPOSED call (e.g. approval rejected). */
 export async function markToolCallDenied(toolCallId: string): Promise<void> {
-  await pool.query(`UPDATE tool_calls SET status = 'DENIED', completed_at = now() WHERE id = $1`, [toolCallId]);
+  await withSystem(async (q) => {
+    await q.query(`UPDATE tool_calls SET status = 'DENIED', completed_at = now() WHERE id = $1`, [toolCallId]);
+  });
 }
 
 /**
@@ -158,7 +166,7 @@ export function listRegisteredTools(): string[] {
 }
 
 export async function listToolCalls(taskId: string): Promise<ToolCallRow[]> {
-  return queryMany<ToolCallRow>('SELECT * FROM tool_calls WHERE task_id = $1 ORDER BY created_at', [taskId]);
+  return withSystem(async (q) => (await q.query<ToolCallRow>('SELECT * FROM tool_calls WHERE task_id = $1 ORDER BY created_at', [taskId])).rows);
 }
 
 export { DENIED_POLICY };

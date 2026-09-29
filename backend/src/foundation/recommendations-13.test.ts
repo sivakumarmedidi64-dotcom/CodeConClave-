@@ -80,6 +80,9 @@ describe('generateCleanupRecommendations', () => {
       if (text.includes("SELECT f.id, f.path, f.size_bytes FROM files f\n     WHERE")) {
         return [{ id: 'fil_9', path: '/old.txt', size_bytes: 10 }];
       }
+      if (text.includes('f.deleted_at IS NOT NULL') && text.includes('FROM files f')) {
+        return [{ id: 'fil_9', path: '/old.txt', size_bytes: 10 }];
+      }
       if (text.includes('SELECT id, title FROM conversations')) return [{ id: 'con_1', title: 'Old chat' }];
       if (text.includes('SELECT id, content FROM memories')) return [];
       if (text.includes('SELECT id, title FROM dna')) return [];

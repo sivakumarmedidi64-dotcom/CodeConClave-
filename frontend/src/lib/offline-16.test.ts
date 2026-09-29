@@ -203,6 +203,23 @@ describe('offline queue — connectivity', () => {
     stop();
   });
 
+  it('registers exactly ONE online listener even when initialized twice (single source of truth)', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const stopA = initOfflineSync();
+    const stopB = initOfflineSync();
+    const onlineRegs = addSpy.mock.calls.filter(([type]) => type === 'online').length;
+    const offlineRegs = addSpy.mock.calls.filter(([type]) => type === 'offline').length;
+    expect(onlineRegs).toBe(1);
+    expect(offlineRegs).toBe(1);
+    stopA();
+    stopB();
+    const onlineRem = removeSpy.mock.calls.filter(([type]) => type === 'online').length;
+    expect(onlineRem).toBe(1);
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+
   it('notifies subscribers when the queue changes', async () => {
     const seen: OfflineOp[][] = [];
     const off = subscribeOffline((ops) => seen.push(ops));

@@ -5,7 +5,7 @@
  * by events.ts / executor.ts against real events from the existing scheduler,
  * task engine, plugins, deployments and webhooks.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -90,8 +90,10 @@ export function rowToRule(row: Record<string, unknown>): AutomationRule {
 }
 
 async function getOwnedRule(userId: string, ruleId: string): Promise<AutomationRule> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      'SELECT * FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId],
+    )).rows,
   );
   if (!rows[0]) throw AppError.notFound('Automation rule');
   return rowToRule(rows[0]);
@@ -135,17 +137,19 @@ export async function createRule(userId: string, input: RuleInput): Promise<Auto
   await assertAutonomyEnabled(userId, 'AUTONOMY');
   validateInput(input);
   const id = newId(PREFIX.AUTOMATION_RULE);
-  await pool.query(
-    `INSERT INTO automation_rules
-       (id, owner_id, name, description, status, event_source, event_type, conditions, actions,
-        recipe_id, project_id, trigger_mode, require_approval, max_runs_per_hour, cooldown_ms)
-     VALUES ($1,$2,$3,$4,'ACTIVE',$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
-    [
-      id, userId, input.name!.trim(), input.description ?? null,
-      input.eventSource, input.eventType!.trim(), jsonb(input.conditions ?? {}), jsonb(input.actions!),
-      input.recipeId ?? null, input.projectId ?? null, input.triggerMode ?? 'auto',
-      input.requireApproval ?? false, input.maxRunsPerHour ?? 10, input.cooldownMs ?? 60_000,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO automation_rules
+         (id, owner_id, name, description, status, event_source, event_type, conditions, actions,
+          recipe_id, project_id, trigger_mode, require_approval, max_runs_per_hour, cooldown_ms)
+       VALUES ($1,$2,$3,$4,'ACTIVE',$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,$12,$13,$14)`,
+      [
+        id, userId, input.name!.trim(), input.description ?? null,
+        input.eventSource, input.eventType!.trim(), jsonb(input.conditions ?? {}), jsonb(input.actions!),
+        input.recipeId ?? null, input.projectId ?? null, input.triggerMode ?? 'auto',
+        input.requireApproval ?? false, input.maxRunsPerHour ?? 10, input.cooldownMs ?? 60_000,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.AUTOMATION_CREATED,
@@ -172,21 +176,23 @@ export async function updateRule(userId: string, ruleId: string, input: Partial<
     maxRunsPerHour: input.maxRunsPerHour ?? existing.max_runs_per_hour,
     cooldownMs: input.cooldownMs ?? existing.cooldown_ms,
   });
-  await pool.query(
-    `UPDATE automation_rules SET
-       name = $2, description = $3, event_source = $4, event_type = $5,
-       conditions = $6::jsonb, actions = $7::jsonb, project_id = $8,
-       trigger_mode = $9, require_approval = $10, max_runs_per_hour = $11,
-       cooldown_ms = $12, updated_at = now()
-     WHERE id = $1 AND owner_id = $13`,
-    [
-      ruleId, input.name?.trim() ?? existing.name, input.description ?? existing.description,
-      input.eventSource ?? existing.event_source, input.eventType ?? existing.event_type,
-      jsonb(input.conditions ?? existing.conditions), jsonb(input.actions ?? existing.actions),
-      input.projectId ?? existing.project_id, input.triggerMode ?? existing.trigger_mode,
-      input.requireApproval ?? existing.require_approval, input.maxRunsPerHour ?? existing.max_runs_per_hour,
-      input.cooldownMs ?? existing.cooldown_ms, userId,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE automation_rules SET
+         name = $2, description = $3, event_source = $4, event_type = $5,
+         conditions = $6::jsonb, actions = $7::jsonb, project_id = $8,
+         trigger_mode = $9, require_approval = $10, max_runs_per_hour = $11,
+         cooldown_ms = $12, updated_at = now()
+       WHERE id = $1 AND owner_id = $13`,
+      [
+        ruleId, input.name?.trim() ?? existing.name, input.description ?? existing.description,
+        input.eventSource ?? existing.event_source, input.eventType ?? existing.event_type,
+        jsonb(input.conditions ?? existing.conditions), jsonb(input.actions ?? existing.actions),
+        input.projectId ?? existing.project_id, input.triggerMode ?? existing.trigger_mode,
+        input.requireApproval ?? existing.require_approval, input.maxRunsPerHour ?? existing.max_runs_per_hour,
+        input.cooldownMs ?? existing.cooldown_ms, userId,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.AUTOMATION_UPDATED,
@@ -205,15 +211,19 @@ export async function setRuleStatus(userId: string, ruleId: string, status: Rule
   if (rule.status === status) return rule;
   if (status === 'ACTIVE' && rule.status === 'DISABLED') {
     // Re-enabling resets the loop budget so a previously throttled rule starts fresh.
-    await pool.query(
-      `UPDATE automation_rules SET status = $2, run_count = 0, run_count_reset_at = now(), last_error = NULL, updated_at = now()
-       WHERE id = $1 AND owner_id = $3`,
-      [ruleId, status, userId],
+    await withTenant(userId, (q) =>
+      q.query(
+        `UPDATE automation_rules SET status = $2, run_count = 0, run_count_reset_at = now(), last_error = NULL, updated_at = now()
+         WHERE id = $1 AND owner_id = $3`,
+        [ruleId, status, userId],
+      ),
     );
   } else {
-    await pool.query(
-      'UPDATE automation_rules SET status = $2, updated_at = now() WHERE id = $1 AND owner_id = $3',
-      [ruleId, status, userId],
+    await withTenant(userId, (q) =>
+      q.query(
+        'UPDATE automation_rules SET status = $2, updated_at = now() WHERE id = $1 AND owner_id = $3',
+        [ruleId, status, userId],
+      ),
     );
   }
   const action =
@@ -234,7 +244,9 @@ export async function setRuleStatus(userId: string, ruleId: string, status: Rule
 
 export async function deleteRule(userId: string, ruleId: string): Promise<void> {
   const rule = await getOwnedRule(userId, ruleId);
-  await pool.query('DELETE FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId]);
+  await withTenant(userId, (q) =>
+    q.query('DELETE FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId]),
+  );
   await recordAudit({
     action: AuditAction.AUTOMATION_DELETED,
     actorUserId: userId,
@@ -247,20 +259,24 @@ export async function deleteRule(userId: string, ruleId: string): Promise<void> 
 }
 
 export async function listRules(userId: string, includeDisabled = false): Promise<AutomationRule[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM automation_rules
-     WHERE owner_id = $1 ${includeDisabled ? '' : "AND status = 'ACTIVE'"}
-     ORDER BY created_at DESC`,
-    [userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT * FROM automation_rules
+       WHERE owner_id = $1 ${includeDisabled ? '' : "AND status = 'ACTIVE'"}
+       ORDER BY created_at DESC`,
+      [userId],
+    )).rows,
   );
   return rows.map(rowToRule);
 }
 
 export async function listRuleRuns(userId: string, ruleId: string, limit = 50): Promise<Record<string, unknown>[]> {
-  return queryMany<Record<string, unknown>>(
-    `SELECT * FROM automation_runs WHERE automation_id = $1 AND owner_id = $2
-     ORDER BY created_at DESC LIMIT $3`,
-    [ruleId, userId, Math.min(Math.max(limit, 1), 200)],
+  return withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT * FROM automation_runs WHERE automation_id = $1 AND owner_id = $2
+       ORDER BY created_at DESC LIMIT $3`,
+      [ruleId, userId, Math.min(Math.max(limit, 1), 200)],
+    )).rows,
   );
 }
 

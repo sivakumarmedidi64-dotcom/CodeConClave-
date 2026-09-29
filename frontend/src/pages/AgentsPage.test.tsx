@@ -188,4 +188,16 @@ describe('AgentsPage — runs', () => {
     });
     expect(screen.getByText('Run cancelled')).toBeInTheDocument();
   });
+
+  it('renders "My Agents N/M" from the server-authoritative entitlement limit', async () => {
+    const baseHandler = handler();
+    stubFetch(async (url, init) => {
+      if (url.includes('/api/v1/agents/limits')) {
+        return jsonResponse({ data: { usage: { count: 4, max: 10, plan: 'pro' } } });
+      }
+      return baseHandler(url, init);
+    });
+    renderPage();
+    expect(await screen.findByText('My Agents 4/10')).toBeInTheDocument();
+  });
 });

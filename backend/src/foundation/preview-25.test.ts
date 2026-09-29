@@ -20,6 +20,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_userId: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -114,6 +116,27 @@ describe('SESSION LIFECYCLE', () => {
   it('getPreview creates a session that is honestly NOT_CONFIGURED without tooling', async () => {
     db.state.rows = [SESSION()];
     const session = await getPreview('u1', 'prj-1');
+    expect(session.state).toBe('NOT_CONFIGURED');
+  });
+
+  it('getPreview creates idempotently under a concurrent first load (W-3 regression)', async () => {
+    let reads = 0;
+    let insertText = '';
+    db.state.resolve = (text: string) => {
+      if (text.includes('FROM projects')) return [{ id: 'prj-1' }];
+      if (text.includes('FROM preview_sessions WHERE project_id')) {
+        reads += 1;
+        return reads === 1 ? [] : [SESSION({ id: 'pvw-winner' })];
+      }
+      if (text.includes('INSERT INTO preview_sessions')) {
+        insertText = text;
+        return null;
+      }
+      return null;
+    };
+    const session = await getPreview('u1', 'prj-1');
+    expect(insertText).toMatch(/ON CONFLICT/);
+    expect(session.id).toBe('pvw-winner');
     expect(session.state).toBe('NOT_CONFIGURED');
   });
 

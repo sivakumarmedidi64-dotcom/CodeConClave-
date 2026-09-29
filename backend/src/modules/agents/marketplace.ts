@@ -9,7 +9,7 @@
  * capabilities are validated against a known allowlist. Disabled packages
  * cannot run (startRun refuses them). Tenant isolation via owner-scoped RLS.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { recordAudit } from '../audit/service.js';
@@ -96,30 +96,37 @@ export async function browseCatalogue(q?: string, role?: string): Promise<Catalo
     params.push(`%${q.trim().toLowerCase()}%`);
     where.push(`(lower(name) LIKE $${params.length} OR lower(description) LIKE $${params.length} OR lower(slug) LIKE $${params.length})`);
   }
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM agent_catalogue WHERE ${where.join(' AND ')} ORDER BY name ASC`,
-    params,
+  const rows = await withSystem<Array<Record<string, unknown>>>((db) =>
+    db
+      .query<Record<string, unknown>>(`SELECT * FROM agent_catalogue WHERE ${where.join(' AND ')} ORDER BY name ASC`, params)
+      .then((r) => r.rows),
   );
   return rows.map(mapCatalogue);
 }
 
 export async function getCatalogueItem(catalogueId: string): Promise<CatalogueRow> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM agent_catalogue WHERE id = $1', [catalogueId]);
+  const rows = await withSystem<Array<Record<string, unknown>>>((db) =>
+    db.query<Record<string, unknown>>('SELECT * FROM agent_catalogue WHERE id = $1', [catalogueId]).then((r) => r.rows),
+  );
   if (!rows[0]) throw AppError.notFound('Marketplace package');
   return mapCatalogue(rows[0]);
 }
 
 export async function listInstalled(userId: string): Promise<Array<InstalledRow & { agent: AgentRow | null; package: CatalogueRow | null }>> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT i.*, a.id AS a_id, a.name AS a_name, a.role AS a_role, a.status AS a_status, a.trust_level AS a_trust_level,
-            c.name AS c_name, c.description AS c_description, c.capabilities AS c_capabilities,
-            c.declared_permissions AS c_permissions, c.min_trust_level AS c_min_trust, c.min_plan AS c_min_plan, c.version AS c_version
-     FROM installed_agents i
-     LEFT JOIN ai_agents a ON a.id = i.agent_id
-     LEFT JOIN agent_catalogue c ON c.id = i.catalogue_id
-     WHERE i.owner_id = $1 AND i.status <> 'REMOVED'
-     ORDER BY i.created_at DESC`,
-    [userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (db) =>
+    db
+      .query<Record<string, unknown>>(
+        `SELECT i.*, a.id AS a_id, a.name AS a_name, a.role AS a_role, a.status AS a_status, a.trust_level AS a_trust_level,
+                c.name AS c_name, c.description AS c_description, c.capabilities AS c_capabilities,
+                c.declared_permissions AS c_permissions, c.min_trust_level AS c_min_trust, c.min_plan AS c_min_plan, c.version AS c_version
+         FROM installed_agents i
+         LEFT JOIN ai_agents a ON a.id = i.agent_id
+         LEFT JOIN agent_catalogue c ON c.id = i.catalogue_id
+         WHERE i.owner_id = $1 AND i.status <> 'REMOVED'
+         ORDER BY i.created_at DESC`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   return rows.map((r) => ({
     ...mapInstalled(r),
@@ -165,9 +172,13 @@ export async function installPackage(
 ): Promise<InstalledRow & { agent: AgentRow }> {
   const catalogue = await getCatalogueItem(catalogueId);
   assertValidPackage(catalogue);
-  const existing = await queryMany<{ n: number }>(
-    'SELECT count(*)::int AS n FROM installed_agents WHERE owner_id = $1 AND catalogue_id = $2 AND status <> \'REMOVED\'',
-    [userId, catalogueId],
+  const existing = await withTenant<Array<{ n: number }>>(userId, (db) =>
+    db
+      .query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM installed_agents WHERE owner_id = $1 AND catalogue_id = $2 AND status <> \'REMOVED\'',
+        [userId, catalogueId],
+      )
+      .then((r) => r.rows),
   );
   if ((existing[0]?.n ?? 0) > 0) {
     throw AppError.conflict('already_installed', `Package ${catalogue.slug} is already installed`);
@@ -180,10 +191,12 @@ export async function installPackage(
     trustLevel: catalogue.min_trust_level,
   });
   const id = newId(PREFIX.INSTALLED_AGENT);
-  await pool.query(
-    `INSERT INTO installed_agents (id, owner_id, catalogue_id, catalogue_slug, agent_id, version, status)
-     VALUES ($1,$2,$3,$4,$5,$6,'INSTALLED')`,
-    [id, userId, catalogue.id, catalogue.slug, agent.id, catalogue.version],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO installed_agents (id, owner_id, catalogue_id, catalogue_slug, agent_id, version, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'INSTALLED')`,
+      [id, userId, catalogue.id, catalogue.slug, agent.id, catalogue.version],
+    ),
   );
   await recordAudit({
     action: AuditAction.MARKETPLACE_INSTALLED,
@@ -198,13 +211,17 @@ export async function installPackage(
 }
 
 export async function setInstalledStatus(userId: string, installedId: string, status: 'DISABLED' | 'ENABLED'): Promise<void> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM installed_agents WHERE id = $1 AND owner_id = $2 AND status <> \'REMOVED\'',
-    [installedId, userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (db) =>
+    db
+      .query<Record<string, unknown>>(
+        'SELECT * FROM installed_agents WHERE id = $1 AND owner_id = $2 AND status <> \'REMOVED\'',
+        [installedId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Installed agent');
   const next = status === 'DISABLED' ? 'DISABLED' : 'INSTALLED';
-  await pool.query('UPDATE installed_agents SET status = $1, updated_at = now() WHERE id = $2', [next, installedId]);
+  await withTenant(userId, (db) => db.query('UPDATE installed_agents SET status = $1, updated_at = now() WHERE id = $2', [next, installedId]));
   await recordAudit({
     action: status === 'DISABLED' ? AuditAction.MARKETPLACE_DISABLED : AuditAction.MARKETPLACE_ENABLED,
     actorUserId: userId,
@@ -219,13 +236,17 @@ export async function setInstalledStatus(userId: string, installedId: string, st
 /** Uninstall: deletes the created agent (existing deleteAgent — refuses while
  *  a run is active) and marks the install REMOVED for audit. */
 export async function uninstallPackage(userId: string, installedId: string): Promise<void> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM installed_agents WHERE id = $1 AND owner_id = $2 AND status <> \'REMOVED\'',
-    [installedId, userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (db) =>
+    db
+      .query<Record<string, unknown>>(
+        'SELECT * FROM installed_agents WHERE id = $1 AND owner_id = $2 AND status <> \'REMOVED\'',
+        [installedId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Installed agent');
   await deleteAgent(userId, String(rows[0].agent_id));
-  await pool.query('UPDATE installed_agents SET status = \'REMOVED\', updated_at = now() WHERE id = $1', [installedId]);
+  await withTenant(userId, (db) => db.query('UPDATE installed_agents SET status = \'REMOVED\', updated_at = now() WHERE id = $1', [installedId]));
   await recordAudit({
     action: AuditAction.MARKETPLACE_UNINSTALLED,
     actorUserId: userId,
@@ -240,18 +261,23 @@ export async function uninstallPackage(userId: string, installedId: string): Pro
 /** Update to a newer catalogue version: syncs name/objective/trust on the
  *  existing agent row (audited), records the version. */
 export async function updateInstalled(userId: string, installedId: string): Promise<void> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT i.*, c.* FROM installed_agents i JOIN agent_catalogue c ON c.id = i.catalogue_id
-     WHERE i.id = $1 AND i.owner_id = $2 AND i.status <> 'REMOVED'`,
-    [installedId, userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (db) =>
+    db
+      .query<Record<string, unknown>>(
+        `SELECT i.*, c.* FROM installed_agents i JOIN agent_catalogue c ON c.id = i.catalogue_id
+         WHERE i.id = $1 AND i.owner_id = $2 AND i.status <> 'REMOVED'`,
+        [installedId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Installed agent');
-  const catalogue = mapCatalogue(rows[0]);
+  const installed = rows[0];
+  const catalogue = mapCatalogue(installed);
   assertValidPackage(catalogue);
-  await pool.query('UPDATE ai_agents SET name = $1, objective = $2, updated_at = now() WHERE id = $3', [
-    catalogue.name, catalogue.description?.slice(0, 2000) ?? null, String(rows[0].agent_id),
-  ]);
-  await pool.query('UPDATE installed_agents SET version = $1, updated_at = now() WHERE id = $2', [catalogue.version, installedId]);
+  await withTenant(userId, (db) => db.query('UPDATE ai_agents SET name = $1, objective = $2, updated_at = now() WHERE id = $3', [
+    catalogue.name, catalogue.description?.slice(0, 2000) ?? null, String(installed.agent_id),
+  ]));
+  await withTenant(userId, (db) => db.query('UPDATE installed_agents SET version = $1, updated_at = now() WHERE id = $2', [catalogue.version, installedId]));
   await recordAudit({
     action: AuditAction.MARKETPLACE_UPDATED,
     actorUserId: userId,
@@ -265,9 +291,13 @@ export async function updateInstalled(userId: string, installedId: string): Prom
 
 /** startRun integration: refuse execution for DISABLED marketplace agents. */
 export async function assertInstalledAgentEnabled(userId: string, agentId: string): Promise<void> {
-  const rows = await queryMany<{ status: string }>(
-    'SELECT status FROM installed_agents WHERE owner_id = $1 AND agent_id = $2 AND status <> \'REMOVED\'',
-    [userId, agentId],
+  const rows = await withTenant<Array<{ status: string }>>(userId, (db) =>
+    db
+      .query<{ status: string }>(
+        'SELECT status FROM installed_agents WHERE owner_id = $1 AND agent_id = $2 AND status <> \'REMOVED\'',
+        [userId, agentId],
+      )
+      .then((r) => r.rows),
   );
   if (rows[0] && rows[0].status === 'DISABLED') {
     throw AppError.conflict('agent_disabled', 'This marketplace agent is disabled; enable it before running');

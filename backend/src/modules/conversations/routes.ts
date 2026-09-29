@@ -3,7 +3,7 @@
  */
 import { Router } from 'express';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
-import { chatMessageSchema, conversationUpdateSchema, messageEditSchema, threadCreateSchema, mentionCreateSchema } from '@codeconclave/shared';
+import { chatMessageSchema, conversationUpdateSchema, messageEditSchema, threadCreateSchema, mentionCreateSchema, conversationSyncSchema } from '@codeconclave/shared';
 import { jsonResult } from '../auth/schemas.js';
 import {
   addMention,
@@ -30,8 +30,18 @@ import {
   trashConversations,
   updateConversation,
   replayMissedMessages,
+  syncConversation,
 } from './service.js';
 import { sendChatMessage, type ChatStreamEvents } from './chat.js';
+import {
+  createConversationShareLink,
+  getShareLink,
+  listConversationShareLinks,
+  redeemConversationShareLink,
+  revokeConversationShareLink,
+  ShareMode,
+  type CreateShareLinkInput,
+} from './sharing.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { chatLimit } from '../../middleware/rate-limit.js';
@@ -72,6 +82,53 @@ export const conversationRoutes = (): Router => {
       const q = String(req.query.q ?? '');
       if (!q.trim()) res.json(jsonResult({ conversations: [] }));
       else res.json(jsonResult({ conversations: (await searchConversations(req.ctx.user!.id, q)).map(toConversationJson) }));
+    }),
+  );
+
+  // ------------------------------------------------ cowork share links
+  router.post(
+    '/share/:token/redeem',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ shareLink: await redeemConversationShareLink(req.ctx.user!.id, req.params.token!) }));
+    }),
+  );
+
+  router.get(
+    '/share/:token',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ shareLink: await getShareLink(req.ctx.user!.id, req.params.token!) }));
+    }),
+  );
+
+  router.post(
+    '/:id/share-links',
+    asyncRoute(async (req, res) => {
+      const mode = typeof req.body.mode === 'string' ? req.body.mode : ShareMode.WATCH;
+      if (mode !== ShareMode.WATCH && mode !== ShareMode.COMMENT && mode !== ShareMode.CO_CONTROL) {
+        throw AppError.badRequest('invalid_share_mode', 'mode must be WATCH, COMMENT, or CO_CONTROL');
+      }
+      const input: CreateShareLinkInput = {
+        mode,
+        oneTime: req.body.oneTime === true,
+        expiresInMs: typeof req.body.expiresInMs === 'number' && req.body.expiresInMs > 0 ? req.body.expiresInMs : undefined,
+      };
+      const link = await createConversationShareLink(req.ctx.user!.id, req.params.id!, input);
+      res.status(201).json(jsonResult({ shareLink: link }));
+    }),
+  );
+
+  router.get(
+    '/:id/share-links',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ shareLinks: await listConversationShareLinks(req.ctx.user!.id, req.params.id!) }));
+    }),
+  );
+
+  router.delete(
+    '/:id/share-links/:token',
+    asyncRoute(async (req, res) => {
+      await revokeConversationShareLink(req.ctx.user!.id, req.params.id!, req.params.token!);
+      res.json(jsonResult({ ok: true }));
     }),
   );
 
@@ -182,6 +239,26 @@ export const conversationRoutes = (): Router => {
     }),
   );
 
+  router.post(
+    '/:id/sync',
+    chatLimit(),
+    asyncRoute(async (req, res) => {
+      const input = conversationSyncSchema.parse(req.body ?? {});
+      const sync = await syncConversation(req.ctx.user!.id, req.params.id!, {
+        afterSeq: input.afterSeq,
+        pending: input.pending,
+      });
+      res.json(
+        jsonResult({
+          sync: {
+            ...sync,
+            messages: sync.messages.map(toMessageJson),
+          },
+        }),
+      );
+    }),
+  );
+
   router.patch(
     '/:id/messages/:messageId',
     asyncRoute(async (req, res) => {
@@ -220,7 +297,7 @@ export const conversationRoutes = (): Router => {
 
   router.get(
     '/:id/reactions',
-    asyncRoute(async (req, res) => res.json(jsonResult({ reactions: await listReactions(req.params.id!) }))),
+    asyncRoute(async (req, res) => res.json(jsonResult({ reactions: await listReactions(req.ctx.user!.id, req.params.id!) }))),
   );
 
   router.delete(
@@ -310,6 +387,12 @@ export async function handleChatStream(
         res.end();
       },
       onLimitReached: () => send('limit_reached', { showMoon: true }),
+      onImage: (info) => {
+        send('image', info, `img_${info.fileId}`);
+      },
+      onExternalRun: (info) => {
+        send('external_agent', info);
+      },
     });
     // Deep-work path resolves without streaming events: deliver its
     // confirmation text and close the stream — never leave SSE open.
@@ -344,7 +427,45 @@ export const chatRoutes = (): Router => {
   const router = Router();
   router.use(requireAuth);
 
-  router.post(
+  /**
+ * @openapi
+ * /api/v1/conversations/chat:
+ *   post:
+ *     summary: Send chat message (SSE stream)
+ *     description: Send a chat message and receive Server-Sent Events stream with AI response
+ *     tags: [Chat]
+ *     security:
+ *       - cookieAuth: []
+ *       - csrfToken: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [conversationId, content]
+ *             properties:
+ *               conversationId:
+ *                 type: string
+ *               content:
+ *                 type: string
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *     responses:
+ *       '200':
+ *         description: SSE stream with delta events
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *       '400':
+ *         description: Validation error
+ *       '429':
+ *         description: Rate limited
+ */
+router.post(
     '/',
     chatLimit(),
     asyncRoute(async (req, res) => {

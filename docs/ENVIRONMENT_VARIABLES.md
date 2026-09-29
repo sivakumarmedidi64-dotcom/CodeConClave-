@@ -62,7 +62,7 @@ variables directly (never commit `.env`).
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Required for Google OAuth sign-in and Gmail/Drive/Sheets/Calendar. |
-| `GOOGLE_REDIRECT_URI` | `http://localhost:4000/api/v1/auth/google/callback` | Must match the console-configured redirect. |
+| `GOOGLE_REDIRECT_URI` | `http://localhost:5173/api/v1/auth/google/callback` | Must match the console-configured redirect. The SPA proxies `/api/*` from :5173 to the backend so the session cookie lands on the frontend origin; set the production value to the live backend callback. |
 | `GOOGLE_OAUTH_CONSENT_MODE` | `consent` | |
 | `GOOGLE_SCOPES` | gmail.send, drive.file, spreadsheets, calendar.events | Comma-separated. |
 
@@ -79,13 +79,33 @@ variables directly (never commit `.env`).
 | `AI_REQUEST_TIMEOUT_MS` | `120000` | Per-request AI timeout. |
 | `AI_CHAIN_TIMEOUT_MS` | `180000` | Whole AI chain (route + retries + fallbacks) deadline; SSE streams add a 15s margin. |
 
-## Email (Resend)
+## Email
+
+Transmitting rail is selected once via `EMAIL_TRANSPORT` (default `resend`).
+
+### Resend (primary, long-term architecture)
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `RESEND_API_KEY` | — | Required for email. |
+| `RESEND_API_KEY` | — | Required when `EMAIL_TRANSPORT=resend`. |
 | `RESEND_FROM_EMAIL` | `CodeConClave <noreply@example.com>` | Verified sender. |
 | `RESEND_ENABLED` | `false` | Master switch. |
+
+### Gmail SMTP (TEMPORARY zero-cost pilot)
+
+`EMAIL_TRANSPORT=gmail` enables a temporary pilot rail for small real-user
+rollouts before a verified sending domain / `RESEND_API_KEY` exists. It uses
+Gmail SMTP with an app password on a **dedicated** account and is **NOT** the
+final production email architecture — Resend / domain-based transactional
+email stays the intended long-term path and is not removed.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `EMAIL_TRANSPORT` | `resend` | `resend` (current production rail, unchanged) · `gmail` (pilot). |
+| `GMAIL_USER` | — | Gmail account for SMTP auth (pilot). |
+| `GMAIL_APP_PASSWORD` | — | App password (never commit; never logged). |
+| `GMAIL_FROM_EMAIL` | — | Optional display sender; defaults to `GMAIL_USER`; SMTP `From` is always the authenticated account (never spoofed). |
+| `OTP_TTL_MINUTES` | `10` | OTP code lifetime in minutes; clamped `1..60`. |
 
 ## GitHub (CodeConClave Pro GitHub App)
 

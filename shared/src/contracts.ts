@@ -51,11 +51,55 @@ export const passwordSchema = z
 
 // ---------------------------------------------------------------- auth
 
-export const registerSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  displayName: z.string().trim().min(1).max(80).optional(),
-});
+/**
+ * Handle + keyword are the D1 primary credentials. `handle` is the public login
+ * identifier; `keyword` is the secret phrase. Both are optional at the schema
+ * level only so that an account can still be created by a legacy client and
+ * enrol later via POST /api/v1/auth/identity/enroll — the service refuses a
+ * half-pair (one without the other) and treats the unique handle index in
+ * user_auth_identities as authoritative.
+ *
+ * These rules MUST stay identical to backend/src/modules/auth/identity-policy.ts
+ * (validateHandle/validateKeyword). The backend is authoritative, but a client
+ * that disagrees with it either blocks a legal handle or lets the user type a
+ * value the server will reject — both are support tickets.
+ *
+ * Known deliberate asymmetry: the RESERVED_HANDLES list (admin, support,
+ * codeconclave, …) lives only in the backend, because it is a product
+ * inventory that changes. A reserved handle fails at submit time with
+ * invalid_handle, not at field-blur time.
+ */
+export const handleSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'Handle must be at least 3 characters')
+  .max(20, 'Handle must be at most 20 characters')
+  .regex(/^[a-z0-9][a-z0-9_]*$/, 'Handle must use only a-z, 0-9 and _ and start with a letter or number')
+  .refine((v) => !v.endsWith('_'), { message: 'Handle cannot end with an underscore' });
+
+export const keywordSchema = z
+  .string()
+  .min(12, 'Keyword must be at least 12 characters')
+  .max(128, 'Keyword must be at most 128 characters')
+  .regex(/[a-z]/, 'Keyword must include a lowercase letter')
+  .regex(/[A-Z]/, 'Keyword must include an uppercase letter')
+  .regex(/[0-9]/, 'Keyword must include a digit');
+
+export const registerSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    handle: handleSchema.optional(),
+    keyword: keywordSchema.optional(),
+    displayName: z.string().trim().min(1).max(80).optional(),
+    role: z.string().trim().max(40).optional(),
+    primaryUseCase: z.string().trim().max(80).optional(),
+  })
+  .refine((v) => (v.handle === undefined) === (v.keyword === undefined), {
+    message: 'handle and keyword must be provided together',
+    path: ['handle'],
+  });
 
 export const loginSchema = z.object({
   email: emailSchema,
@@ -80,6 +124,15 @@ export const recoveryCodesResponseSchema = z.object({
 export const googleCallbackSchema = z.object({
   code: z.string().min(1),
   state: z.string().min(1),
+});
+
+export const otpRequestSchema = z.object({
+  email: emailSchema,
+});
+
+export const otpVerifySchema = z.object({
+  email: emailSchema,
+  code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
 });
 
 // ---------------------------------------------------------------- projects
@@ -273,7 +326,56 @@ export const chatMessageSchema = z.object({
     .max(16)
     .optional(),
   modelId: z.string().min(1).optional(),
-  mode: z.enum(['CHAT', 'COWORK']).default('CHAT'),
+  mode: z.enum(['CHAT', 'COWORK', 'AGENT']).default('CHAT'),
+  /**
+   * IMAGE_GENERATION request: route the prompt through the canonical
+   * gateway image op and persist the produced image onto the assistant
+   * message (see ChatStreamEvents.onImage). NEVER selected silently — the
+   * composer's Image mode sets this explicitly.
+   */
+  imageRequest: z.boolean().optional(),
+  // PKG-10 Voice: optional response-tone preference honored via the system prompt
+  // (additive; only applied when provided; not a separate response engine).
+  tone: z.enum(['NEUTRAL', 'CONCISE', 'DETAILED', 'FRIENDLY']).default('NEUTRAL'),
+  /**
+   * Continuity: client-generated idempotency key for the USER message. A
+   * retried send with the same (conversationId, clientId) returns the SAME
+   * persisted message instead of inserting a duplicate — exactly-once chat
+   * across flaky networks / reconnect / offline retry.
+   */
+  clientId: z.string().min(1).max(128).optional(),
+});
+
+// ---------------------------------------------------------------- continuity sync
+
+/** One pending local USER message replayed to the server for reconciliation. */
+export const syncMessageSchema = z.object({
+  clientId: z.string().min(1).max(128),
+  content: z.string().trim().min(1).max(100_000),
+});
+
+/**
+ * Conversation sync (server-authoritative reconciliation). `pending` pushes
+ * client-composed USER messages exactly once (deduped by clientId); `afterSeq`
+ * pulls every server message with seq > afterSeq (deleted ids reported as
+ * tombstones) so the local cache can merge without a full re-download.
+ */
+export const conversationSyncSchema = z.object({
+  afterSeq: z.number().int().min(0).max(9_000_000_000).optional(),
+  pending: z.array(syncMessageSchema).max(50).optional(),
+});
+
+// ---------------------------------------------------------------- decisions
+
+export const DECISION_STATUSES = ['ACTIVE', 'TENTATIVE', 'SUPERSEDED', 'REJECTED', 'ARCHIVED'] as const;
+export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
+/** Manual lifecycle change (the extractor never sets these itself; REPLACE
+ *  flows manage SUPERSEDED; this route cannot resurrect one). */
+export const decisionStatusSchema = z.object({
+  status: z.enum(DECISION_STATUSES).refine((s) => s !== 'SUPERSEDED', {
+    message: 'Use a replacement decision to supersede',
+  }),
 });
 
 // ---------------------------------------------------------------- tasks
@@ -536,6 +638,8 @@ export const idParamsSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
+export type OtpRequestInput = z.infer<typeof otpRequestSchema>;
+export type OtpVerifyInput = z.infer<typeof otpVerifySchema>;
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export type ConversationUpdateInput = z.infer<typeof conversationUpdateSchema>;

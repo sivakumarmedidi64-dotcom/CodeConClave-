@@ -2,11 +2,11 @@
  * CodeConClave — operator diagnostics (Phase 15).
  * Authorized operators only (owner/admin). Aggregates health checks, queue
  * depth (task DLQ + outbox backlog), security/operational event metrics, and
- * recent critical errors (message + traceId only). NEVER includes secrets,
+ * recent critical errors (message + correlationId only). NEVER includes secrets,
  * raw connection strings, user content, or per-user data.
  */
 import { createRequire } from 'node:module';
-import { queryMany } from '../../shared/db.js';
+import { withSystem, queryMany } from '../../shared/db.js';
 import { computeHealth, type HealthReport } from '../../health/health.js';
 import { metricSnapshot } from '../../observability/metrics.js';
 import { recentErrors, type BufferedError } from '../../observability/error-buffer.js';
@@ -36,18 +36,20 @@ function appVersion(): string {
 }
 
 export async function diagnosticsReport(): Promise<DiagnosticsReport> {
-  const [health, dlqRows, outboxRows] = await Promise.all([
-    computeHealth(),
-    queryMany<{ n: number }>('SELECT count(*)::int AS n FROM task_dlq'),
-    queryMany<{ n: number }>(`SELECT count(*)::int AS n FROM outbox_events WHERE status = 'PENDING'`),
-  ]);
+  const [health, dlqDepth, outboxPending] = await withSystem(async (q) =>
+    Promise.all([
+      computeHealth(),
+      q.query<{ n: number }>('SELECT count(*)::int AS n FROM task_dlq').then((r) => r.rows[0]?.n ?? 0),
+      q.query<{ n: number }>(`SELECT count(*)::int AS n FROM outbox_events WHERE status = 'PENDING'`).then((r) => r.rows[0]?.n ?? 0),
+    ]),
+  );
   return {
     version: appVersion(),
     generatedAt: new Date().toISOString(),
     health,
     queue: {
-      dlqDepth: dlqRows[0]?.n ?? 0,
-      outboxPending: outboxRows[0]?.n ?? 0,
+      dlqDepth,
+      outboxPending,
     },
     metrics: metricSnapshot(),
     recentErrors: recentErrors(),

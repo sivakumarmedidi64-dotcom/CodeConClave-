@@ -2,11 +2,13 @@
  * CodeConClave — execution routes: tasks, approvals, coworker runs/artifacts.
  */
 import { Router } from 'express';
+import { withTenant } from '../../shared/db.js';
 import { jsonResult } from '../auth/schemas.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
 import { createTask, listTasks, getTask, cancelTask, listAttempts, listSteps, retryTask, listDeadLettered, listTaskDependencies } from './tasks.js';
+import { getCoworkerRunTaskId } from './coworkers.js';
 import { decideApproval, listApprovals, getApproval, pendingApprovalCount, proposeApproval, executeApprovedAction } from './approvals.js';
 import { getTaskTimeline } from './orchestrator.js';
 import { listToolCalls } from './toolcalls.js';
@@ -71,9 +73,16 @@ export const executionRoutes = (): Router => {
     }),
   );
 
+  // All task sub-resources assert ownership up front (same gate as GET /tasks/:id)
+  // so a caller can never read or follow another user's task state.
+  const assertTaskOwner = async (userId: string, taskId: string): Promise<void> => {
+    await getTask(userId, taskId);
+  };
+
   router.get(
     '/tasks/:id/plan',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       const { getPlan } = await import('./planner.js');
       res.json(jsonResult({ plan: await getPlan(req.params.id!) }));
     }),
@@ -82,6 +91,7 @@ export const executionRoutes = (): Router => {
   router.get(
     '/tasks/:id/dependencies',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       res.json(jsonResult({ dependencies: await listTaskDependencies(req.params.id!) }));
     }),
   );
@@ -89,6 +99,7 @@ export const executionRoutes = (): Router => {
   router.get(
     '/tasks/:id/artifacts',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       const { listCoworkerRuns, listCoworkerArtifacts } = await import('./coworkers.js');
       const runs = await listCoworkerRuns(req.params.id!);
       const artifacts = (
@@ -115,6 +126,7 @@ export const executionRoutes = (): Router => {
   router.get(
     '/tasks/:id/steps',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       res.json(jsonResult({ steps: await listSteps(req.params.id!) }));
     }),
   );
@@ -122,6 +134,7 @@ export const executionRoutes = (): Router => {
   router.get(
     '/tasks/:id/attempts',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       res.json(jsonResult({ attempts: await listAttempts(req.params.id!) }));
     }),
   );
@@ -129,6 +142,7 @@ export const executionRoutes = (): Router => {
   router.get(
     '/tasks/:id/tool-calls',
     asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
       res.json(jsonResult({ toolCalls: await listToolCalls(req.params.id!) }));
     }),
   );
@@ -211,29 +225,39 @@ export const executionRoutes = (): Router => {
     '/coworkers',
     asyncRoute(async (req, res) => {
       const projectId = String(req.query.projectId ?? '');
-      res.json(jsonResult({ coworkers: COWORKERS, runs: projectId ? await listCoworkerRunsForProject(projectId) : [] }));
+      res.json(
+        jsonResult({ coworkers: COWORKERS, runs: projectId ? await listCoworkerRunsForProject(req.ctx.user!.id, projectId) : [] }),
+      );
     }),
   );
 
   router.get(
     '/coworkers/runs/:runId/artifacts',
     asyncRoute(async (req, res) => {
-      res.json(jsonResult({ artifacts: await listCoworkerArtifacts(req.params.runId!) }));
+      const runId = req.params.runId!;
+      const taskId = await getCoworkerRunTaskId(runId);
+      if (!taskId) throw AppError.notFound('Coworker run');
+      await assertTaskOwner(req.ctx.user!.id, taskId);
+      res.json(jsonResult({ artifacts: await listCoworkerArtifacts(runId) }));
     }),
   );
 
   return router;
 };
 
-async function listCoworkerRunsForProject(projectId: string): Promise<unknown[]> {
-  const { queryMany } = await import('../../shared/db.js');
-  return queryMany(
-    `SELECT cr.*, t.title AS task_title
+async function listCoworkerRunsForProject(userId: string, projectId: string): Promise<unknown[]> {
+  const { withTenant } = await import('../../shared/db.js');
+  return withTenant<unknown[]>(userId, async (q) =>
+    (
+      await q.query(
+        `SELECT cr.*, t.title AS task_title
        FROM coworker_runs cr
        JOIN tasks t ON t.id = cr.task_id
-      WHERE t.project_id = $1
+      WHERE t.project_id = $1 AND t.owner_id = $2
       ORDER BY cr.created_at DESC LIMIT 50`,
-    [projectId],
+        [projectId, userId],
+      )
+    ).rows,
   );
 }
 

@@ -24,6 +24,7 @@ import {
   roleCatalog,
   suggestedModelForRole,
   validAgentRole,
+  agentUsage,
 } from './service.js';
 import { AGENT_ROLES } from './service.js';
 import { createAndRunDebate, listDebates, getDebate, cancelDebate, decideDebate } from './debates.js';
@@ -44,6 +45,13 @@ export const agentRoutes = (): Router => {
     '/',
     asyncRoute(async (req, res) => {
       res.json(jsonResult({ agents: await listAgents(req.ctx.user!.id) }));
+    }),
+  );
+
+  router.get(
+    '/limits',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ usage: await agentUsage(req.ctx.user!.id) }));
     }),
   );
 

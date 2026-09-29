@@ -7,9 +7,42 @@
   "bin": {
     "codeconclave-agent": "dist/index.js"
   },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "default": "./dist/files.js"
+    },
+    "./policy": {
+      "types": "./dist/policy.d.ts",
+      "default": "./dist/policy.js"
+    },
+    "./terminal": {
+      "types": "./dist/terminal.d.ts",
+      "default": "./dist/terminal.js"
+    },
+    "./diff": {
+      "types": "./dist/diff.d.ts",
+      "default": "./dist/diff.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./hub": {
+      "types": "./dist/hub.d.ts",
+      "default": "./dist/hub.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck",
     "test": "vitest run",
     "test:unit": "vitest run"
   },

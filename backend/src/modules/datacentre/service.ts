@@ -6,7 +6,7 @@
  * status (LOCAL_STORAGE / S3_COMPATIBLE / R2_NOT_CONFIGURED). Every figure
  * comes from the database or live adapters — nothing invented.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
 import { getStorageUsage } from '../workspace/service.js';
@@ -102,7 +102,9 @@ const TENANT = 'f.owner_id = $1 OR f.project_id IN (SELECT project_id FROM proje
 const TENANT_PARENS = `(${TENANT})`;
 
 export async function getDataCentre(userId: string): Promise<DataCentreReport> {
-  const user = await queryOne<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]);
+  const user = await withTenant<{ plan_id: string } | null>(userId, (db) =>
+    db.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [userId]).then((r) => r.rows[0] ?? null),
+  );
   const plan = user?.plan_id ?? 'free';
   const limitBytes =
     plan === 'free'
@@ -110,88 +112,129 @@ export async function getDataCentre(userId: string): Promise<DataCentreReport> {
       : ProPlan.STORAGE_GB * 1024 * 1024 * 1024;
   const usedBytes = await getStorageUsage(userId);
 
-  const counts = await queryOne<CountsRow>(
-    `SELECT
-       (SELECT count(*)::int FROM files f WHERE ${TENANT}) AS file_count,
-       (SELECT count(*)::int FROM files f WHERE ${TENANT_PARENS} AND f.deleted_at IS NOT NULL) AS trashed_count,
-       (SELECT count(*)::int FROM file_versions fv JOIN files f ON f.id = fv.file_id WHERE ${TENANT}) AS version_count,
-       (SELECT count(*)::int FROM memories m WHERE m.owner_id = $1) AS memory_count,
-       (SELECT count(*)::int FROM tasks t JOIN projects p ON p.id = t.project_id
-          WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS task_count,
-       (SELECT count(*)::int FROM artifacts a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
-          WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS artifact_count,
-       (SELECT COALESCE(sum(fv.size_bytes),0)::int FROM file_versions fv JOIN files f ON f.id = fv.file_id WHERE ${TENANT}) AS version_bytes,
-       (SELECT COALESCE(sum(a.size_bytes),0)::int FROM artifacts a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
-          WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS artifact_bytes,
-       (SELECT count(*)::int FROM conversations c WHERE c.owner_id = $1 AND c.deleted_at IS NULL) AS conversation_count,
-       (SELECT count(*)::int FROM messages m JOIN conversations c ON c.id = m.conversation_id
-          WHERE c.owner_id = $1) AS message_count,
-       (SELECT count(*)::int FROM dna d WHERE d.owner_id = $1 AND d.deleted_at IS NULL) AS dna_count,
-       (SELECT count(*)::int FROM dna_versions dv JOIN dna d ON d.id = dv.dna_id
-          WHERE d.owner_id = $1) AS dna_version_count,
-       (SELECT count(*)::int FROM projects p WHERE p.owner_id = $1 AND p.deleted_at IS NULL) AS project_count,
-       (SELECT count(*)::int FROM team_members tm WHERE tm.user_id = $1 AND tm.status = 'ACTIVE') AS team_count,
-       (SELECT count(*)::int FROM notifications n WHERE n.recipient_id = $1 AND n.deleted_at IS NULL) AS notification_count,
-       (SELECT count(*)::int FROM audit_logs a WHERE a.actor_user_id = $1) AS audit_count,
-       (SELECT count(*)::int FROM ideas i WHERE (i.owner_id = $1 OR i.project_id IN (SELECT project_id FROM project_members WHERE user_id = $1) OR i.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE')) AND i.deleted_at IS NULL) AS idea_count,
-       (SELECT count(*)::int FROM brainstorming_sessions s WHERE s.owner_id = $1 OR s.id IN (SELECT session_id FROM brainstorming_participants WHERE user_id = $1)) AS brainstorm_count`,
-    [userId],
+  const counts = await withTenant<CountsRow | null>(userId, (db) =>
+    db
+      .query<CountsRow>(
+        `SELECT
+           (SELECT count(*)::int FROM files f WHERE ${TENANT}) AS file_count,
+           (SELECT count(*)::int FROM files f WHERE ${TENANT_PARENS} AND f.deleted_at IS NOT NULL) AS trashed_count,
+           (SELECT count(*)::int FROM file_versions fv JOIN files f ON f.id = fv.file_id WHERE ${TENANT}) AS version_count,
+           (SELECT count(*)::int FROM memories m WHERE m.owner_id = $1) AS memory_count,
+           (SELECT count(*)::int FROM tasks t JOIN projects p ON p.id = t.project_id
+              WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS task_count,
+           (SELECT count(*)::int FROM artifacts a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
+              WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS artifact_count,
+           (SELECT COALESCE(sum(fv.size_bytes),0)::int FROM file_versions fv JOIN files f ON f.id = fv.file_id WHERE ${TENANT}) AS version_bytes,
+           (SELECT COALESCE(sum(a.size_bytes),0)::int FROM artifacts a JOIN tasks t ON t.id = a.task_id JOIN projects p ON p.id = t.project_id
+              WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))) AS artifact_bytes,
+           (SELECT count(*)::int FROM conversations c WHERE c.owner_id = $1 AND c.deleted_at IS NULL) AS conversation_count,
+           (SELECT count(*)::int FROM messages m JOIN conversations c ON c.id = m.conversation_id
+              WHERE c.owner_id = $1) AS message_count,
+           (SELECT count(*)::int FROM dna d WHERE d.owner_id = $1 AND d.deleted_at IS NULL) AS dna_count,
+           (SELECT count(*)::int FROM dna_versions dv JOIN dna d ON d.id = dv.dna_id
+              WHERE d.owner_id = $1) AS dna_version_count,
+           (SELECT count(*)::int FROM projects p WHERE p.owner_id = $1 AND p.deleted_at IS NULL) AS project_count,
+           (SELECT count(*)::int FROM team_members tm WHERE tm.user_id = $1 AND tm.status = 'ACTIVE') AS team_count,
+           (SELECT count(*)::int FROM notifications n WHERE n.recipient_id = $1 AND n.deleted_at IS NULL) AS notification_count,
+           (SELECT count(*)::int FROM audit_logs a WHERE a.actor_user_id = $1) AS audit_count,
+           (SELECT count(*)::int FROM ideas i WHERE (i.owner_id = $1 OR i.project_id IN (SELECT project_id FROM project_members WHERE user_id = $1) OR i.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE')) AND i.deleted_at IS NULL) AS idea_count,
+           (SELECT count(*)::int FROM brainstorming_sessions s WHERE s.owner_id = $1 OR s.id IN (SELECT session_id FROM brainstorming_participants WHERE user_id = $1)) AS brainstorm_count`,
+        [userId],
+      )
+      .then((r) => r.rows[0] ?? null),
   );
 
-  const folderRow = await queryOne<{ n: number }>(
-    `SELECT count(DISTINCT btrim(split_part(f.path,'/',1),'/'))::int AS n FROM files f
-     WHERE ${TENANT_PARENS} AND f.path LIKE '%/%'`,
-    [userId],
+  const folderRow = await withTenant<{ n: number } | null>(userId, (db) =>
+    db
+      .query<{ n: number }>(
+        `SELECT count(DISTINCT btrim(split_part(f.path,'/',1),'/'))::int AS n FROM files f
+         WHERE ${TENANT_PARENS} AND f.path LIKE '%/%'`,
+        [userId],
+      )
+      .then((r) => r.rows[0] ?? null),
   );
 
-  const coworkerArtifacts = await queryOne<{ n: number; bytes: number }>(
-    `SELECT count(*)::int AS n, COALESCE(sum(ca.size_bytes),0)::int AS bytes
-     FROM coworker_artifacts ca
-     JOIN coworker_runs cr ON cr.id = ca.run_id
-     JOIN tasks t ON t.id = cr.task_id
-     JOIN projects p ON p.id = t.project_id
-     WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))`,
-    [userId],
+  const coworkerArtifacts = await withTenant<{ n: number; bytes: number } | null>(userId, (db) =>
+    db
+      .query<{ n: number; bytes: number }>(
+        `SELECT count(*)::int AS n, COALESCE(sum(ca.size_bytes),0)::int AS bytes
+         FROM coworker_artifacts ca
+         JOIN coworker_runs cr ON cr.id = ca.run_id
+         JOIN tasks t ON t.id = cr.task_id
+         JOIN projects p ON p.id = t.project_id
+         WHERE (p.owner_id = $1 OR p.id IN (SELECT project_id FROM project_members WHERE user_id = $1))`,
+        [userId],
+      )
+      .then((r) => r.rows[0] ?? null),
   );
 
-  const projectRows = await queryMany<{ id: string; name: string; files: number; bytes: number }>(
-    `SELECT p.id, p.name, count(f.id)::int AS files, COALESCE(sum(f.size_bytes),0)::int AS bytes
-     FROM projects p
-     LEFT JOIN files f ON f.project_id = p.id AND f.deleted_at IS NULL
-     WHERE p.owner_id = $1
-     GROUP BY p.id, p.name
-     ORDER BY p.name`,
-    [userId],
+  const projectRows = await withTenant<Array<{ id: string; name: string; files: number; bytes: number }>>(userId, (db) =>
+    db
+      .query<{ id: string; name: string; files: number; bytes: number }>(
+        `SELECT p.id, p.name, count(f.id)::int AS files, COALESCE(sum(f.size_bytes),0)::int AS bytes
+         FROM projects p
+         LEFT JOIN files f ON f.project_id = p.id AND f.deleted_at IS NULL
+         WHERE p.owner_id = $1
+         GROUP BY p.id, p.name
+         ORDER BY p.name`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
 
-  const activityRows = await queryMany<{
-    id: string;
-    action: string;
-    file_id: string;
-    path: string;
-    actor_user_id: string;
-    created_at: Date;
-  }>(
-    `SELECT fa.id, fa.action, fa.file_id, f.path, fa.actor_user_id, fa.created_at
-     FROM file_activity fa
-     JOIN files f ON f.id = fa.file_id
-     WHERE fa.actor_user_id = $1 OR fa.file_id IN (SELECT id FROM files WHERE owner_id = $1)
-     ORDER BY fa.created_at DESC LIMIT 10`,
-    [userId],
+  const activityRows = await withTenant<
+    Array<{
+      id: string;
+      action: string;
+      file_id: string;
+      path: string;
+      actor_user_id: string;
+      created_at: Date;
+    }>
+  >(userId, (db) =>
+    db
+      .query<{
+        id: string;
+        action: string;
+        file_id: string;
+        path: string;
+        actor_user_id: string;
+        created_at: Date;
+      }>(
+        `SELECT fa.id, fa.action, fa.file_id, f.path, fa.actor_user_id, fa.created_at
+         FROM file_activity fa
+         JOIN files f ON f.id = fa.file_id
+         WHERE fa.actor_user_id = $1 OR fa.file_id IN (SELECT id FROM files WHERE owner_id = $1)
+         ORDER BY fa.created_at DESC LIMIT 10`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
 
-  const cleanupRows = await queryMany<{
-    id: string;
-    path: string;
-    size_bytes: number;
-    deleted_at: Date;
-    project_id: string;
-  }>(
-    `SELECT f.id, f.path, f.size_bytes, f.deleted_at, f.project_id
-     FROM files f
-     WHERE ${TENANT_PARENS} AND f.deleted_at IS NOT NULL AND f.deleted_at < now() - interval '30 days'
-     ORDER BY f.deleted_at DESC`,
-    [userId],
+  const cleanupRows = await withTenant<
+    Array<{
+      id: string;
+      path: string;
+      size_bytes: number;
+      deleted_at: Date;
+      project_id: string;
+    }>
+  >(userId, (db) =>
+    db
+      .query<{
+        id: string;
+        path: string;
+        size_bytes: number;
+        deleted_at: Date;
+        project_id: string;
+      }>(
+        `SELECT f.id, f.path, f.size_bytes, f.deleted_at, f.project_id
+         FROM files f
+         WHERE ${TENANT_PARENS} AND f.deleted_at IS NOT NULL AND f.deleted_at < now() - interval '30 days'
+         ORDER BY f.deleted_at DESC`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
 
   const health = await storageHealth();
@@ -201,11 +244,13 @@ export async function getDataCentre(userId: string): Promise<DataCentreReport> {
     healthy: health.ok,
     checkedAt: health.checkedAt,
   };
-  await pool.query(
-    `INSERT INTO storage_meta (id, owner_id, value, key, updated_at)
-     VALUES ($1,$2,$3,$4,now())
-     ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-    [newId(PREFIX.STORAGE_META), userId, JSON.stringify(snapshot), 'provider'],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO storage_meta (id, owner_id, value, key, updated_at)
+       VALUES ($1,$2,$3,$4,now())
+       ON CONFLICT (owner_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [newId(PREFIX.STORAGE_META), userId, JSON.stringify(snapshot), 'provider'],
+    ),
   );
 
   const { listCleanupRecommendations } = await import('../recommendations/service.js');

@@ -26,7 +26,7 @@ function renderApp(initialEntries: string[]) {
 }
 
 async function waitAuthed() {
-  await waitFor(() => expect(screen.getByRole('heading', { name: 'Home' })).toBeInTheDocument(), { timeout: 8000 });
+  await waitFor(() => expect(screen.getByRole('heading', { name: /Good (morning|afternoon|evening|night),/ })).toBeInTheDocument(), { timeout: 8000 });
 }
 
 beforeEach(() => {

@@ -69,7 +69,7 @@ describe('recordAudit — append-only system-scoped insert', () => {
       resourceId: 'm1',
       detail: { source: 'USE_STATED' },
       ip: '127.0.0.1',
-      traceId: 'trace-1',
+      correlationId: 'trace-1',
     });
     const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO audit_logs'))!;
     expect(insert).toBeDefined();
@@ -79,6 +79,19 @@ describe('recordAudit — append-only system-scoped insert', () => {
     expect(insert.params[7]).toContain('USE_STATED');
     expect(insert.params[8]).toBe('127.0.0.1');
     expect(insert.params[10]).toBe('trace-1');
+    expect(insert.params[11]).toBe(true);
+  });
+
+  it('records an explicit failure flag when the action did not succeed', async () => {
+    await recordAudit({
+      action: 'exec.failed',
+      scope: 'USER',
+      actorUserId: 'u1',
+      tenantId: 'u1',
+      success: false,
+    });
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO audit_logs'))!;
+    expect(insert.params[11]).toBe(false);
   });
 
   it('never throws when the database write fails (request survives)', async () => {

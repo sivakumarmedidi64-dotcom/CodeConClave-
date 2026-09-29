@@ -12,7 +12,7 @@
  * Execution reuses the existing startRun / createTask / runNow /
  * executePluginAction / createApproval / notify / recordAudit pipeline.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -88,21 +88,27 @@ function validateEvent(input: EventContext): void {
 
 /** Global replay protection: one event_id per source is ever processed. */
 async function claimEventLog(ctx: EventContext): Promise<{ claimed: boolean; rowId: string }> {
-  const result = await pool.query(
-    `INSERT INTO event_log (id, owner_id, source, event_id, event_type, payload)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb)
-     ON CONFLICT (source, event_id) DO NOTHING
-     RETURNING id`,
-    [newId(PREFIX.EVENT), ctx.ownerId, ctx.source, ctx.eventId, ctx.eventType, JSON.stringify(ctx.payload)],
+  const result = await withTenant<{ id: string }[]>(ctx.ownerId, (q) =>
+    q
+      .query<{ id: string }>(
+        `INSERT INTO event_log (id, owner_id, source, event_id, event_type, payload)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+         ON CONFLICT (source, event_id) DO NOTHING
+         RETURNING id`,
+        [newId(PREFIX.EVENT), ctx.ownerId, ctx.source, ctx.eventId, ctx.eventType, JSON.stringify(ctx.payload)],
+      )
+      .then((r) => r.rows),
   );
-  if (!result.rows[0]) return { claimed: false, rowId: '' };
-  return { claimed: true, rowId: String(result.rows[0].id) };
+  if (!result[0]) return { claimed: false, rowId: '' };
+  return { claimed: true, rowId: String(result[0].id) };
 }
 
-async function markEventLog(rowId: string, status: string, reason: string | null): Promise<void> {
-  await pool.query(
-    `UPDATE event_log SET status = $2, reason = $3 WHERE id = $1`,
-    [rowId, status, reason],
+async function markEventLog(ownerId: string, rowId: string, status: string, reason: string | null): Promise<void> {
+  await withTenant(ownerId, (q) =>
+    q.query(
+      `UPDATE event_log SET status = $2, reason = $3 WHERE id = $1`,
+      [rowId, status, reason],
+    ),
   );
 }
 
@@ -138,7 +144,7 @@ export async function ingestEvent(ctx: EventContext, opts: { bypassDedup?: boole
 
   const rules = await findMatchingRules(ctx);
   if (rules.length === 0) {
-    await markEventLog(rowId, 'SKIPPED', 'no_matching_rules');
+    await markEventLog(ctx.ownerId, rowId, 'SKIPPED', 'no_matching_rules');
     return { status: 'no_rules' };
   }
 
@@ -151,7 +157,7 @@ export async function ingestEvent(ctx: EventContext, opts: { bypassDedup?: boole
       if (run.status === 'FAILED') failed++;
     }
   }
-  await markEventLog(rowId, failed > 0 ? 'FAILED' : 'PROCESSED', `${runs.length} rule(s) matched`);
+  await markEventLog(ctx.ownerId, rowId, failed > 0 ? 'FAILED' : 'PROCESSED', `${runs.length} rule(s) matched`);
   return failed > 0
     ? { status: 'failed', processed: runs.length, runs }
     : { status: 'processed', processed: runs.length, runs };
@@ -159,11 +165,15 @@ export async function ingestEvent(ctx: EventContext, opts: { bypassDedup?: boole
 
 /** Load ACTIVE rules for a tenant + event type and evaluate their conditions. */
 export async function findMatchingRules(ctx: EventContext): Promise<AutomationRule[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM automation_rules
-     WHERE owner_id = $1 AND status = 'ACTIVE' AND event_source = $2 AND event_type = $3
-     ORDER BY created_at ASC LIMIT 20`,
-    [ctx.ownerId, ctx.source, ctx.eventType],
+  const rows = await withTenant<Record<string, unknown>[]>(ctx.ownerId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT * FROM automation_rules
+         WHERE owner_id = $1 AND status = 'ACTIVE' AND event_source = $2 AND event_type = $3
+         ORDER BY created_at ASC LIMIT 20`,
+        [ctx.ownerId, ctx.source, ctx.eventType],
+      )
+      .then((r) => r.rows),
   );
   const out: AutomationRule[] = [];
   for (const row of rows) {
@@ -176,16 +186,18 @@ export async function findMatchingRules(ctx: EventContext): Promise<AutomationRu
 
 /** Bump the per-rule run budget with an hourly reset window. */
 async function bumpRunBudget(ruleId: string, ownerId: string): Promise<void> {
-  await pool.query(
-    `UPDATE automation_rules
-        SET run_count = run_count + 1, last_run_at = now(),
-            run_count_reset_at = CASE
-              WHEN run_count_reset_at <= now() - interval '1 hour' THEN now()
-              ELSE run_count_reset_at
-            END,
-            last_run_status = 'RUNNING', last_error = NULL, updated_at = now()
-      WHERE id = $1 AND owner_id = $2`,
-    [ruleId, ownerId],
+  await withTenant(ownerId, (q) =>
+    q.query(
+      `UPDATE automation_rules
+          SET run_count = run_count + 1, last_run_at = now(),
+              run_count_reset_at = CASE
+                WHEN run_count_reset_at <= now() - interval '1 hour' THEN now()
+                ELSE run_count_reset_at
+              END,
+              last_run_status = 'RUNNING', last_error = NULL, updated_at = now()
+        WHERE id = $1 AND owner_id = $2`,
+      [ruleId, ownerId],
+    ),
   );
 }
 
@@ -208,22 +220,26 @@ function loopGuard(rule: AutomationRule, now: Date): { ok: boolean; reason?: str
 
 async function insertRun(rule: AutomationRule, ctx: EventContext, status: string): Promise<RunResultRow | null> {
   const id = newId(PREFIX.AUTOMATION_RUN);
-  const result = await pool.query(
-    `INSERT INTO automation_runs
-       (id, automation_id, owner_id, event_source, event_type, event_id, status, trigger_mode, result)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
-     ON CONFLICT (automation_id, event_id) DO NOTHING
-     RETURNING *`,
-    [
-      id, rule.id, ctx.ownerId, ctx.source, ctx.eventType, ctx.eventId, status, rule.trigger_mode,
-      JSON.stringify({ payload: ctx.payload, event: { eventId: ctx.eventId, eventType: ctx.eventType, source: ctx.source } }),
-    ],
+  const result = await withTenant<RunResultRow[]>(ctx.ownerId, (q) =>
+    q
+      .query<RunResultRow>(
+        `INSERT INTO automation_runs
+           (id, automation_id, owner_id, event_source, event_type, event_id, status, trigger_mode, result)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+         ON CONFLICT (automation_id, event_id) DO NOTHING
+         RETURNING *`,
+        [
+          id, rule.id, ctx.ownerId, ctx.source, ctx.eventType, ctx.eventId, status, rule.trigger_mode,
+          JSON.stringify({ payload: ctx.payload, event: { eventId: ctx.eventId, eventType: ctx.eventType, source: ctx.source } }),
+        ],
+      )
+      .then((r) => r.rows),
   );
-  if (!result.rows[0]) return null;
-  return mapRunRow(result.rows[0]);
+  if (!result[0]) return null;
+  return mapRunRow(result[0] as unknown as Record<string, unknown>);
 }
 
-export async function updateRun(runId: string, patch: Record<string, unknown>): Promise<void> {
+export async function updateRun(ownerId: string, runId: string, patch: Record<string, unknown>): Promise<void> {
   const sets: string[] = [];
   const params: unknown[] = [runId];
   for (const [k, v] of Object.entries(patch)) {
@@ -231,21 +247,29 @@ export async function updateRun(runId: string, patch: Record<string, unknown>): 
     sets.push(`${k} = $${params.length}`);
   }
   if (sets.length === 0) return;
-  await pool.query(`UPDATE automation_runs SET ${sets.join(', ')} WHERE id = $1`, params);
+  await withTenant(ownerId, (q) => q.query(`UPDATE automation_runs SET ${sets.join(', ')} WHERE id = $1`, params));
 }
 
 export async function getRun(userId: string, runId: string): Promise<RunResultRow> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM automation_runs WHERE id = $1 AND owner_id = $2', [runId, userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        'SELECT * FROM automation_runs WHERE id = $1 AND owner_id = $2', [runId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Automation run');
   return mapRunRow(rows[0]);
 }
 
 export async function listRuns(userId: string, limit = 100): Promise<RunResultRow[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM automation_runs WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2',
-    [userId, Math.min(Math.max(limit, 1), 200)],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        'SELECT * FROM automation_runs WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2',
+        [userId, Math.min(Math.max(limit, 1), 200)],
+      )
+      .then((r) => r.rows),
   );
   return rows.map(mapRunRow);
 }
@@ -423,7 +447,7 @@ export async function processRule(rule: AutomationRule, ctx: EventContext): Prom
         actions: renderedActions.map((a) => ({ type: a.type, summary: a.objective ?? a.title ?? a.action ?? '' })),
       },
     });
-    await updateRun(run.id, { status: 'WAITING_FOR_APPROVAL', approval_id: approval.id });
+    await updateRun(ctx.ownerId, run.id, { status: 'WAITING_FOR_APPROVAL', approval_id: approval.id });
     await notify(ctx.ownerId, NotificationType.AGENT_APPROVAL_REQUIRED, `Automation approval required: ${rule.name}`, {
       body: `Event ${ctx.eventType} (${ctx.eventId}) triggered "${rule.name}" and needs your approval.`,
       resourceType: 'automation_rule',
@@ -434,14 +458,16 @@ export async function processRule(rule: AutomationRule, ctx: EventContext): Prom
 
   try {
     const executed = await executeActions(rule, run, renderedActions, ctx);
-    await updateRun(run.id, {
+    await updateRun(ctx.ownerId, run.id, {
       status: 'COMPLETED',
       result: JSON.stringify({ ...run.result, executed }),
       completed_at: new Date().toISOString(),
     });
-    await pool.query(
-      `UPDATE automation_rules SET last_run_status = 'COMPLETED', updated_at = now() WHERE id = $1`,
-      [rule.id],
+    await withTenant(ctx.ownerId, (q) =>
+      q.query(
+        `UPDATE automation_rules SET last_run_status = 'COMPLETED', updated_at = now() WHERE id = $1`,
+        [rule.id],
+      ),
     );
     await recordAudit({
       action: AuditAction.AUTOMATION_RULE_RAN,
@@ -461,16 +487,18 @@ export async function processRule(rule: AutomationRule, ctx: EventContext): Prom
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const attempts = (run.attempts ?? 0) + 1;
-    await updateRun(run.id, {
+    await updateRun(ctx.ownerId, run.id, {
       status: 'FAILED',
       error: message,
       attempts,
       result: JSON.stringify({ ...run.result, error: message }),
       completed_at: new Date().toISOString(),
     });
-    await pool.query(
-      `UPDATE automation_rules SET last_run_status = 'FAILED', last_error = $2, updated_at = now() WHERE id = $1`,
-      [rule.id, message],
+    await withTenant(ctx.ownerId, (q) =>
+      q.query(
+        `UPDATE automation_rules SET last_run_status = 'FAILED', last_error = $2, updated_at = now() WHERE id = $1`,
+        [rule.id, message],
+      ),
     );
     await recordAudit({
       action: AuditAction.AUTOMATION_RULE_FAILED,
@@ -531,7 +559,7 @@ export async function decideAutomationApproval(
   }
   await decideApproval(userId, run.approval_id, decision, reason);
   if (decision === 'REJECT') {
-    await updateRun(run.id, { status: 'CANCELLED', error: reason ?? 'approval_rejected', completed_at: new Date().toISOString() });
+    await updateRun(userId, run.id, { status: 'CANCELLED', error: reason ?? 'approval_rejected', completed_at: new Date().toISOString() });
     await recordAudit({
       action: AuditAction.AUTOMATION_RUN_REJECTED,
       actorUserId: userId,
@@ -568,12 +596,14 @@ export async function decideAutomationApproval(
     };
     const renderedActions = renderValue(rule.actions, templateCtx) as Array<Record<string, unknown>>;
     const executed = await executeActions(rule, run, renderedActions, ctx);
-    await updateRun(run.id, {
+    await updateRun(userId, run.id, {
       status: 'COMPLETED',
       result: JSON.stringify({ ...run.result, executed }),
       completed_at: new Date().toISOString(),
     });
-    await pool.query(`UPDATE automation_rules SET last_run_status = 'COMPLETED', updated_at = now() WHERE id = $1`, [rule.id]);
+    await withTenant(userId, (q) =>
+      q.query(`UPDATE automation_rules SET last_run_status = 'COMPLETED', updated_at = now() WHERE id = $1`, [rule.id]),
+    );
     await recordAudit({
       action: AuditAction.AUTOMATION_RULE_RAN,
       actorUserId: null,
@@ -590,7 +620,7 @@ export async function decideAutomationApproval(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await updateRun(run.id, { status: 'FAILED', error: message, completed_at: new Date().toISOString() });
+    await updateRun(userId, run.id, { status: 'FAILED', error: message, completed_at: new Date().toISOString() });
     await recordAudit({
       action: AuditAction.AUTOMATION_RULE_FAILED,
       actorUserId: null,
@@ -610,8 +640,12 @@ export async function decideAutomationApproval(
 }
 
 async function getRuleById(userId: string, ruleId: string): Promise<AutomationRule> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        'SELECT * FROM automation_rules WHERE id = $1 AND owner_id = $2', [ruleId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Automation rule');
   return rows[0] as unknown as AutomationRule;
@@ -619,13 +653,13 @@ async function getRuleById(userId: string, ruleId: string): Promise<AutomationRu
 
 /** Watchdog: expire processed event logs older than 7 days and reset stale rule budgets. */
 export async function sweepAutomations(): Promise<{ expiredEvents: number; resetBudgets: number }> {
-  const events = await pool.query(
-    `DELETE FROM event_log WHERE created_at < now() - interval '7 days'`,
-  );
-  const budgets = await pool.query(
-    `UPDATE automation_rules
-        SET run_count = 0, run_count_reset_at = now(), updated_at = now()
-      WHERE run_count_reset_at <= now() - interval '1 hour'`,
+  const events = await withSystem((q) => q.query(`DELETE FROM event_log WHERE created_at < now() - interval '7 days'`));
+  const budgets = await withSystem((q) =>
+    q.query(
+      `UPDATE automation_rules
+          SET run_count = 0, run_count_reset_at = now(), updated_at = now()
+        WHERE run_count_reset_at <= now() - interval '1 hour'`,
+    ),
   );
   return { expiredEvents: events.rowCount ?? 0, resetBudgets: budgets.rowCount ?? 0 };
 }

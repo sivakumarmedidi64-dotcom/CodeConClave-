@@ -115,3 +115,27 @@ export function uploadForm(
   for (const [k, v] of Object.entries(fields)) form.append(k, v);
   return form;
 }
+
+// ---------------------------------------------------------------- cowork share links
+import type { ShareMode, ShareLinkView } from './types';
+
+export async function createShareLink(
+  conversationId: string,
+  mode: ShareMode,
+  opts: { oneTime?: boolean; expiresInMs?: number } = {},
+): Promise<ShareLinkView> {
+  const res = await api<{ shareLink: ShareLinkView }>(`/api/v1/conversations/${conversationId}/share-links`, {
+    method: 'POST',
+    body: { mode, ...opts },
+  });
+  return res.shareLink;
+}
+
+export async function listShareLinks(conversationId: string): Promise<ShareLinkView[]> {
+  const res = await api<{ shareLinks: ShareLinkView[] }>(`/api/v1/conversations/${conversationId}/share-links`);
+  return res.shareLinks ?? [];
+}
+
+export async function revokeShareLink(conversationId: string, token: string): Promise<void> {
+  await api(`/api/v1/conversations/${conversationId}/share-links/${token}`, { method: 'DELETE' });
+}

@@ -91,8 +91,8 @@ describe('createDevice — pairing initiation', () => {
     const parts = stored.split('$');
     expect(parts).toHaveLength(5);
     expect(parts[0]).toBe('scrypt');
-    expect(parts[1]).toBe('v1');
-    expect(parts[2]).toHaveLength(32); // salt
+    expect(parts[1]).toBe('v2');
+    expect(parts[2]).toHaveLength(32); // salt (16 bytes hex, explicit for pairing)
     expect(parts[3]).toHaveLength(128); // scrypt hash hex
     expect(Number(parts[4])).toBeGreaterThan(Date.now()); // 10-min expiry
   });

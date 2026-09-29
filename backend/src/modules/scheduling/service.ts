@@ -5,7 +5,7 @@
  * sweep (no separate scheduler process). Every mutation is audited and
  * tenant-scoped by explicit owner_id filters (RLS also applies).
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -140,15 +140,21 @@ function validateAnchor(input: ScheduleInput, now: Date): ScheduleAnchor {
 }
 
 async function getOwnedSchedule(userId: string, scheduleId: string): Promise<ScheduledTaskRow> {
-  const rows = await queryMany<ScheduledTaskRow>('SELECT * FROM scheduled_tasks WHERE id = $1 AND owner_id = $2', [scheduleId, userId]);
+  const rows = await withTenant<ScheduledTaskRow[]>(userId, (q) =>
+    q.query<ScheduledTaskRow>('SELECT * FROM scheduled_tasks WHERE id = $1 AND owner_id = $2', [scheduleId, userId]).then((r) => r.rows),
+  );
   if (!rows[0]) throw AppError.notFound('Schedule');
   return rowToSchedule(rows[0] as unknown as Record<string, unknown>);
 }
 
 export async function listSchedules(userId: string, includeDisabled = false): Promise<ScheduledTaskRow[]> {
-  const rows = await queryMany<ScheduledTaskRow>(
-    `SELECT * FROM scheduled_tasks WHERE owner_id = $1 ${includeDisabled ? '' : 'AND enabled = true'} ORDER BY next_run_at, created_at`,
-    [userId],
+  const rows = await withTenant<ScheduledTaskRow[]>(userId, (q) =>
+    q
+      .query<ScheduledTaskRow>(
+        `SELECT * FROM scheduled_tasks WHERE owner_id = $1 ${includeDisabled ? '' : 'AND enabled = true'} ORDER BY next_run_at, created_at`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   return rows.map((r) => rowToSchedule(r as unknown as Record<string, unknown>));
 }
@@ -166,7 +172,9 @@ export async function createSchedule(userId: string, input: ScheduleInput): Prom
   if (!agent) throw AppError.notFound('Agent');
 
   if (input.projectId) {
-    const p = await queryMany<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [input.projectId, userId]);
+    const p = await withTenant<{ id: string }[]>(userId, (q) =>
+      q.query<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [input.projectId, userId]).then((r) => r.rows),
+    );
     if (!p[0]) throw AppError.notFound('Project');
   }
 
@@ -176,19 +184,21 @@ export async function createSchedule(userId: string, input: ScheduleInput): Prom
   if (!initialNext) throw AppError.badRequest('no_next_run', 'Schedule has no valid next run');
 
   const id = newId(PREFIX.SCHEDULE);
-  await pool.query(
-    `INSERT INTO scheduled_tasks (
-       id, owner_id, project_id, agent_id, title, description, recurrence, cron_expression,
-       timezone, run_at, run_on_days, enabled, execution_mode, missed_run_policy,
-       next_run_at, require_approval, timeout_ms, max_attempts, notify_on_completion
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,true,$12,$13,$14,$15,$16,$17,$18)`,
-    [
-      id, userId, input.projectId ?? null, input.agentId, title, input.description ?? null,
-      anchor.recurrence, anchor.cronExpression, anchor.timezone, anchor.runAt,
-      JSON.stringify(anchor.runOnDays), input.executionMode ?? 'CLOUD', input.missedRunPolicy ?? 'RUN_ON_RECOVERY',
-      initialNext.toISOString(), input.requireApproval ?? false,
-      input.timeoutMs ?? 900000, input.maxAttempts ?? 3, input.notifyOnCompletion ?? false,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO scheduled_tasks (
+         id, owner_id, project_id, agent_id, title, description, recurrence, cron_expression,
+         timezone, run_at, run_on_days, enabled, execution_mode, missed_run_policy,
+         next_run_at, require_approval, timeout_ms, max_attempts, notify_on_completion
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,true,$12,$13,$14,$15,$16,$17,$18)`,
+      [
+        id, userId, input.projectId ?? null, input.agentId, title, input.description ?? null,
+        anchor.recurrence, anchor.cronExpression, anchor.timezone, anchor.runAt,
+        JSON.stringify(anchor.runOnDays), input.executionMode ?? 'CLOUD', input.missedRunPolicy ?? 'RUN_ON_RECOVERY',
+        initialNext.toISOString(), input.requireApproval ?? false,
+        input.timeoutMs ?? 900000, input.maxAttempts ?? 3, input.notifyOnCompletion ?? false,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.SCHEDULE_CREATED,
@@ -229,21 +239,23 @@ export async function updateSchedule(userId: string, scheduleId: string, patch: 
   const next = nextRunAt(anchor, now);
   if (!next) throw AppError.badRequest('no_next_run', 'Schedule has no valid next run');
 
-  await pool.query(
-    `UPDATE scheduled_tasks SET
-       project_id = $3, agent_id = $4, title = $5, description = $6, recurrence = $7,
-       cron_expression = $8, timezone = $9, run_at = $10, run_on_days = $11::jsonb,
-       execution_mode = $12, missed_run_policy = $13, require_approval = $14,
-       timeout_ms = $15, max_attempts = $16, notify_on_completion = $17,
-       next_run_at = $18, enabled = true, error = NULL, updated_at = now()
-     WHERE id = $1 AND owner_id = $2`,
-    [
-      scheduleId, userId, merged.projectId ?? null, merged.agentId, merged.title,
-      merged.description ?? null, anchor.recurrence, anchor.cronExpression, anchor.timezone,
-      anchor.runAt, JSON.stringify(anchor.runOnDays), merged.executionMode,
-      merged.missedRunPolicy, merged.requireApproval ?? false, merged.timeoutMs ?? 900000,
-      merged.maxAttempts ?? 3, merged.notifyOnCompletion ?? false, next.toISOString(),
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE scheduled_tasks SET
+         project_id = $3, agent_id = $4, title = $5, description = $6, recurrence = $7,
+         cron_expression = $8, timezone = $9, run_at = $10, run_on_days = $11::jsonb,
+         execution_mode = $12, missed_run_policy = $13, require_approval = $14,
+         timeout_ms = $15, max_attempts = $16, notify_on_completion = $17,
+         next_run_at = $18, enabled = true, error = NULL, updated_at = now()
+       WHERE id = $1 AND owner_id = $2`,
+      [
+        scheduleId, userId, merged.projectId ?? null, merged.agentId, merged.title,
+        merged.description ?? null, anchor.recurrence, anchor.cronExpression, anchor.timezone,
+        anchor.runAt, JSON.stringify(anchor.runOnDays), merged.executionMode,
+        merged.missedRunPolicy, merged.requireApproval ?? false, merged.timeoutMs ?? 900000,
+        merged.maxAttempts ?? 3, merged.notifyOnCompletion ?? false, next.toISOString(),
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.SCHEDULE_UPDATED,
@@ -260,9 +272,11 @@ export async function updateSchedule(userId: string, scheduleId: string, patch: 
 export async function setScheduleEnabled(userId: string, scheduleId: string, enabled: boolean): Promise<ScheduledTaskRow> {
   const existing = await getOwnedSchedule(userId, scheduleId);
   if (existing.enabled === enabled) return existing;
-  await pool.query(
-    `UPDATE scheduled_tasks SET enabled = $3, updated_at = now() WHERE id = $1 AND owner_id = $2`,
-    [scheduleId, userId, enabled],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE scheduled_tasks SET enabled = $3, updated_at = now() WHERE id = $1 AND owner_id = $2`,
+      [scheduleId, userId, enabled],
+    ),
   );
   await recordAudit({
     action: enabled ? AuditAction.SCHEDULE_RESUMED : AuditAction.SCHEDULE_PAUSED,
@@ -278,7 +292,7 @@ export async function setScheduleEnabled(userId: string, scheduleId: string, ena
 
 export async function deleteSchedule(userId: string, scheduleId: string): Promise<void> {
   await getOwnedSchedule(userId, scheduleId);
-  await pool.query('DELETE FROM scheduled_tasks WHERE id = $1 AND owner_id = $2', [scheduleId, userId]);
+  await withTenant(userId, (q) => q.query('DELETE FROM scheduled_tasks WHERE id = $1 AND owner_id = $2', [scheduleId, userId]));
   await recordAudit({
     action: AuditAction.SCHEDULE_DELETED,
     actorUserId: userId,
@@ -324,9 +338,13 @@ export interface ScheduleRunRow {
 }
 
 export async function listScheduleRuns(userId: string, scheduleId: string, limit = 20): Promise<ScheduleRunRow[]> {
-  const rows = await queryMany<ScheduleRunRow>(
-    `SELECT * FROM schedule_runs WHERE owner_id = $1 AND schedule_id = $2 ORDER BY scheduled_for DESC LIMIT $3`,
-    [userId, scheduleId, Math.min(Math.max(limit, 1), 100)],
+  const rows = await withTenant<ScheduleRunRow[]>(userId, (q) =>
+    q
+      .query<ScheduleRunRow>(
+        `SELECT * FROM schedule_runs WHERE owner_id = $1 AND schedule_id = $2 ORDER BY scheduled_for DESC LIMIT $3`,
+        [userId, scheduleId, Math.min(Math.max(limit, 1), 100)],
+      )
+      .then((r) => r.rows),
   );
   return rows.map((r) => ({
     ...r,
@@ -344,11 +362,15 @@ export async function listScheduleRuns(userId: string, scheduleId: string, limit
  */
 export async function runNow(userId: string, scheduleId: string): Promise<ScheduleRunRow> {
   const schedule = await getOwnedSchedule(userId, scheduleId);
-  const pending = await queryMany<{ id: string }>(
-    `SELECT id FROM schedule_runs
-      WHERE schedule_id = $1 AND status IN ('DUE','CLAIMED','ENQUEUED','RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_LOCAL_AGENT')
-      LIMIT 1`,
-    [scheduleId],
+  const pending = await withTenant<{ id: string }[]>(userId, (q) =>
+    q
+      .query<{ id: string }>(
+        `SELECT id FROM schedule_runs
+          WHERE schedule_id = $1 AND status IN ('DUE','CLAIMED','ENQUEUED','RUNNING','WAITING_FOR_APPROVAL','WAITING_FOR_LOCAL_AGENT')
+          LIMIT 1`,
+        [scheduleId],
+      )
+      .then((r) => r.rows),
   );
   if (pending[0]) throw AppError.conflict('run_in_flight', 'A run for this schedule is already in flight');
 
@@ -360,7 +382,7 @@ export async function runNow(userId: string, scheduleId: string): Promise<Schedu
     run = await executeClaimedRun(schedule, claimed, 'manual');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await import('./executor.js').then(async (m) => m.markScheduleRunFailed(claimed.id, msg));
+    await import('./executor.js').then(async (m) => m.markScheduleRunFailed(userId, claimed.id, msg));
     throw AppError.conflict('run_execution_failed', `Run could not start: ${msg}`);
   }
   await recordAudit({

@@ -11,8 +11,8 @@ import type { PreviewEvent, PreviewSession, PreviewState } from '../lib/types';
 
 const STATE_COLORS: Record<PreviewState, string> = {
   OFFLINE: '#64748b',
-  BUILDING: '#7c3aed',
-  UPDATING: '#7c3aed',
+  BUILDING: '#8A3FFC',
+  UPDATING: '#8A3FFC',
   READY: '#1e7d46',
   ERROR: '#dc2626',
   NOT_CONFIGURED: '#8a8a8a',

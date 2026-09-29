@@ -16,6 +16,7 @@ import type {
   TeamStats,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { TeamCollabPanel } from '../components/TeamCollabPanel';
 
 const ROLES = ['owner', 'admin', 'editor', 'viewer', 'guest'];
 const MANAGER_ROLES = new Set(['owner', 'admin']);
@@ -438,19 +439,24 @@ export function TeamsPage() {
                   </tbody>
                 </table>
                 {canManage && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <input className="cc-input" placeholder="member@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-                    <select className="cc-select" style={{ width: 140 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="cc-btn" disabled={!email.trim()} onClick={() => void invite()}>
-                      Invite
-                    </button>
-                  </div>
+                  <>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                      <input className="cc-input" placeholder="member@email.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                      <select className="cc-select" style={{ width: 140 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="cc-btn" disabled={!email.trim()} onClick={() => void invite()}>
+                        Invite
+                      </button>
+                    </div>
+                    <p className="cc-hint" style={{ marginTop: 6 }}>
+                      Teams support up to 30 people (members + pending invites) — enforced server-side.
+                    </p>
+                  </>
                 )}
               </div>
 
@@ -598,6 +604,8 @@ export function TeamsPage() {
                   ))}
                 </ul>
               </div>
+
+              <TeamCollabPanel teamId={selected} />
             </>
           )}
         </div>

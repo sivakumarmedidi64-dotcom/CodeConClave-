@@ -45,7 +45,10 @@ import {
   getUsage,
   checkFreeLimits,
   getStorageUsage,
+  consumeFreeMessage,
+  getRollingFreeUsage,
 } from '../modules/workspace/service.js';
+import { env } from '../config/env.js';
 
 function eventRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -154,10 +157,10 @@ describe('getUsageOverview — dashboard payload', () => {
 });
 
 describe('plan limits — free vs pro/team/enterprise', () => {
-  it('free users are limited by daily messages', async () => {
+  it('free users are limited once the rolling window is exhausted', async () => {
     db.state.resolve = (text) => {
       if (text.includes('SELECT plan_id FROM users')) return [{ plan_id: 'free' }];
-      if (text.includes('SELECT name, value FROM usage_counters')) return [{ name: 'daily_messages', value: '1000' }];
+      if (text.includes('FROM free_usage_windows')) return [{ window_start: new Date(Date.now() - 3600_000), used: 1000 }];
       return null;
     };
     await expect(checkFreeLimits('u1', 'message')).resolves.toMatchObject({ ok: false, reason: 'daily_message_limit', plan: 'free' });
@@ -184,5 +187,70 @@ describe('plan limits — free vs pro/team/enterprise', () => {
     await expect(getStorageUsage('u1')).resolves.toBe(512);
     const call = db.state.calls.find((c) => c.text.includes('COALESCE(SUM(value), 0)'))!;
     expect(call.params[0]).toBe('u1');
+  });
+});
+
+describe('rolling free-usage window', () => {
+  it('a fresh user starts with a full window', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('FROM free_usage_windows')) return [];
+      return null;
+    };
+    const usage = await getRollingFreeUsage('u1');
+    expect(usage.used).toBe(0);
+    expect(usage.limit).toBe(env.FREE_DAILY_MESSAGES);
+    expect(usage.windowHours).toBe(env.FREE_USAGE_WINDOW_HOURS);
+    expect(usage.remaining).toBe(env.FREE_DAILY_MESSAGES);
+    expect(usage.windowStart).toBeNull();
+  });
+
+  it('consumes a message and reports remaining', async () => {
+    db.state.resolve = (text) => {
+      const t = text.toLowerCase();
+      if (t.includes('insert into free_usage_windows')) return [{ used: 2, window_start: new Date() }];
+      if (t.includes('from free_usage_windows')) return [];
+      return null;
+    };
+    const result = await consumeFreeMessage('u1');
+    expect(result.accepted).toBe(true);
+    expect(result.usage.used).toBe(2);
+    expect(result.usage.remaining).toBe(env.FREE_DAILY_MESSAGES - 2);
+  });
+
+  it('rejects when the window is exhausted (atomic guard)', async () => {
+    db.state.resolve = (text) => {
+      const t = text.toLowerCase();
+      if (t.includes('insert into free_usage_windows')) return [];
+      if (t.includes('from free_usage_windows')) return [{ window_start: new Date(Date.now() - 3600_000), used: env.FREE_DAILY_MESSAGES }];
+      return null;
+    };
+    const result = await consumeFreeMessage('u1');
+    expect(result.accepted).toBe(false);
+    expect(result.usage.remaining).toBe(0);
+  });
+
+  it('surfaces the window deadline', async () => {
+    const windowStart = new Date(Date.now() - 3600_000);
+    db.state.resolve = (text) => (text.includes('FROM free_usage_windows') ? [{ window_start: windowStart, used: 3 }] : null);
+    const usage = await getRollingFreeUsage('u1');
+    expect(usage.windowStart).toBe(windowStart.toISOString());
+    expect(usage.resetsAt).toBe(new Date(windowStart.getTime() + env.FREE_USAGE_WINDOW_HOURS * 3600_000).toISOString());
+    expect(usage.remaining).toBe(env.FREE_DAILY_MESSAGES - 3);
+  });
+
+  it('overview includes the rolling window fields', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT plan_id FROM users')) return [{ plan_id: 'free' }];
+      if (text.includes('FROM usage_events')) return [];
+      if (text.includes('FROM usage_counters')) return [];
+      if (text.includes('COALESCE(SUM(value), 0)')) return [{ value: '0' }];
+      if (text.includes('FROM free_usage_windows')) return [{ window_start: new Date(Date.now() - 1000), used: 4 }];
+      return null;
+    };
+    const overview = await getUsageOverview('u1');
+    expect(overview.rolling.used).toBe(4);
+    expect(overview.rolling.limit).toBe(env.FREE_DAILY_MESSAGES);
+    expect(overview.rolling.windowHours).toBe(env.FREE_USAGE_WINDOW_HOURS);
+    expect(overview.rolling.remaining).toBe(env.FREE_DAILY_MESSAGES - 4);
   });
 });

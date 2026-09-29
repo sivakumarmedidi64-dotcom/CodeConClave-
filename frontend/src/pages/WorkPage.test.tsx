@@ -4,7 +4,7 @@
  * to the real endpoint; the detail timeline loads steps/attempts/tool calls.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ToastProvider } from '../components/Toast';
 import { WorkPage } from './WorkPage';
@@ -77,6 +77,35 @@ describe('WorkPage', () => {
     expect(screen.getByText(/waiting for a paired Local Agent/)).toBeInTheDocument();
   });
 
+  it('skips background poll ticks while the tab is hidden', async () => {
+    vi.useFakeTimers();
+    const stateSpy = vi.spyOn(document, 'visibilityState', 'get');
+    try {
+      const fetchFn = stubFetch(workHandler());
+      stateSpy.mockReturnValue('visible');
+      renderWork();
+      const taskListCalls = () => fetchFn.mock.calls.filter(([u]) => String(u).includes('/api/v1/execution/tasks?')).length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      const baseline = taskListCalls();
+      expect(baseline).toBeGreaterThan(0);
+      stateSpy.mockReturnValue('hidden');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(24000);
+      });
+      expect(taskListCalls()).toBe(baseline);
+      stateSpy.mockReturnValue('visible');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000);
+      });
+      expect(taskListCalls()).toBeGreaterThan(baseline);
+    } finally {
+      stateSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('offers retry for failed tasks', async () => {
     stubFetch(workHandler([FAILED_TASK]));
     renderWork();
@@ -103,6 +132,14 @@ describe('WorkPage', () => {
     expect(screen.getByText(/attempt 1/)).toBeInTheDocument();
     expect(screen.getByText('read_file')).toBeInTheDocument();
     expect(screen.getByText(/ALLOWED/)).toBeInTheDocument();
+  });
+
+  it('is honest for backend raw rows where coworker_pipeline is null', async () => {
+    stubFetch(workHandler([{ ...TASK, id: 't3', title: 'No pipeline task', coworkerPipeline: null }]));
+    renderWork();
+    await waitFor(() => expect(screen.getByText('No pipeline task')).toBeInTheDocument());
+    expect(screen.getByText(/pipeline: default/)).toBeInTheDocument();
+    expect(screen.getByText('No pipeline task')).toBeInTheDocument();
   });
 
   it('shows the empty queue while no project is selected', async () => {

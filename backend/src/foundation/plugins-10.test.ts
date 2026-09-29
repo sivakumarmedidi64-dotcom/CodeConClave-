@@ -84,6 +84,7 @@ import {
 import { getAction, listAdapters, registerAdapter, type PluginAdapter } from '../modules/plugins/sdk.js';
 import { registerPlugins } from '../modules/plugins/index.js';
 import { registerWebhookHosts, resetWebhookAllowlist, webhookHostAllowed } from '../modules/plugins/adapters/webhook.js';
+import { discordWebhookAllowed, discordAdapter } from '../modules/plugins/adapters/discord.js';
 import { webhookAdapter } from '../modules/plugins/adapters/webhook.js';
 import { githubAdapter } from '../modules/plugins/adapters/github.js';
 import { googleAdapter } from '../modules/plugins/adapters/google.js';
@@ -282,6 +283,14 @@ function installResolver() {
         if (statusMatch) approvalRow.status = statusMatch[1];
         if (execMatch) approvalRow.execution_status = execMatch[1];
       }
+      // Model the won race ONLY for the conditional decide / execution-claim
+      // writes (they check rowCount; this mock reports rowCount from
+      // state.rowCount, not from rows). Expiry/final updates keep the old
+      // rowCount-0 behavior so sweep counts are unaffected.
+      if (approvalRow && (text.includes('decided_by') || text.includes('execution_started_at'))) {
+        db.state.rowCount = 1;
+        return [approvalRow];
+      }
       return [];
     }
     if (text.includes('FROM plugin_connections')) {
@@ -335,7 +344,7 @@ describe('plugin core', () => {
   it('registers the Phase 10 + Stage 25.5 adapters through the SDK', () => {
     registerPlugins();
     const ids = listAdapters().map((a) => a.id).sort();
-    expect(ids).toEqual(['cloudflare', 'discord', 'github', 'google', 'linear', 'resend', 'sentry', 'slack', 'vercel', 'webhook']);
+    expect(ids).toEqual(['asana', 'clickup', 'cloudflare', 'coda', 'confluence', 'databricks', 'datadog', 'discord', 'github', 'gitlab', 'google', 'hubspot', 'jira', 'klaviyo', 'linear', 'mailgun', 'monday', 'notion', 'pagerduty', 'pipedrive', 'render', 'resend', 'sentry', 'servicenow', 'slack', 'stripe', 'supabase', 'trello', 'twilio', 'vercel', 'webhook', 'zendesk']);
     expect(getAction('github', 'repositories.list')).not.toBeNull();
     expect(getAction('github', 'not.real')).toBeNull();
     expect(getAction('nope', 'x')).toBeNull();
@@ -364,6 +373,9 @@ describe('plugin core', () => {
     expect(conn.credential_ref).toBeNull();
     const revokeCalls = db.state.calls.filter((c) => c.text.includes('UPDATE plugin_scopes'));
     expect(revokeCalls.length).toBeGreaterThan(0);
+    // Vault must not stay decryptable after revoke.
+    const vaultRevoke = db.state.calls.filter((c) => c.text.includes('UPDATE plugin_credentials SET revoked_at'));
+    expect(vaultRevoke.length).toBeGreaterThan(0);
   });
 
   it('reauthorize: OAuth adapters return an authUrl and enter REAUTH_REQUIRED', async () => {
@@ -459,10 +471,10 @@ describe('security', () => {
   it('credential values are never returned through normal API surfaces', async () => {
     conn = makeConn();
     credRows = [cred('token', 'SUPERSECRET'), cred('refresh_token', 'REFRESHSECRET')];
-    const kinds = await credentialKinds(conn.id);
+    const kinds = await credentialKinds(OWNER, conn.id);
     expect(kinds).toEqual(expect.arrayContaining(['token', 'refresh_token']));
     expect(kinds.join(',')).not.toContain('SUPERSECRET');
-    const creds = await readPluginCredentials(conn.id);
+    const creds = await readPluginCredentials(OWNER, conn.id);
     expect(creds.kinds['token']).toBe('SUPERSECRET');
     const connRow = await getConnection(OWNER, conn.id);
     expect(JSON.stringify(connRow)).not.toContain('SUPERSECRET');
@@ -471,9 +483,9 @@ describe('security', () => {
   it('revoking credentials makes them unreadable', async () => {
     conn = makeConn();
     credRows = [cred('token', 't')];
-    await revokePluginCredentials(conn.id);
+    await revokePluginCredentials(OWNER, conn.id);
     credRows = [];
-    const creds = await readPluginCredentials(conn.id);
+    const creds = await readPluginCredentials(OWNER, conn.id);
     expect(creds.kinds).toEqual({});
   });
 
@@ -484,6 +496,26 @@ describe('security', () => {
     expect(webhookHostAllowed('ftp://api.example.com/x')).toBe(false);
     expect(webhookHostAllowed('https://localhost/x')).toBe(false);
     expect(webhookHostAllowed('not a url')).toBe(false);
+  });
+
+  it('discord webhook URLs restricted to Discord hosts (SSRF guard)', () => {
+    expect(discordWebhookAllowed('https://discord.com/api/webhooks/123/abc')).toBe(true);
+    expect(discordWebhookAllowed('https://discordapp.com/api/webhooks/123/abc')).toBe(true);
+    expect(discordWebhookAllowed('https://evil.example.net/hook')).toBe(false);
+    expect(discordWebhookAllowed('http://discord.com/api/webhooks/123/abc')).toBe(false);
+    expect(discordWebhookAllowed('https://localhost/hook')).toBe(false);
+    expect(discordWebhookAllowed('not a url')).toBe(false);
+  });
+
+  it('discord send to a non-Discord webhook URL → plugin_url_not_allowed', async () => {
+    registerAdapter(discordAdapter);
+    conn = makeConn({ plugin_type: 'discord' });
+    scopeRows = [{ id: 's1', connection_id: conn.id, scope: 'send', granted_at: new Date(), expires_at: null, revoked_at: null }];
+    credRows = [cred('webhook_url', 'https://discord.com/api/webhooks/123/abc')];
+    await expect(
+      executePluginAction({ userId: OWNER, connectionId: conn.id, action: 'messages.send', input: { webhookUrl: 'https://evil.example.net/hook', text: 'hi' } }),
+    ).rejects.toMatchObject({ errorCode: 'plugin_url_not_allowed' });
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it('webhook action to a non-allowlisted host → plugin_url_not_allowed', async () => {
@@ -801,7 +833,7 @@ describe('google adapter', () => {
     expect(inserts.length).toBe(3);
     const refresh = inserts.find((c) => c.params[2] === 'refresh_token')!;
     expect(String(refresh.params[3])).not.toContain('rt_1'); // encrypted, never plain
-    const creds = await readPluginCredentials(conn.id);
+    const creds = await readPluginCredentials(OWNER, conn.id);
     expect(creds.kinds['refresh_token']).toBe('rt_1');
     const granted = JSON.parse(creds.kinds['oauth_scopes']!);
     expect(granted).toContain('https://www.googleapis.com/auth/drive.file');

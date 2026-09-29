@@ -150,6 +150,7 @@ function setupJourney() {
     artifacts: [],
     workspace_state: [],
     usage_counters: [],
+    free_usage_windows: [],
     recovery_codes: [],
   };
   const user = {
@@ -221,10 +222,21 @@ function setupJourney() {
     if (t.includes('from conversations')) return [{ id: CONVERSATION_ID, project_id: PROJECT_ID, owner_id: USER_ID, title: 'Journey chat', mode: 'CHAT', deleted_at: null, created_at: new Date(), updated_at: new Date() }];
     if (t.includes('insert into conversations')) return [{ id: CONVERSATION_ID, project_id: PROJECT_ID, owner_id: USER_ID }];
     if (t.includes('insert into messages')) {
+      // Faithful emulation of the partial unique index
+      // uq_messages_conversation_client: a retried clientId inserts nothing
+      // (rowCount 0 → the service resolves the existing row as a replay).
+      const incomingClientId = params[15] ?? null;
+      if (incomingClientId) {
+        const dup = tables.messages.find(
+          (m) => m.conversation_id === params[1] && (m as { client_id?: unknown }).client_id === incomingClientId,
+        );
+        if (dup) return [];
+      }
       tables.messages.push({
         id: params[0], conversation_id: params[1], sender: params[2], coworker_type: params[3], role: params[4],
         content: params[5], model_id: params[6], provider_id: params[7], input_tokens: params[8], output_tokens: params[9],
         latency_ms: params[10], status: params[11], error_code: params[12], seq: tables.messages.length + 1,
+        client_id: params[15] ?? null,
         created_at: new Date(), deleted_at: null, edited_at: null, edit_count: 0, thread_id: null,
       });
       return [];
@@ -277,7 +289,9 @@ function setupJourney() {
     }
     if (t.includes('update approvals set status')) {
       applyUpdate(text, params, tables.approvals);
-      return [];
+      // Conditional decide UPDATE … AND status = 'PENDING' models the won
+      // race (the harness applies by id); rowCount 1 lets the guard pass.
+      return [{ id: params[0] }];
     }
     if (t.includes('from approvals')) return tables.approvals;
     if (t.includes('insert into tasks')) {
@@ -290,6 +304,10 @@ function setupJourney() {
     }
     if (t.includes('update tasks set')) {
       applyUpdate(text, params, tables.tasks);
+      // approveLinkTask's conditional release (… AND status =
+      // 'WAITING_APPROVAL') models the won race; other task writes keep the
+      // old rowCount-0 behavior.
+      if (t.includes('required_approval = false')) return [{ id: params[0] }];
       return [];
     }
     if (t.includes('from tasks')) return tables.tasks;
@@ -318,6 +336,20 @@ function setupJourney() {
     if (t.includes('from workspace_state')) return tables.workspace_state;
     if (t.includes('insert into usage_counters')) return [{ value: 1 }];
     if (t.includes('from usage_counters')) return tables.usage_counters;
+    if (t.includes('insert into free_usage_windows')) {
+      const limit = Number(params[2] ?? env.FREE_DAILY_MESSAGES);
+      const existing = tables.free_usage_windows.find((w) => w.owner_id === params[0]);
+      if (existing) {
+        if (Number(existing.used ?? 0) >= limit) return [];
+        existing.used = Number(existing.used ?? 0) + 1;
+        existing.updated_at = new Date();
+        return [{ used: existing.used, window_start: existing.window_start }];
+      }
+      const created = { owner_id: params[0], window_start: new Date(), used: 1, updated_at: new Date() };
+      tables.free_usage_windows.push(created);
+      return [{ used: created.used, window_start: created.window_start }];
+    }
+    if (t.includes('from free_usage_windows')) return tables.free_usage_windows;
     if (t.includes('from model_usage_logs') || t.includes('from provider_health')) return [];
     if (t.includes('from feature_flags')) return [];
     return [];
@@ -507,10 +539,26 @@ describe('PHASE 17 integration — chat fast path', () => {
     expect(tables.messages.length).toBe(2);
     expect(tables.memories.some((m) => m.provenance === `conversation://${CONVERSATION_ID}`)).toBe(true);
     const usageEvents = db.state.calls.filter((c) => c.text.toLowerCase().includes('usage_events'));
-    if (!usageEvents.length) {
-      console.error('DEBUG usage calls:', db.state.calls.map((c) => c.text).join('\n'));
-    }
     expect(usageEvents.length).toBeGreaterThan(0);
+  });
+
+  it('a retried send (same clientId, lost ack) replays the user row and consumes free quota exactly once', async () => {
+    const { tables } = setupJourney();
+    const send = () =>
+      sendChatMessage(
+        { id: USER_ID, planId: 'free', entitlementState: 'FREE' },
+        'sess_replay',
+        { content: 'Hello again', conversationId: CONVERSATION_ID, projectId: PROJECT_ID, mode: 'CHAT', clientId: 'cc_v1_replay_quota' },
+        {},
+      );
+    const first = await send();
+    const second = await send();
+    // Same logical message: the user row is idempotent, the quota is not
+    // charged twice, and the retry resolves to the same user message.
+    expect(second.userMessageId).toBe(first.userMessageId);
+    expect(tables.messages.filter((m) => m.role === 'user' && (m as { client_id?: string }).client_id === 'cc_v1_replay_quota').length).toBe(1);
+    const window = tables.free_usage_windows.find((w) => w.owner_id === USER_ID);
+    expect(window?.used).toBe(1);
   });
 });
 
@@ -582,6 +630,23 @@ describe('PHASE 17 integration — deep work path', () => {
     expect(tables.tasks.length).toBe(1);
     expect(tables.tasks[0]).toMatchObject({ owner_id: USER_ID, title: 'Implement the billing module end to end', status: 'CREATED', risk_level: 'MEDIUM' });
     expect(tables.messages.some((m) => m.role === 'user' && m.content === 'Implement the billing module end to end')).toBe(true);
+  });
+
+  it('a retried COWORK send (same clientId) answers with the existing task instead of filing a duplicate', async () => {
+    const { tables } = setupJourney();
+    const send = () =>
+      sendChatMessage(
+        { id: USER_ID, planId: 'free', entitlementState: 'FREE' },
+        'sess_deep_replay',
+        { content: 'Implement the billing module end to end', conversationId: CONVERSATION_ID, projectId: PROJECT_ID, mode: 'COWORK', clientId: 'cc_v1_deep_replay' },
+        {},
+      );
+    const first = await send();
+    const second = await send();
+    expect(second.userMessageId).toBe(first.userMessageId);
+    expect(second.assistant).toContain('already exists');
+    expect(tables.tasks.length).toBe(1);
+    expect(tables.messages.filter((m) => m.role === 'user' && (m as { client_id?: string }).client_id === 'cc_v1_deep_replay').length).toBe(1);
   });
 });
 
@@ -669,7 +734,7 @@ describe('PHASE 17 integration — return to work (WYWA)', () => {
 describe('PHASE 17 integration — free limit + Moon', () => {
   it('rejects over-limit messages honestly and fires the Moon exactly once', async () => {
     const { tables } = setupJourney();
-    tables.usage_counters.push({ name: 'daily_messages', value: env.FREE_DAILY_MESSAGES + 1 });
+    tables.free_usage_windows.push({ owner_id: USER_ID, window_start: new Date(Date.now() - 3600_000), used: env.FREE_DAILY_MESSAGES + 1, updated_at: new Date() });
 
     let moonFired = 0;
     // Emulate the 24h Moon cache so the same over-limit situation does not

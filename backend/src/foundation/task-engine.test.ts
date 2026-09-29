@@ -119,7 +119,10 @@ describe('createTask — risk maps to required approval', () => {
   it('HIGH and CRITICAL risk always require approval', async () => {
     for (const risk of ['HIGH', 'CRITICAL']) {
       db.state.calls = [];
-      db.state.resolve = (text, params) => (text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null);
+      db.state.resolve = (text, params) => {
+        if (text.includes('FROM projects WHERE id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+        return text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null;
+      };
       const task = await createTask({ userId: 'u1', projectId: 'p1', title: 't', riskLevel: risk as 'HIGH' | 'CRITICAL' });
       const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO tasks'))!;
       expect(insert.params[6]).toBe(risk);
@@ -132,7 +135,10 @@ describe('createTask — risk maps to required approval', () => {
   it('LOW and MEDIUM risk do not require approval', async () => {
     for (const risk of ['LOW', 'MEDIUM']) {
       db.state.calls = [];
-      db.state.resolve = (text, params) => (text.includes('FROM tasks') ? [taskRow(String(params[0]), { risk_level: risk })] : null);
+      db.state.resolve = (text, params) => {
+        if (text.includes('FROM projects WHERE id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+        return text.includes('FROM tasks') ? [taskRow(String(params[0]), { risk_level: risk })] : null;
+      };
       const task = await createTask({ userId: 'u1', projectId: 'p1', title: 't', riskLevel: risk as 'LOW' | 'MEDIUM' });
       const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO tasks'))!;
       expect(insert.params[7]).toBe(false);
@@ -140,8 +146,36 @@ describe('createTask — risk maps to required approval', () => {
     }
   });
 
+  it('refuses to file a task into a project the caller cannot access (no planting)', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('FROM projects WHERE id = $1')) return [];
+      return null;
+    };
+    await expect(createTask({ userId: 'u1', projectId: 'p-victim', title: 't' })).rejects.toMatchObject({
+      errorCode: 'not_found',
+    });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO tasks'))).toBe(false);
+  });
+
+  it('refuses a task linked to a foreign conversation', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM projects WHERE id = $1')) {
+        return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+      }
+      if (text.includes('SELECT * FROM conversations')) return [];
+      return null;
+    };
+    await expect(
+      createTask({ userId: 'u1', projectId: 'p1', conversationId: 'c-victim', title: 't' }),
+    ).rejects.toMatchObject({ errorCode: 'not_found' });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO tasks'))).toBe(false);
+  });
+
   it('defaults risk to MEDIUM and parameters to standard values', async () => {
-    db.state.resolve = (text, params) => (text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null);
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM projects WHERE id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+      return text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null;
+    };
     await createTask({ userId: 'u1', projectId: 'p1', title: 't' });
     const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO tasks'))!;
     expect(insert.params[6]).toBe('MEDIUM');
@@ -252,6 +286,12 @@ describe('approvals — TTL by risk, decisions, expiry sweep', () => {
   it('decideApproval approves and audits only a PENDING, unexpired approval', async () => {
     db.state.resolve = (text, params) => {
       if (text.includes('FROM approvals')) return [approvalRow(String(params[0]))];
+      // Conditional decide UPDATE wins the race in this test (this mock
+      // reports rowCount from state.rowCount, not from rows).
+      if (text.includes('UPDATE approvals')) {
+        db.state.rowCount = 1;
+        return [approvalRow(String(params[0]), { status: 'APPROVED' })];
+      }
       return null;
     };
     const result = await decideApproval('u1', 'a1', 'APPROVE', 'looks good');

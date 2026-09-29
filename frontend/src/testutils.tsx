@@ -10,6 +10,8 @@ export const TEST_USER: User = {
   emailVerified: true,
   displayName: 'Alice',
   avatarUrl: null,
+  role: 'Developer',
+  primaryUseCase: 'Build software',
   mfaEnabled: false,
   rbacRole: 'member',
   planId: 'free',
@@ -33,9 +35,15 @@ export function authed(handler: (url: string, init?: RequestInit) => Promise<Res
   };
 }
 
-/** Default shell handler: /auth/me, workspace prefs + state, empty everything else. */
+/** Default shell handler: /auth/me, workspace prefs + state, an UNLOCKED
+ *  workspace (shell tests exercise the workspace surface; locked behaviour is
+ *  tested explicitly where the /access reply is overridden), empty rest. */
 export function shellHandler(url: string): Promise<Response> {
   if (url.includes('/api/v1/auth/me')) return Promise.resolve(jsonResponse({ data: { user: TEST_USER } }));
+  if (url.includes('/api/v1/access'))
+    return Promise.resolve(
+      jsonResponse({ data: { access: { unlocked: true, effectivePlan: 'pro', planId: 'pro', entitlementState: 'PRO_VERIFIED', reason: 'ACTIVE' } } }),
+    );
   if (url.includes('/api/v1/workspace/preferences')) return Promise.resolve(jsonResponse({ data: { prefs: { theme: 'light' } } }));
   if (url.includes('/api/v1/workspace/state')) return Promise.resolve(jsonResponse({ data: { state: [] } }));
   return Promise.resolve(jsonResponse({ data: {} }));

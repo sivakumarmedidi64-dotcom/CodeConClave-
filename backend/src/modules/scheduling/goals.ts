@@ -9,7 +9,7 @@
  * folded onto the persisted plan) — percentages are never fabricated.
  * COMPLETED requires evidence; a goal with no evidence stays BLOCKED.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -18,6 +18,7 @@ import { notify } from '../notifications/service.js';
 import { listAgents, getAgent, startRun, cancelRun } from '../agents/service.js';
 import { createApproval, decideApproval } from '../execution/approvals.js';
 import { createMemory } from '../memory/service.js';
+import { getSchedule } from './service.js';
 import { retrieveDnaForPrompt } from '../dna/service.js';
 import { detectConflict } from '../memory/decisions.js';
 import { completeWithFallback } from '../ai/gateway.js';
@@ -110,15 +111,15 @@ function mapGoal(row: Record<string, unknown>): GoalRow {
 }
 
 async function getOwnedGoal(userId: string, goalId: string): Promise<GoalRow> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM goals WHERE id = $1 AND owner_id = $2', [goalId, userId]);
-  if (!rows[0]) throw AppError.notFound('Goal');
-  return mapGoal(rows[0]);
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, (q) => q.query<Record<string, unknown>>('SELECT * FROM goals WHERE id = $1 AND owner_id = $2', [goalId, userId]));
+  if (!rows.rows[0]) throw AppError.notFound('Goal');
+  return mapGoal(rows.rows[0]);
 }
 
 async function getGoalInternal(goalId: string): Promise<GoalRow> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM goals WHERE id = $1', [goalId]);
-  if (!rows[0]) throw AppError.notFound('Goal');
-  return mapGoal(rows[0]);
+  const rows = await withSystem<{ rows: Record<string, unknown>[] }>(async (q) => q.query<Record<string, unknown>>('SELECT * FROM goals WHERE id = $1', [goalId]));
+  if (!rows.rows[0]) throw AppError.notFound('Goal');
+  return mapGoal(rows.rows[0]);
 }
 
 async function setGoalStatus(goal: GoalRow, status: GoalStatus, error?: string | null, completedAt?: Date): Promise<void> {
@@ -135,20 +136,24 @@ async function setGoalStatus(goal: GoalRow, status: GoalStatus, error?: string |
     params.push(completedAt.toISOString());
     sets.push(`completed_at = $${params.length}`);
   }
-  await pool.query(`UPDATE goals SET ${sets.join(', ')} WHERE id = $1`, params);
+  await withTenant(goal.owner_id, (q) => q.query(`UPDATE goals SET ${sets.join(', ')} WHERE id = $1`, params));
 }
 
 async function logActivity(goalId: string, ownerId: string, event: string, detail: Record<string, unknown> = {}): Promise<void> {
-  await pool.query(
-    'INSERT INTO goal_activities (id, goal_id, owner_id, event, detail) VALUES ($1,$2,$3,$4,$5::jsonb)',
-    [newId(PREFIX.GOAL_ACTIVITY), goalId, ownerId, event, JSON.stringify(detail)],
+  await withTenant(ownerId, (q) =>
+    q.query(
+      'INSERT INTO goal_activities (id, goal_id, owner_id, event, detail) VALUES ($1,$2,$3,$4,$5::jsonb)',
+      [newId(PREFIX.GOAL_ACTIVITY), goalId, ownerId, event, JSON.stringify(detail)],
+    ),
   );
 }
 
 async function savePlan(goal: GoalRow, plan: PlanEntry[], extra: Record<string, unknown> = {}): Promise<void> {
-  await pool.query(
-    `UPDATE goals SET plan = $2::jsonb, updated_at = now() WHERE id = $1`,
-    [goal.id, JSON.stringify(plan)],
+  await withTenant(goal.owner_id, (q) =>
+    q.query(
+      `UPDATE goals SET plan = $2::jsonb, updated_at = now() WHERE id = $1`,
+      [goal.id, JSON.stringify(plan)],
+    ),
   );
   await logActivity(goal.id, goal.owner_id, 'plan_saved', { entries: plan.length, ...extra });
 }
@@ -194,11 +199,13 @@ export async function listGoals(userId: string, status?: GoalStatus): Promise<Go
     params.push(status);
     clause = `AND status = $${params.length}`;
   }
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM goals WHERE owner_id = $1 ${clause} ORDER BY created_at DESC`,
-    params,
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, (q) =>
+    q.query<Record<string, unknown>>(
+      `SELECT * FROM goals WHERE owner_id = $1 ${clause} ORDER BY created_at DESC`,
+      params,
+    ),
   );
-  return rows.map(mapGoal);
+  return rows.rows.map(mapGoal);
 }
 
 export async function getGoal(userId: string, goalId: string): Promise<GoalRow> {
@@ -206,11 +213,13 @@ export async function getGoal(userId: string, goalId: string): Promise<GoalRow> 
 }
 
 export async function listGoalActivities(userId: string, goalId: string, limit = 50): Promise<{ id: string; goal_id: string; event: string; detail: Record<string, unknown>; created_at: Date }[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM goal_activities WHERE goal_id = $1 AND owner_id = $2 ORDER BY created_at DESC LIMIT $3`,
-    [goalId, userId, Math.min(Math.max(limit, 1), 200)],
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, (q) =>
+    q.query<Record<string, unknown>>(
+      `SELECT * FROM goal_activities WHERE goal_id = $1 AND owner_id = $2 ORDER BY created_at DESC LIMIT $3`,
+      [goalId, userId, Math.min(Math.max(limit, 1), 200)],
+    ),
   );
-  return rows.map((r) => ({
+  return rows.rows.map((r) => ({
     id: String(r.id),
     goal_id: String(r.goal_id),
     event: String(r.event),
@@ -224,20 +233,22 @@ export async function createGoal(userId: string, input: GoalInput): Promise<Goal
   const objective = (input.objective ?? '').trim();
   if (!title || !objective) throw AppError.badRequest('title_objective_required', 'title and objective are required');
   if (input.projectId) {
-    const p = await queryMany<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [input.projectId, userId]);
-    if (!p[0]) throw AppError.notFound('Project');
+    const p = await withTenant<{ rows: { id: string }[] }>(userId, (q) => q.query<{ id: string }>('SELECT id FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [input.projectId, userId]));
+    if (!p.rows[0]) throw AppError.notFound('Project');
   }
   const budget = Math.min(Math.max(input.budgetUsd ?? 5, 0.1), 100);
   const deadlineAt = input.deadlineAt ? new Date(input.deadlineAt) : null;
   const id = newId(PREFIX.GOAL);
-  await pool.query(
-    `INSERT INTO goals (id, owner_id, project_id, title, objective, success_criteria, constraints, status, budget_usd, deadline_at, require_approval)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'DRAFT',$8,$9,$10)`,
-    [
-      id, userId, input.projectId ?? null, title, objective,
-      JSON.stringify(input.successCriteria ?? []), JSON.stringify(input.constraints ?? []),
-      budget, deadlineAt ? deadlineAt.toISOString() : null, input.requireApproval ?? true,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO goals (id, owner_id, project_id, title, objective, success_criteria, constraints, status, budget_usd, deadline_at, require_approval)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,'DRAFT',$8,$9,$10)`,
+      [
+        id, userId, input.projectId ?? null, title, objective,
+        JSON.stringify(input.successCriteria ?? []), JSON.stringify(input.constraints ?? []),
+        budget, deadlineAt ? deadlineAt.toISOString() : null, input.requireApproval ?? true,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.GOAL_CREATED,
@@ -343,7 +354,7 @@ export async function generateGoalPlan(userId: string, goalId: string): Promise<
   await savePlan(goal, plan, { source: planSource, agentsAssigned: assigned, conflicts: conflictNote ? 1 : 0 });
   if (conflictNote) {
     const blockers = [...goal.blockers, conflictNote];
-    await pool.query('UPDATE goals SET blockers = $2::jsonb WHERE id = $1', [goal.id, JSON.stringify(blockers)]);
+    await withTenant(userId, (q) => q.query('UPDATE goals SET blockers = $2::jsonb WHERE id = $1', [goal.id, JSON.stringify(blockers)]));
   }
 
   const estimate: number | null = null; // provider-gated cost estimation (null when unavailable)
@@ -455,7 +466,7 @@ export async function startGoal(userId: string, goalId: string): Promise<GoalRow
         estimatedBudgetUsd: goal.budget_usd,
       },
     });
-    await pool.query('UPDATE goals SET approval_id = $2, status = $3, updated_at = now() WHERE id = $1', [goal.id, approval.id, 'WAITING_FOR_APPROVAL']);
+    await withTenant(userId, (q) => q.query('UPDATE goals SET approval_id = $2, status = $3, updated_at = now() WHERE id = $1', [goal.id, approval.id, 'WAITING_FOR_APPROVAL']));
     await logActivity(goal.id, userId, 'approval_requested', { approvalId: approval.id });
     await notify(userId, NotificationType.AGENT_APPROVAL_REQUIRED, `Goal approval required: ${goal.title}`, {
       body: `Goal "${goal.title}" is ready to execute and needs your approval.`,
@@ -510,11 +521,11 @@ async function runEntry(goal: GoalRow, entry: PlanEntry): Promise<void> {
     subtasks: [{ title: entry.title, description: entry.description ?? goal.objective }],
     requireApproval: false,
   });
-  const task = await queryMany<{ id: string }>('SELECT id FROM tasks WHERE agent_run_id = $1 ORDER BY created_at LIMIT 1', [run.id]);
+  const task = await withTenant<{ rows: { id: string }[] }>(goal.owner_id, (q) => q.query<{ id: string }>('SELECT id FROM tasks WHERE agent_run_id = $1 ORDER BY created_at LIMIT 1', [run.id]));
   entry.status = 'RUNNING';
   entry.runId = run.id;
-  entry.taskIds = task.map((t) => t.id);
-  await pool.query(`UPDATE tasks SET goal_id = $2 WHERE agent_run_id = $1`, [run.id, goal.id]);
+  entry.taskIds = task.rows.map((t) => t.id);
+  await withTenant(goal.owner_id, (q) => q.query(`UPDATE tasks SET goal_id = $2 WHERE agent_run_id = $1`, [run.id, goal.id]));
   await savePlan(goal, goal.plan);
 }
 
@@ -557,10 +568,12 @@ export async function refreshGoal(userId: string, goalId: string): Promise<GoalR
   // Fold terminal agent-run states onto running entries.
   for (const entry of goal.plan) {
     if (entry.status === 'RUNNING' && entry.runId) {
-      const run = await queryMany<{ status: string; error: string | null; spent_usd: number | null }>(
-        'SELECT status, error, spent_usd FROM ai_agent_runs WHERE id = $1', [entry.runId],
+      const run = await withTenant<{ rows: { status: string; error: string | null; spent_usd: number | null }[] }>(goal.owner_id, (q) =>
+        q.query<{ status: string; error: string | null; spent_usd: number | null }>(
+          'SELECT status, error, spent_usd FROM ai_agent_runs WHERE id = $1', [entry.runId],
+        ),
       );
-      const st = run[0]?.status;
+      const st = run.rows[0]?.status;
       if (st === 'COMPLETED') {
         entry.status = 'COMPLETED';
         entry.error = null;
@@ -574,18 +587,20 @@ export async function refreshGoal(userId: string, goalId: string): Promise<GoalR
         });
       } else if (st === 'FAILED' || st === 'BLOCKED') {
         entry.status = st === 'BLOCKED' ? 'BLOCKED' : 'FAILED';
-        entry.error = run[0]?.error ?? st;
+        entry.error = run.rows[0]?.error ?? st;
       }
     }
   }
 
   // Spent budget from live runs (real, from the engine).
   const runIds = goal.plan.filter((e) => e.runId).map((e) => e.runId!) as string[];
-  const spent = await queryMany<{ total: number | null }>(
-    `SELECT COALESCE(SUM(spent_usd), 0)::numeric AS total FROM ai_agent_runs WHERE owner_id = $1 AND id = ANY($2::text[])`,
-    [goal.owner_id, runIds.length ? runIds : ['__none__']],
+  const spent = await withTenant<{ rows: { total: number | null }[] }>(goal.owner_id, (q) =>
+    q.query<{ total: number | null }>(
+      `SELECT COALESCE(SUM(spent_usd), 0)::numeric AS total FROM ai_agent_runs WHERE owner_id = $1 AND id = ANY($2::text[])`,
+      [goal.owner_id, runIds.length ? runIds : ['__none__']],
+    ),
   );
-  const spentUsd = Number(spent[0]?.total ?? 0);
+  const spentUsd = Number(spent.rows[0]?.total ?? 0);
 
   const totalEntries = goal.plan.length;
   const completed = goal.plan.filter((e) => e.status === 'COMPLETED').length;
@@ -597,15 +612,17 @@ export async function refreshGoal(userId: string, goalId: string): Promise<GoalR
     ? Math.round((completed / totalEntries) * 100)
     : 0;
 
-  const taskTotals = await queryMany<{ total: number; completed: number; running: number; failed: number; blocked: number; pending: number }>(
-    `SELECT COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
-            COUNT(*) FILTER (WHERE status IN ('RUNNING','THINKING','TESTING','VERIFIED'))::int AS running,
-            COUNT(*) FILTER (WHERE status IN ('FAILED','TIMED_OUT'))::int AS failed,
-            COUNT(*) FILTER (WHERE status IN ('BLOCKED','REQUIRES_REVIEW','WAITING_FOR_LOCAL_AGENT'))::int AS blocked,
-            COUNT(*) FILTER (WHERE status IN ('CREATED','PLANNED','CHANGED','WAITING_APPROVAL'))::int AS pending
-     FROM tasks WHERE owner_id = $1 AND goal_id = $2`,
-    [goal.owner_id, goal.id],
+  const taskTotals = await withTenant<{ rows: { total: number; completed: number; running: number; failed: number; blocked: number; pending: number }[] }>(goal.owner_id, (q) =>
+    q.query<{ total: number; completed: number; running: number; failed: number; blocked: number; pending: number }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'COMPLETED')::int AS completed,
+              COUNT(*) FILTER (WHERE status IN ('RUNNING','THINKING','TESTING','VERIFIED'))::int AS running,
+              COUNT(*) FILTER (WHERE status IN ('FAILED','TIMED_OUT'))::int AS failed,
+              COUNT(*) FILTER (WHERE status IN ('BLOCKED','REQUIRES_REVIEW','WAITING_FOR_LOCAL_AGENT'))::int AS blocked,
+              COUNT(*) FILTER (WHERE status IN ('CREATED','PLANNED','CHANGED','WAITING_APPROVAL'))::int AS pending
+       FROM tasks WHERE owner_id = $1 AND goal_id = $2`,
+      [goal.owner_id, goal.id],
+    ),
   );
 
   const progress: Record<string, unknown> = {
@@ -616,7 +633,7 @@ export async function refreshGoal(userId: string, goalId: string): Promise<GoalR
     runningEntries: running,
     pendingEntries: pending,
     percent,
-    taskTotals: taskTotals[0] ?? { total: 0, completed: 0, running: 0, failed: 0, blocked: 0, pending: 0 },
+    taskTotals: taskTotals.rows[0] ?? { total: 0, completed: 0, running: 0, failed: 0, blocked: 0, pending: 0 },
     updatedAt: new Date().toISOString(),
   };
 
@@ -670,20 +687,24 @@ export async function refreshGoal(userId: string, goalId: string): Promise<GoalR
 
   const fresh = await getOwnedGoal(userId, goal.id);
   if (fresh.status === 'BLOCKED') {
-    const open = await queryMany<{ id: string }>(
-      `SELECT id FROM escalations WHERE goal_id = $1 AND status = 'OPEN' LIMIT 1`, [goal.id],
+    const open = await withTenant<{ rows: { id: string }[] }>(goal.owner_id, (q) =>
+      q.query<{ id: string }>(
+        `SELECT id FROM escalations WHERE goal_id = $1 AND status = 'OPEN' LIMIT 1`, [goal.id],
+      ),
     );
-    if (!open[0]) await autoEscalate(goal);
+    if (!open.rows[0]) await autoEscalate(goal);
   }
-  await pool.query('UPDATE goals SET progress = $2::jsonb, spent_usd = $3, updated_at = now() WHERE id = $1', [goal.id, JSON.stringify(progress), spentUsd]);
+  await withTenant(goal.owner_id, (q) => q.query('UPDATE goals SET progress = $2::jsonb, spent_usd = $3, updated_at = now() WHERE id = $1', [goal.id, JSON.stringify(progress), spentUsd]));
   return getOwnedGoal(userId, goal.id);
 }
 
 async function feedMemory(goal: GoalRow): Promise<void> {
-  const existing = await queryMany<{ id: string }>(
-    `SELECT id FROM goal_activities WHERE goal_id = $1 AND event = 'memory_fed' LIMIT 1`, [goal.id],
+  const existing = await withTenant<{ rows: { id: string }[] }>(goal.owner_id, (q) =>
+    q.query<{ id: string }>(
+      `SELECT id FROM goal_activities WHERE goal_id = $1 AND event = 'memory_fed' LIMIT 1`, [goal.id],
+    ),
   );
-  if (existing[0]) return;
+  if (existing.rows[0]) return;
   try {
     await createMemory(goal.owner_id, {
       projectId: goal.project_id ?? undefined,
@@ -790,11 +811,13 @@ export async function listEscalations(userId: string, status?: string): Promise<
     params.push(status);
     clause = `AND status = $${params.length}`;
   }
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM escalations WHERE owner_id = $1 ${clause} ORDER BY (status = 'OPEN') DESC, created_at DESC LIMIT 100`,
-    params,
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, (q) =>
+    q.query<Record<string, unknown>>(
+      `SELECT * FROM escalations WHERE owner_id = $1 ${clause} ORDER BY (status = 'OPEN') DESC, created_at DESC LIMIT 100`,
+      params,
+    ),
   );
-  return rows.map(mapEscalation);
+  return rows.rows.map(mapEscalation);
 }
 
 async function autoEscalate(goal: GoalRow): Promise<void> {
@@ -832,17 +855,21 @@ export async function createEscalation(userId: string, input: {
 }): Promise<EscalationRow> {
   if (!input.goalId && !input.scheduleId) throw AppError.badRequest('escalation_target_required', 'A goal or schedule must be escalated');
   if (!input.issue.trim()) throw AppError.badRequest('issue_required', 'issue is required');
-  const id = newId(PREFIX.ESCALATION);
   const risk = input.risk ?? 'MEDIUM';
   if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(risk)) throw AppError.badRequest('invalid_risk', 'Invalid risk level');
-  await pool.query(
-    `INSERT INTO escalations (id, owner_id, goal_id, schedule_id, issue, evidence, attempted_actions, options, recommendation, risk, status)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,'OPEN')`,
-    [
-      id, userId, input.goalId ?? null, input.scheduleId ?? null, input.issue,
-      JSON.stringify(input.evidence ?? []), JSON.stringify(input.attemptedActions ?? []),
-      JSON.stringify(input.options ?? []), input.recommendation ?? null, risk,
-    ],
+  if (input.goalId) await getOwnedGoal(userId, input.goalId);
+  if (input.scheduleId) await getSchedule(userId, input.scheduleId);
+  const id = newId(PREFIX.ESCALATION);
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO escalations (id, owner_id, goal_id, schedule_id, issue, evidence, attempted_actions, options, recommendation, risk, status)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,'OPEN')`,
+      [
+        id, userId, input.goalId ?? null, input.scheduleId ?? null, input.issue,
+        JSON.stringify(input.evidence ?? []), JSON.stringify(input.attemptedActions ?? []),
+        JSON.stringify(input.options ?? []), input.recommendation ?? null, risk,
+      ],
+    ),
   );
   await recordAudit({
     action: AuditAction.GOAL_ESCALATED,
@@ -857,9 +884,9 @@ export async function createEscalation(userId: string, input: {
 }
 
 export async function getEscalation(userId: string, escalationId: string): Promise<EscalationRow> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM escalations WHERE id = $1 AND owner_id = $2', [escalationId, userId]);
-  if (!rows[0]) throw AppError.notFound('Escalation');
-  return mapEscalation(rows[0]);
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, (q) => q.query<Record<string, unknown>>('SELECT * FROM escalations WHERE id = $1 AND owner_id = $2', [escalationId, userId]));
+  if (!rows.rows[0]) throw AppError.notFound('Escalation');
+  return mapEscalation(rows.rows[0]);
 }
 
 export async function decideEscalation(userId: string, escalationId: string, decision: 'APPROVE' | 'REJECT' | 'EDIT_PLAN' | 'RETRY' | 'PAUSE' | 'CANCEL', note?: string): Promise<EscalationRow> {
@@ -867,9 +894,11 @@ export async function decideEscalation(userId: string, escalationId: string, dec
   if (escalation.status !== 'OPEN') throw AppError.conflict('escalation_not_open', 'Escalation is not open');
   const valid = ['APPROVE', 'REJECT', 'EDIT_PLAN', 'RETRY', 'PAUSE', 'CANCEL'];
   if (!valid.includes(decision)) throw AppError.badRequest('invalid_decision', 'Invalid decision');
-  await pool.query(
-    `UPDATE escalations SET status = 'RESOLVED', user_decision = $2, decision_note = $3, resolved_at = now() WHERE id = $1 AND owner_id = $4`,
-    [escalation.id, decision, note ?? null, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE escalations SET status = 'RESOLVED', user_decision = $2, decision_note = $3, resolved_at = now() WHERE id = $1 AND owner_id = $4`,
+      [escalation.id, decision, note ?? null, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.GOAL_ESCALATION_DECIDED,

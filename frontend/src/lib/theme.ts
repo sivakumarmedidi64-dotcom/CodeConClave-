@@ -14,9 +14,9 @@ export function isTheme(v: unknown): v is Theme {
   return v === 'light' || v === 'dark';
 }
 
-/** Current applied theme, defaulting to light before any server response. */
+/** Current applied theme, defaulting to the premium dark identity. */
 export function currentTheme(): Theme {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 }
 
 /**

@@ -8,25 +8,25 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const levelRank: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-/** Errors are buffered (message + traceId only) for the diagnostics API. */
-function bufferError(message: string, traceId: string | null): void {
+/** Errors are buffered (message + correlationId only) for the diagnostics API. */
+function bufferError(message: string, correlationId: string | null): void {
   try {
     const { bufferError: push } = require('../observability/error-buffer.js') as {
-      bufferError: (msg: string, traceId: string | null) => void;
+      bufferError: (msg: string, correlationId: string | null) => void;
     };
-    push(message, traceId);
+    push(message, correlationId);
   } catch {
     /* buffering must never break logging */
   }
 }
 
 class Logger {
-  private traceId: string | null = null;
+  private correlationId: string | null = null;
   private readonly threshold = levelRank[env.LOG_LEVEL] ?? 20;
 
-  withTrace(traceId: string | null): Logger {
+  withCorrelation(correlationId: string | null): Logger {
     const child = new Logger();
-    child.traceId = traceId;
+    child.correlationId = correlationId;
     return child;
   }
 
@@ -36,7 +36,7 @@ class Logger {
       t: new Date().toISOString(),
       level,
       msg: message,
-      traceId: this.traceId ?? undefined,
+      correlationId: this.correlationId ?? undefined,
       ...fields,
     });
     if (level === 'error') console.error(line);
@@ -55,7 +55,7 @@ class Logger {
   }
   error(message: string, fields?: Record<string, unknown>): void {
     this.emit('error', message, fields);
-    bufferError(message, this.traceId);
+    bufferError(message, this.correlationId);
   }
 }
 

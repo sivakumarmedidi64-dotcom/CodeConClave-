@@ -9,8 +9,12 @@
  * Screenshots/OCR are evidence inputs — confidence is computed server-side
  * from normalized signals and the thresholds used are stored on the intent
  * (auditable). Fraud-blocked evidence forces REVIEW, never ACTIVE.
+ *
+ * All queries run on tenant-scoped clients obtained from `withTenant(userId,
+ * ...)`; the intent/entitlement rows are owned by that principal. External
+ * rails (audit, notify, entitlement authority) run outside the callbacks.
  */
-import { pool, queryOne } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
@@ -25,6 +29,11 @@ export interface AppliedDecision {
   intent: PaymentIntentRow;
   transitioned: boolean;
   reason: string;
+}
+
+async function readIntent(q: { query: <T>(t: string, p?: unknown[]) => Promise<{ rows: T[] }> }, intentId: string): Promise<PaymentIntentRow | null> {
+  const rows = await q.query<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intentId]);
+  return rows.rows[0] ?? null;
 }
 
 /**
@@ -50,22 +59,26 @@ export async function applyDecision(
   const fraudFlags = [...(intent.fraud_flags ?? []), ...fraud.flags];
   const thresholds = match.thresholds;
 
-  await pool.query(
-    `UPDATE payment_intents
-        SET confidence = $2, decision = $3, thresholds_used = $4::jsonb, fraud_flags = $5::jsonb, updated_at = now()
-      WHERE id = $1`,
-    [intent.id, match.confidence, match.decision, JSON.stringify(thresholds), JSON.stringify(fraudFlags)],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE payment_intents
+          SET confidence = $2, decision = $3, thresholds_used = $4::jsonb, fraud_flags = $5::jsonb, updated_at = now()
+        WHERE id = $1`,
+      [intent.id, match.confidence, match.decision, JSON.stringify(thresholds), JSON.stringify(fraudFlags)],
+    );
+  });
 
   if (fraud.blocked || match.decision === 'REVIEW') {
     const blocked = fraud.blocked;
     const next: 'REVIEW' = 'REVIEW';
-    const updated = await pool.query(
-      `UPDATE payment_intents
-          SET status = $2, updated_at = now()
-        WHERE id = $1 AND status IN ('PENDING','REVIEW')
-        RETURNING *`,
-      [intent.id, next],
+    const updated = await withTenant(userId, async (q) =>
+      q.query(
+        `UPDATE payment_intents
+            SET status = $2, updated_at = now()
+          WHERE id = $1 AND status IN ('PENDING','REVIEW')
+          RETURNING *`,
+        [intent.id, next],
+      ),
     );
     await recordAudit({
       action: blocked ? 'payment.fraud_flagged' : 'payment.review_required',
@@ -90,7 +103,7 @@ export async function applyDecision(
       metadata: { confidence: match.confidence, flags: fraudFlags },
       email: blocked,
     });
-    const row = await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]);
+    const row = await withTenant(userId, (q) => readIntent(q, intent.id));
     return { intent: row!, transitioned: (updated.rowCount ?? 0) > 0, reason: blocked ? 'fraud_blocked' : 'review_required' };
   }
 
@@ -104,23 +117,39 @@ export async function applyDecision(
       resourceId: intent.id,
       detail: { confidence: match.confidence, decision: 'PENDING', thresholds },
     });
-    const row = await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]);
+    const row = await withTenant(userId, (q) => readIntent(q, intent.id));
     return { intent: row!, transitioned: false, reason: 'insufficient_confidence' };
   }
 
   // ACTIVE — exactly-once transition; the conditional UPDATE is the race guard.
-  const updated = await pool.query(
-    `UPDATE payment_intents
-        SET status = 'ACTIVE', activated_at = now(), updated_at = now()
-      WHERE id = $1 AND status IN ('PENDING','REVIEW')
-      RETURNING *`,
-    [intent.id],
+  const updated = await withTenant(userId, async (q) =>
+    q.query(
+      `UPDATE payment_intents
+          SET status = 'ACTIVE', activated_at = now(), updated_at = now()
+        WHERE id = $1 AND status IN ('PENDING','REVIEW')
+        RETURNING *`,
+      [intent.id],
+    ),
   );
   if (updated.rowCount === 0) {
     // Lost the race: another activation already won. Never double-activate.
-    const row = await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]);
+    const row = await withTenant(userId, (q) => readIntent(q, intent.id));
     return { intent: row!, transitioned: false, reason: 'race_lost_already_active' };
   }
+
+  // Static payment-link purchases never create a payment_sessions row. The
+  // entitlement grant anchors on intent.id (FK into payment_sessions), and the
+  // refund/chargeback guards compare against that anchor — so materialize the
+  // intent's authoritative session now (idempotent) before activating.
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO payment_sessions
+         (id, user_id, plan_id, amount_inr, currency, mode, state, reference, expires_at, tenant_id)
+       VALUES ($1,$2,$3,$4,'INR','PAYMENT_LINK','VERIFIED',$5,$6,$7)
+       ON CONFLICT (id) DO NOTHING`,
+      [intent.id, intent.owner_id, intent.plan_id, intent.amount_inr, intent.reference, intent.expires_at, intent.owner_id],
+    );
+  });
 
   await activateEntitlement(userId, intent.plan_id, intent.id);
   await recordAudit({
@@ -139,15 +168,19 @@ export async function applyDecision(
     metadata: { plan: intent.plan_id, confidence: match.confidence, reference: intent.reference },
     email: true,
   });
-  const row = await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]);
+  const row = await withTenant(userId, (q) => readIntent(q, intent.id));
   return { intent: row!, transitioned: true, reason: 'activated' };
 }
 
 /** Expire a plan after its grace period (watchdog path). */
 export async function revokeExpiredEntitlement(userId: string, planId: string, reason: string): Promise<void> {
-  const entitlement = await queryOne<{ id: string; state: string }>(
-    'SELECT id, state FROM entitlements WHERE user_id = $1 AND plan_id = $2',
-    [userId, planId],
+  const entitlement = await withTenant(userId, async (q) =>
+    (
+      await q.query<{ id: string; state: string }>(
+        'SELECT id, state FROM entitlements WHERE user_id = $1 AND plan_id = $2',
+        [userId, planId],
+      )
+    ).rows[0],
   );
   if (!entitlement || entitlement.state !== 'PRO_VERIFIED') return;
   await revokeEntitlement(userId, planId, reason);
@@ -165,17 +198,19 @@ export async function revokeExpiredEntitlement(userId: string, planId: string, r
 /** Refund an ACTIVE (or GRACE) intent: entitlement -> PRO_REFUNDED, plan -> free. */
 export async function refundIntent(userId: string, intentId: string, reason: string): Promise<PaymentIntentRow> {
   const intent = await getMatchableForAction(userId, intentId, ['ACTIVE', 'GRACE']);
-  await pool.query(
-    `UPDATE payment_intents SET status = 'REFUNDED', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE')`,
-    [intent.id],
-  );
-  await pool.query(
-    `INSERT INTO entitlements (id, user_id, plan_id, state, reason)
-     VALUES ($1,$2,$3,'PRO_REFUNDED',$4)
-     ON CONFLICT (user_id, plan_id) DO UPDATE SET state = 'PRO_REFUNDED', reason = EXCLUDED.reason`,
-    [newId(PREFIX.ENTITLEMENT), userId, intent.plan_id, `refunded: ${reason}`],
-  );
-  await pool.query(`UPDATE users SET plan_id = 'free' WHERE id = $1 AND plan_id = $2`, [userId, intent.plan_id]);
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE payment_intents SET status = 'REFUNDED', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE')`,
+      [intent.id],
+    );
+    await q.query(
+      `INSERT INTO entitlements (id, user_id, plan_id, state, reason)
+       VALUES ($1,$2,$3,'PRO_REFUNDED',$4)
+       ON CONFLICT (user_id, plan_id) DO UPDATE SET state = 'PRO_REFUNDED', reason = EXCLUDED.reason`,
+      [newId(PREFIX.ENTITLEMENT), userId, intent.plan_id, `refunded: ${reason}`],
+    );
+    await q.query(`UPDATE users SET plan_id = 'free' WHERE id = $1 AND plan_id = $2`, [userId, intent.plan_id]);
+  });
   await recordAudit({
     action: 'payment.refunded',
     actorUserId: userId,
@@ -192,16 +227,18 @@ export async function refundIntent(userId: string, intentId: string, reason: str
     metadata: { plan: intent.plan_id, reason },
     email: true,
   });
-  return (await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]))!;
+  return (await withTenant(userId, (q) => readIntent(q, intent.id)))!;
 }
 
 /** Revoke an ACTIVE (or GRACE) intent: entitlement -> REVOKED, plan -> free. */
 export async function revokeIntent(userId: string, intentId: string, reason: string): Promise<PaymentIntentRow> {
   const intent = await getMatchableForAction(userId, intentId, ['ACTIVE', 'GRACE']);
-  await pool.query(
-    `UPDATE payment_intents SET status = 'REVOKED', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE')`,
-    [intent.id],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE payment_intents SET status = 'REVOKED', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE')`,
+      [intent.id],
+    );
+  });
   await revokeEntitlement(userId, intent.plan_id, `revoked: ${reason}`);
   await recordAudit({
     action: 'payment.revoked',
@@ -219,7 +256,7 @@ export async function revokeIntent(userId: string, intentId: string, reason: str
     metadata: { plan: intent.plan_id, reason },
     email: true,
   });
-  return (await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]))!;
+  return (await withTenant(userId, (q) => readIntent(q, intent.id)))!;
 }
 
 /**
@@ -228,17 +265,23 @@ export async function revokeIntent(userId: string, intentId: string, reason: str
  */
 export async function chargebackIntent(userId: string, intentId: string, reason: string): Promise<PaymentIntentRow> {
   const intent = await getMatchableForAction(userId, intentId, ['ACTIVE', 'GRACE', 'REVIEW', 'PENDING']);
-  const evidence = await queryOne<{ id: string }>(
-    `SELECT id FROM payment_evidence WHERE intent_id = $1 AND provider_payment_id IS NOT NULL`,
-    [intent.id],
+  const evidence = await withTenant(userId, async (q) =>
+    (
+      await q.query<{ id: string }>(
+        `SELECT id FROM payment_evidence WHERE intent_id = $1 AND provider_payment_id IS NOT NULL`,
+        [intent.id],
+      )
+    ).rows[0],
   );
   if (!evidence) {
     throw AppError.conflict('chargeback_no_evidence', 'Chargeback requires provider evidence with a payment id on this intent');
   }
-  await pool.query(
-    `UPDATE payment_intents SET status = 'CHARGEBACK', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE','REVIEW','PENDING')`,
-    [intent.id],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE payment_intents SET status = 'CHARGEBACK', updated_at = now() WHERE id = $1 AND status IN ('ACTIVE','GRACE','REVIEW','PENDING')`,
+      [intent.id],
+    );
+  });
   if (intent.status === 'ACTIVE' || intent.status === 'GRACE') {
     await revokeEntitlement(userId, intent.plan_id, `chargeback: ${reason}`);
   }
@@ -258,7 +301,7 @@ export async function chargebackIntent(userId: string, intentId: string, reason:
     metadata: { plan: intent.plan_id, reason },
     email: true,
   });
-  return (await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [intent.id]))!;
+  return (await withTenant(userId, (q) => readIntent(q, intent.id)))!;
 }
 
 async function getMatchableForAction(
@@ -266,10 +309,13 @@ async function getMatchableForAction(
   intentId: string,
   allowed: string[],
 ): Promise<PaymentIntentRow> {
-  const intent = await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1 AND owner_id = $2', [
-    intentId,
-    userId,
-  ]);
+  const intent = await withTenant(userId, async (q) => {
+    const rows = await q.query<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1 AND owner_id = $2', [
+      intentId,
+      userId,
+    ]);
+    return rows.rows[0] ?? null;
+  });
   if (!intent) throw AppError.notFound('Payment intent');
   if (!allowed.includes(intent.status)) {
     throw AppError.conflict('intent_not_actionable', `Intent is ${intent.status.toLowerCase()}; action not allowed`);

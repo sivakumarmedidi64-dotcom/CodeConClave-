@@ -5,10 +5,11 @@
  * Channel eligibility (in-app / email / push / digests / DND / quiet hours)
  * is derived from persisted notification_preferences — never the client.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { NotificationPreferenceKey, NotificationType, AuditAction } from '@codeconclave/shared';
+import { wrapEmailHtml } from '../email/brand.js';
 import { recordAudit } from '../audit/service.js';
 import { enqueueOutbox } from '../outbox/service.js';
 
@@ -82,9 +83,10 @@ export interface NotificationPreferences {
 }
 
 export async function getNotificationPreferences(userId: string): Promise<NotificationPreferences> {
-  const rows = await queryMany<{ prefs: NotificationPreferences }>(
-    'SELECT prefs FROM notification_preferences WHERE owner_id = $1',
-    [userId],
+  const rows = await withTenant<Array<{ prefs: NotificationPreferences }>>(userId, (db) =>
+    db
+      .query<{ prefs: NotificationPreferences }>('SELECT prefs FROM notification_preferences WHERE owner_id = $1', [userId])
+      .then((r) => r.rows),
   );
   return rows[0]?.prefs ?? {};
 }
@@ -92,9 +94,13 @@ export async function getNotificationPreferences(userId: string): Promise<Notifi
 export async function getNotificationPreferencesDetailed(
   userId: string,
 ): Promise<{ prefs: NotificationPreferences; version: number; updatedAt: Date } | null> {
-  const rows = await queryMany<{ prefs: NotificationPreferences; version: number; updated_at: Date }>(
-    'SELECT prefs, version, updated_at FROM notification_preferences WHERE owner_id = $1',
-    [userId],
+  const rows = await withTenant<Array<{ prefs: NotificationPreferences; version: number; updated_at: Date }>>(userId, (db) =>
+    db
+      .query<{ prefs: NotificationPreferences; version: number; updated_at: Date }>(
+        'SELECT prefs, version, updated_at FROM notification_preferences WHERE owner_id = $1',
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) return null;
   return { prefs: rows[0].prefs, version: rows[0].version, updatedAt: rows[0].updated_at };
@@ -112,11 +118,13 @@ export async function updateNotificationPreferences(
     });
   }
   const merged: NotificationPreferences = { ...(current?.prefs ?? {}), ...prefs };
-  await pool.query(
-    `INSERT INTO notification_preferences (id, owner_id, prefs, version) VALUES ($1,$2,$3::jsonb, 1)
-     ON CONFLICT (owner_id) DO UPDATE
-       SET prefs = EXCLUDED.prefs, version = notification_preferences.version + 1, updated_at = now()`,
-    [newId(PREFIX.PREFERENCE), userId, JSON.stringify(merged)],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO notification_preferences (id, owner_id, prefs, version) VALUES ($1,$2,$3::jsonb, 1)
+       ON CONFLICT (owner_id) DO UPDATE
+         SET prefs = EXCLUDED.prefs, version = notification_preferences.version + 1, updated_at = now()`,
+      [newId(PREFIX.PREFERENCE), userId, JSON.stringify(merged)],
+    ),
   );
   await recordAudit({
     action: AuditAction.NOTIFICATION_PREFERENCE_UPDATED,
@@ -184,11 +192,15 @@ export async function channelEligibility(userId: string, now = new Date()): Prom
 export async function createNotification(input: NotifyInput): Promise<NotificationRow> {
   const id = newId(PREFIX.NOTIFICATION);
   const { recipientId, type, title, body, resourceType, resourceId, metadata, expiresAt } = input;
-  const rows = await queryMany<NotificationRow>(
-    `INSERT INTO notifications (id, recipient_id, type, title, body, metadata, resource_type, resource_id, expires_at)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
-     RETURNING *`,
-    [id, recipientId, type, title, body ?? null, JSON.stringify(metadata ?? {}), resourceType ?? null, resourceId ?? null, expiresAt ?? null],
+  const rows = await withTenant<NotificationRow[]>(recipientId, (db) =>
+    db
+      .query<NotificationRow>(
+        `INSERT INTO notifications (id, recipient_id, type, title, body, metadata, resource_type, resource_id, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
+         RETURNING *`,
+        [id, recipientId, type, title, body ?? null, JSON.stringify(metadata ?? {}), resourceType ?? null, resourceId ?? null, expiresAt ?? null],
+      )
+      .then((r) => r.rows),
   );
   const row = rows[0] as NotificationRow;
   await recordAudit({
@@ -219,28 +231,40 @@ export async function listNotifications(userId: string, filters: NotificationLis
   }
   const limit = Math.min(filters.limit ?? 50, 100);
   params.push(limit);
-  return queryMany<NotificationRow>(
-    `SELECT * FROM notifications WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT $${params.length}`,
-    params,
+  return withTenant<NotificationRow[]>(userId, (db) =>
+    db
+      .query<NotificationRow>(
+        `SELECT * FROM notifications WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT $${params.length}`,
+        params,
+      )
+      .then((r) => r.rows),
   );
 }
 
 export async function unreadNotificationCount(userId: string): Promise<number> {
-  const rows = await queryMany<{ n: number }>(
-    `SELECT count(*)::int AS n FROM notifications
-     WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false
-       AND (expires_at IS NULL OR expires_at > now())`,
-    [userId],
+  const rows = await withTenant<Array<{ n: number }>>(userId, (db) =>
+    db
+      .query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM notifications
+         WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false
+           AND (expires_at IS NULL OR expires_at > now())`,
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   return rows[0]?.n ?? 0;
 }
 
 export async function markNotificationRead(userId: string, notificationId: string): Promise<NotificationRow> {
-  const rows = await queryMany<NotificationRow>(
-    `UPDATE notifications SET read = true, read_at = now()
-     WHERE id = $1 AND recipient_id = $2 AND deleted_at IS NULL
-     RETURNING *`,
-    [notificationId, userId],
+  const rows = await withTenant<NotificationRow[]>(userId, (db) =>
+    db
+      .query<NotificationRow>(
+        `UPDATE notifications SET read = true, read_at = now()
+         WHERE id = $1 AND recipient_id = $2 AND deleted_at IS NULL
+         RETURNING *`,
+        [notificationId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Notification');
   await recordAudit({
@@ -255,10 +279,12 @@ export async function markNotificationRead(userId: string, notificationId: strin
 }
 
 export async function markAllNotificationsRead(userId: string): Promise<number> {
-  const result = await pool.query(
-    `UPDATE notifications SET read = true, read_at = now()
-     WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false`,
-    [userId],
+  const result = await withTenant(userId, (db) =>
+    db.query(
+      `UPDATE notifications SET read = true, read_at = now()
+       WHERE recipient_id = $1 AND deleted_at IS NULL AND read = false`,
+      [userId],
+    ),
   );
   if ((result.rowCount ?? 0) > 0) {
     await recordAudit({
@@ -272,10 +298,12 @@ export async function markAllNotificationsRead(userId: string): Promise<number> 
 }
 
 export async function deleteNotification(userId: string, notificationId: string): Promise<void> {
-  const result = await pool.query(
-    `UPDATE notifications SET deleted_at = now()
-     WHERE id = $1 AND recipient_id = $2 AND deleted_at IS NULL`,
-    [notificationId, userId],
+  const result = await withTenant(userId, (db) =>
+    db.query(
+      `UPDATE notifications SET deleted_at = now()
+       WHERE id = $1 AND recipient_id = $2 AND deleted_at IS NULL`,
+      [notificationId, userId],
+    ),
   );
   if ((result.rowCount ?? 0) === 0) throw AppError.notFound('Notification');
   await recordAudit({
@@ -304,7 +332,7 @@ export async function notifyUser(input: NotifyInput): Promise<void> {
       to: input.recipientId,
       userId: input.recipientId,
       subject: input.title,
-      html: `<p>${escapeHtml(input.body ?? input.title)}</p>`,
+      html: wrapEmailHtml(input.title, `<p>${escapeHtml(input.body ?? input.title)}</p>`),
       data: { userId: input.recipientId, type: input.type },
     });
   }
@@ -325,18 +353,26 @@ export async function notify(
 /** While You Were Away: aggregate what changed since the user's last activity. */
 export async function returnToWorkSummary(userId: string, sinceMs: number): Promise<Record<string, unknown>> {
   const since = new Date(sinceMs).toISOString();
-  const [tasks, approvals, notifications] = await Promise.all([
-    queryMany(
-      `SELECT id, title, status FROM tasks WHERE owner_id = $1 AND updated_at > $2 ORDER BY updated_at DESC LIMIT 10`,
-      [userId, since],
-    ),
-    queryMany(
-      `SELECT id, task_id, risk_level, detail, status FROM approvals
-        WHERE owner_id = $1 AND created_at > $2 ORDER BY created_at DESC LIMIT 10`,
-      [userId, since],
-    ),
-    listNotifications(userId, { limit: 20 }),
-  ]);
+  const [tasks, approvals, notifications] = await withTenant<
+    [Array<{ id: string; title: string; status: string }>, Array<{ id: string; task_id: string; risk_level: string; detail: unknown; status: string }>, NotificationRow[]]
+  >(userId, (db) =>
+    Promise.all([
+      db
+        .query<{ id: string; title: string; status: string }>(
+          `SELECT id, title, status FROM tasks WHERE owner_id = $1 AND updated_at > $2 ORDER BY updated_at DESC LIMIT 10`,
+          [userId, since],
+        )
+        .then((r) => r.rows),
+      db
+        .query<{ id: string; task_id: string; risk_level: string; detail: unknown; status: string }>(
+          `SELECT id, task_id, risk_level, detail, status FROM approvals
+            WHERE owner_id = $1 AND created_at > $2 ORDER BY created_at DESC LIMIT 10`,
+          [userId, since],
+        )
+        .then((r) => r.rows),
+      listNotifications(userId, { limit: 20 }),
+    ]),
+  );
   return {
     since: new Date(sinceMs).toISOString(),
     tasks: tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),

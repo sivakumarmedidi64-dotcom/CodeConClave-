@@ -1,0 +1,82 @@
+# CodeConClave backend — Render Free blueprint.
+# Mirrors the verified Railway production environment; values with `sync: false`
+# are preserved on next pushes after being set in the Render dashboard / API.
+# Same-origin: this single web Service hosts the SPA and the API (backend serves
+# frontend/dist); APP_URL/API_URL/CORS_ORIGINS must equal https://<service>.onrender.com.
+services:
+  - type: web
+    name: codeconclave-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/frontend
+    startCommand: npm run start --workspace @codeconclave/backend
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: CSP_ENABLED
+        value: "true"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: QUEUE_PROVIDER
+        value: redis
+      - key: DATABASE_SSL
+        value: "true"
+      - key: EMAIL_TRANSPORT
+        value: resend
+      - key: RESEND_ENABLED
+        value: "true"
+      - key: RAZORPAY_MODE
+        value: payment_link
+      - key: RAZORPAY_WEBHOOK_ENABLED
+        value: "true"
+      - key: AI_PROVIDERS_ENABLED
+        value: google,nemotron
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: INTERNAL_WEBHOOK_TOKEN
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET_LEGACY
+        sync: false
+      - key: RAZORPAY_API_PAYMENT_LINK
+        sync: false
+      - key: RAZORPAY_API_PAYMENT_LINK_ID
+        sync: false
+      - key: RAZORPAY_TEAM_PAYMENT_LINK
+        sync: false
+      - key: RAZORPAY_TEAM_PAYMENT_LINK_ID
+        sync: false
+      - key: RAZORPAY_PRO_PAYMENT_LINK
+        sync: false
+      - key: RAZORPAY_PRO_PAYMENT_LINK_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: PAYMENT_FOUNDER_EMAIL
+        sync: false
+      - key: UNLOCK_MODE
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false

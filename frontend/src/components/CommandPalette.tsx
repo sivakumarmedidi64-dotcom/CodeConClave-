@@ -1,6 +1,6 @@
 /**
  * CodeConClave — command palette (Cmd/Ctrl+K).
- * 16 static commands, every one performing a real action: navigate to a
+ * 19 static commands, every one performing a real action: navigate to a
  * workspace, open a real tab, or persist a real server preference. Dynamic
  * "Jump to project" items come from the live projects list.
  */
@@ -9,31 +9,36 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { currentTheme, persistTheme } from '../lib/theme';
 import type { Project } from '../lib/types';
+import { Icon } from './Icon';
+import type { IconName } from './Icon';
 
 interface PaletteItem {
   id: string;
-  icon: string;
+  icon: IconName;
   label: string;
   hint: string;
   keywords: string;
   run: () => void;
 }
 
-const NAV_COMMANDS: { id: string; icon: string; label: string; hint: string; keywords: string; to: string }[] = [
-  { id: 'new-chat', icon: '✦', label: 'New Chat', hint: 'Open the Chat workspace', keywords: 'chat message conversation', to: '/chat' },
-  { id: 'new-project', icon: '▣', label: 'New Project', hint: 'Open Projects and create', keywords: 'project create', to: '/projects?new=1' },
-  { id: 'open-project', icon: '▣', label: 'Open Project', hint: 'Open the Projects workspace', keywords: 'project', to: '/projects' },
-  { id: 'open-terminal', icon: '❯', label: 'Open Local Terminal', hint: 'Open the Local Terminal workspace', keywords: 'terminal shell agent', to: '/terminal' },
-  { id: 'load-dna', icon: '⚬', label: 'Load DNA', hint: 'Open the DNA workspace', keywords: 'dna knowledge load', to: '/dna' },
-  { id: 'search-files', icon: '▤', label: 'Search Files', hint: 'Open Files and search', keywords: 'file search', to: '/files' },
-  { id: 'search-memory', icon: '◈', label: 'Search Memory', hint: 'Open Memory and search', keywords: 'memory search', to: '/memory' },
-  { id: 'start-cowork', icon: '☷', label: 'Start Cowork', hint: 'Open Chat in Cowork mode', keywords: 'cowork brief task', to: '/chat?mode=cowork' },
-  { id: 'start-task', icon: '◉', label: 'Start 24/7 Task', hint: 'Open the 24/7 Work queue', keywords: 'task work dispatch', to: '/work' },
-  { id: 'open-approvals', icon: '✓', label: 'Open Approvals', hint: 'Review pending approvals', keywords: 'approve approval review', to: '/approvals' },
-  { id: 'open-billing', icon: '₹', label: 'Open Billing', hint: 'Manage your plan and payments', keywords: 'billing plan payment upgrade', to: '/settings?tab=billing' },
-  { id: 'open-plugins', icon: '⌬', label: 'Open Plugins', hint: 'Manage plugin connections', keywords: 'plugins connect github', to: '/plugins' },
-  { id: 'open-remote', icon: '⇄', label: 'Open Remote Control', hint: 'Pair and control local agents', keywords: 'remote agent control', to: '/remote' },
-  { id: 'open-settings', icon: '⚙', label: 'Open Settings', hint: 'Profile, security, devices', keywords: 'settings profile security', to: '/settings' },
+const NAV_COMMANDS: { id: string; icon: IconName; label: string; hint: string; keywords: string; to: string }[] = [
+  { id: 'new-chat', icon: 'chat', label: 'New Chat', hint: 'Open the Chat workspace', keywords: 'chat message conversation', to: '/chat' },
+  { id: 'new-project', icon: 'plus', label: 'New Project', hint: 'Open Projects and create', keywords: 'project create', to: '/projects?new=1' },
+  { id: 'open-project', icon: 'folder', label: 'Open Project', hint: 'Open the Projects workspace', keywords: 'project', to: '/projects' },
+  { id: 'open-terminal', icon: 'terminal', label: 'Open Terminal', hint: 'Open the Terminal workspace', keywords: 'terminal shell agent', to: '/terminal' },
+  { id: 'load-dna', icon: 'dna', label: 'Load DNA', hint: 'Open the DNA workspace', keywords: 'dna knowledge load', to: '/dna' },
+  { id: 'search-files', icon: 'search', label: 'Search Files', hint: 'Open Files and search', keywords: 'file search', to: '/files' },
+  { id: 'search-memory', icon: 'database', label: 'Search Memory', hint: 'Open Memory and search', keywords: 'memory search', to: '/memory' },
+  { id: 'start-cowork', icon: 'spark', label: 'Start Cowork', hint: 'Open Chat in Cowork mode', keywords: 'cowork brief task', to: '/chat?mode=cowork' },
+  { id: 'start-task', icon: 'chart', label: 'Start Task', hint: 'Open the Tasks queue', keywords: 'task work dispatch', to: '/work' },
+  { id: 'open-billing', icon: 'chart', label: 'Open Billing', hint: 'Manage your plan and payments', keywords: 'billing plan payment upgrade', to: '/settings?tab=billing' },
+  { id: 'open-apikeys', icon: 'key', label: 'Open API Keys', hint: 'Create and revoke API keys', keywords: 'api key token access', to: '/settings?tab=apikeys' },
+  { id: 'open-plugins', icon: 'puzzle', label: 'Open Plugins', hint: 'Manage plugin connections', keywords: 'plugins connect github', to: '/plugins' },
+  { id: 'open-remote', icon: 'external', label: 'Open Remote', hint: 'Pair and control local agents', keywords: 'remote agent control', to: '/remote' },
+{ id: 'open-intelligence', icon: 'chart', label: 'Open Intelligence', hint: 'Engineering, developer and security intelligence', keywords: 'intelligence engineering security refactor debt', to: '/intelligence' },
+{ id: 'open-production', icon: 'external', label: 'Open Production Intelligence', hint: 'Logs, errors, runbooks, monitoring and costs', keywords: 'production logs errors runbook monitoring cost budget', to: '/production' },
+{ id: 'open-deployment', icon: 'layers', label: 'Open Deployment Wizard', hint: 'Plan, approve and rollback deployments', keywords: 'deploy deployment wizard rollback strategy plan', to: '/deployment' },
+  { id: 'open-settings', icon: 'settings', label: 'Open Settings', hint: 'Profile, security, devices', keywords: 'settings profile security', to: '/settings' },
 ];
 
 export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void }) {
@@ -106,14 +111,14 @@ export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void })
   const items = useMemo<PaletteItem[]>(() => {
     const staticItems: PaletteItem[] = [
       ...NAV_COMMANDS.map((c) => ({ ...c, run: () => navigate(c.to) })),
-      { id: 'toggle-theme', icon: '◐', label: 'Toggle Theme', hint: 'Switch light/dark (saved on server)', keywords: 'theme dark light appearance', run: () => void toggleTheme() },
-      { id: 'focus-mode', icon: '▤', label: 'Toggle Focus Mode', hint: 'Collapse or expand the sidebar', keywords: 'focus sidebar collapse', run: onToggleFocus },
+      { id: 'toggle-theme', icon: 'sparkle', label: 'Toggle Theme', hint: 'Switch light/dark (saved on server)', keywords: 'theme dark light appearance', run: () => void toggleTheme() },
+      { id: 'focus-mode', icon: 'menu', label: 'Toggle Focus Mode', hint: 'Collapse or expand the sidebar', keywords: 'focus sidebar collapse', run: onToggleFocus },
     ];
     const q = query.trim().toLowerCase();
     const filtered = q ? staticItems.filter((i) => i.label.toLowerCase().includes(q) || i.keywords.includes(q)) : staticItems;
     const jump: PaletteItem[] = projects.map((p) => ({
       id: `jump-${p.id}`,
-      icon: '▣',
+      icon: 'folder',
       label: p.name,
       hint: 'Jump to project',
       keywords: 'project',
@@ -175,7 +180,7 @@ export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void })
               onClick={() => runAt(i)}
             >
               <span className="cc-palette__icon" aria-hidden="true">
-                {item.icon}
+                <Icon name={item.icon} size={14} />
               </span>
               <span style={{ flex: 1 }}>{item.label}</span>
               <span className="cc-palette__hint">{item.hint}</span>

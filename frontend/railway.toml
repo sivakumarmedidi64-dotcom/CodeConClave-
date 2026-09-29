@@ -1,0 +1,22 @@
+# CodeConClave frontend — config-as-code (Railway).
+# Strategy A: dedicated Docker build.
+# This file is the frontend service's OWN config-as-code (selected via the service's
+# railwayConfigFile = "/frontend/railway.toml"), so the repository-root railway.toml
+# (backend: builder="dockerfile", healthcheckPath="/healthz") does NOT apply to it.
+#
+# builder = "dockerfile" + dockerfilePath (relative to rootDirectory "/") tell Railway
+# to build frontend/Dockerfile with the repository root as the build context, instead
+# of auto-selecting the backend /Dockerfile.
+#
+# No startCommand here: the Dockerfile sets WORKDIR /app + CMD ["node",
+# "frontend/server.cjs"], which is authoritative and avoids any cwd ambiguity.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "frontend/Dockerfile"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10

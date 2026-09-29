@@ -36,6 +36,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_u: string, fn: (q: { query: typeof query }) => Promise<unknown> | unknown) => fn?.({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown> | unknown) => fn?.({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -198,6 +200,9 @@ function wireDb() {
       const stm = /AND status = \$(\d+)/.exec(text);
       if (stm) rows = rows.filter((r) => r.status === String(params[Number(stm[1]) - 1]));
       return rows;
+    }
+    if (text.includes('FROM scheduled_tasks') && text.includes('WHERE id = $1 AND owner_id = $2')) {
+      return T.scheduled_tasks.filter((r) => r.id === id(1) && r.owner_id === id(2));
     }
     if (text.includes('FROM projects')) {
       return T.projects.filter((r) => r.id === id(1) && r.owner_id === id(2) && r.deleted_at == null);
@@ -561,10 +566,34 @@ describe('escalations', () => {
     await expect(createEscalation('u1', { issue: 'x' })).rejects.toMatchObject({ errorCode: 'escalation_target_required' });
     await expect(createEscalation('u1', { goalId: 'gol-1', issue: '  ' })).rejects.toMatchObject({ errorCode: 'issue_required' });
     await expect(createEscalation('u1', { goalId: 'gol-1', issue: 'x', risk: 'HOT' })).rejects.toMatchObject({ errorCode: 'invalid_risk' });
+    seedGoal();
     const esc = await createEscalation('u1', { goalId: 'gol-1', issue: 'Agent crashed', risk: 'HIGH', recommendation: 'RETRY' });
     expect(esc.id).toMatch(/^esc_/);
     expect(esc.status).toBe('OPEN');
     expect(audit.recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'goal.escalated', detail: expect.objectContaining({ goalId: 'gol-1', risk: 'HIGH' }) }));
+  });
+
+  it('createEscalation rejects escalations targeting someone else\u2019s goal or schedule', async () => {
+    seedGoal(GOAL({ owner_id: 'u2' }));
+    await expect(createEscalation('u1', { goalId: 'gol-1', issue: 'x' })).rejects.toMatchObject({ errorCode: 'not_found' });
+    db.state.tables.scheduled_tasks.push({ id: 'sch-1', owner_id: 'u2', title: 'Nightly build', plan: [], enabled: true });
+    await expect(createEscalation('u1', { scheduleId: 'sch-1', issue: 'x' })).rejects.toMatchObject({ errorCode: 'not_found' });
+    expect(db.state.tables.escalations).toHaveLength(0);
+  });
+
+  it('rejects escalations referencing goals/schedules that do not exist (never trusts client IDs)', async () => {
+    await expect(createEscalation('u1', { goalId: 'gol-does-not-exist', issue: 'x' })).rejects.toMatchObject({ errorCode: 'not_found' });
+    await expect(createEscalation('u1', { scheduleId: 'sch-does-not-exist', issue: 'x' })).rejects.toMatchObject({ errorCode: 'not_found' });
+    expect(db.state.tables.escalations).toHaveLength(0);
+  });
+
+  it('unauthenticated escalation creation is impossible at the service boundary (requires a valid owner)', async () => {
+    seedGoal();
+    const esc = await createEscalation('u1', { goalId: 'gol-1', issue: 'x' });
+    expect(esc.owner_id).toBe('u1');
+    expect(esc.goal_id).toBe('gol-1');
+    const row = db.state.tables.escalations[0];
+    expect(row?.owner_id).toBe('u1');
   });
 
   it('decideEscalation RETRY resets failed entries and resumes', async () => {

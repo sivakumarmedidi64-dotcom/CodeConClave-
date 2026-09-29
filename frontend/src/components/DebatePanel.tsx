@@ -12,7 +12,7 @@ import { useToast } from './Toast';
 const STATUS_COLORS: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'Pending', color: '#64748b' },
   IN_DEBATE: { label: 'In debate', color: '#2563eb' },
-  JUDGING: { label: 'Judging', color: '#7c3aed' },
+  JUDGING: { label: 'Judging', color: '#8A3FFC' },
   COMPLETED: { label: 'Completed', color: '#1e7d46' },
   FAILED: { label: 'Failed', color: '#dc2626' },
   CANCELLED: { label: 'Cancelled', color: '#64748b' },

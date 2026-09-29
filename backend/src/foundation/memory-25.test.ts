@@ -8,11 +8,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { embeddingFor, semanticSearch } from '../modules/memory/service.js';
 
-vi.mock('../shared/db.js', () => ({
-  pool: { query: vi.fn(async () => ({ rows: [] })) },
-  queryMany: vi.fn(async () => []),
-  withTenant: vi.fn(),
-}));
+vi.mock('../shared/db.js', () => {
+  const query = vi.fn(async () => ({ rows: [] }));
+  return {
+    pool: { query },
+    queryMany: vi.fn(async () => []),
+    withTenant: async (_id: unknown, fn: any) => fn?.({ query }),
+    withSystem: async (fn: any) => fn?.({ query }),
+  };
+});
 
 vi.mock('../config/env.js', () => ({
   env: { OPENAI_API_KEY: 'test-key', AI_REQUEST_TIMEOUT_MS: 150 },

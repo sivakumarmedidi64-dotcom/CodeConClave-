@@ -29,6 +29,7 @@ function overview(overrides: Partial<UsageOverview> = {}): UsageOverview {
     estimated: { computeCostUsd: 0.01, sources: 1 },
     limits: { dailyMessages: 20, maxProjects: 1, storageGb: 2 },
     resetDate: '2026-01-01T00:00:00.000Z',
+    rolling: { used: 4, limit: 20, windowHours: 24, windowStart: '2026-01-01T00:00:00.000Z', resetsAt: '2026-01-02T00:00:00.000Z', remaining: 16 },
     ...overrides,
   };
 }
@@ -50,8 +51,8 @@ describe('UsageCard', () => {
       return jsonResponse({ data: {} });
     });
     render(<UsageCard />);
-    await waitFor(() => expect(screen.getByText('Messages today')).toBeInTheDocument());
-    expect(screen.getByText('4 / 20')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Messages this window')).toBeInTheDocument());
+    expect(screen.getByText('4 / 20 used · 16 left')).toBeInTheDocument();
     expect(screen.getByText(/1,500 \(in 1,200 \/ out 300\)/)).toBeInTheDocument();
     expect(screen.getByText(/2.0 MB \/ 2 GB/)).toBeInTheDocument();
     expect(screen.getByText('FREE')).toBeInTheDocument();
@@ -66,7 +67,7 @@ describe('UsageCard', () => {
       return jsonResponse({ data: {} });
     });
     render(<UsageCard />);
-    await waitFor(() => expect(screen.getByText('Messages today')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Messages this window')).toBeInTheDocument());
     expect(screen.queryByText(/estimated/)).not.toBeInTheDocument();
   });
 

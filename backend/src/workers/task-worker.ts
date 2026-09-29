@@ -10,7 +10,6 @@ import { logger } from '../shared/logger.js';
 import { claimNextTask } from '../shared/queue.js';
 import { executeTask } from '../modules/execution/orchestrator.js';
 import { registerCoreTools } from '../modules/execution/tools.js';
-import { touchTask } from '../modules/execution/tasks.js';
 
 const POLL_MS = 2_000;
 const CONCURRENCY = 2;
@@ -28,8 +27,14 @@ async function pump(): Promise<void> {
         try {
           await executeTask(task as never);
         } catch (err) {
-          logger.error('worker task execution threw', { taskId: task.id, err });
-          await touchTask(task.id);
+          // Message-only: raw error objects can carry provider internals.
+          // No heartbeat touch here: recovery is the watchdog's job (stale
+          // heartbeat or started_at timeout). Touching would keep a crashed
+          // task artificially alive and delay its reclaim.
+          logger.error('worker task execution threw', {
+            taskId: task.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
         } finally {
           inFlight.delete(run);
         }

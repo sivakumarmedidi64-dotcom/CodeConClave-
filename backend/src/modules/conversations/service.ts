@@ -3,8 +3,13 @@
  * Conversations (CHAT/COWORK), messages, edit history, reactions, threads,
  * mentions. Ownership: conversations are owner-scoped (project association is
  * metadata); every operation resolves ownership server-side.
+ *
+ * All queries run on tenant-scoped clients obtained from `withTenant(userId,
+ * ...)`: the caller identity is the tenant, and ownership/membership is
+ * enforced in SQL. `updateMessageStatus` is a background/streaming rail with no
+ * authenticated principal, so it runs on a `withSystem` client.
  */
-import { pool, withTenant, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
@@ -28,22 +33,28 @@ export async function replayMissedMessages(
   if (!conversationId || !lastEventId.startsWith('msg_')) return [];
   const anchorId = lastEventId.slice('msg_'.length);
   if (!anchorId) return [];
-  const anchor = await queryMany<{ created_at: Date }>(
-    `SELECT m.created_at FROM messages m
-     JOIN conversations c ON c.id = m.conversation_id
-     WHERE m.id = $1 AND m.conversation_id = $2 AND m.deleted_at IS NULL
-       AND c.deleted_at IS NULL AND c.owner_id = $3`,
-    [anchorId, conversationId, userId],
-  );
-  if (anchor.length === 0) return [];
-  const rows = await queryMany<{ id: string; content: string }>(
-    `SELECT id, content FROM messages
-     WHERE conversation_id = $1 AND deleted_at IS NULL AND role IN ('assistant', 'coworker')
-       AND created_at > $2
-     ORDER BY created_at ASC`,
-    [conversationId, anchor[0]!.created_at],
-  );
-  return rows;
+  return withTenant(userId, async (q) => {
+    const anchor = (
+      await q.query<{ created_at: Date }>(
+        `SELECT m.created_at FROM messages m
+         JOIN conversations c ON c.id = m.conversation_id
+         WHERE m.id = $1 AND m.conversation_id = $2 AND m.deleted_at IS NULL
+           AND c.deleted_at IS NULL AND c.owner_id = $3`,
+        [anchorId, conversationId, userId],
+      )
+    ).rows;
+    if (anchor.length === 0) return [];
+    const rows = (
+      await q.query<{ id: string; content: string }>(
+        `SELECT id, content FROM messages
+         WHERE conversation_id = $1 AND deleted_at IS NULL AND role IN ('assistant', 'coworker')
+           AND created_at > $2
+         ORDER BY created_at ASC`,
+        [conversationId, anchor[0]!.created_at],
+      )
+    ).rows;
+    return rows;
+  });
 }
 
 export interface ConversationRow {
@@ -52,7 +63,7 @@ export interface ConversationRow {
   team_id: string | null;
   owner_id: string;
   title: string;
-  mode: 'CHAT' | 'COWORK';
+  mode: 'CHAT' | 'COWORK' | 'IMAGE' | 'AGENT';
   archived: boolean;
   is_favorite: boolean;
   tags: string[];
@@ -67,6 +78,7 @@ export interface MessageRow {
   id: string;
   conversation_id: string;
   seq: number;
+  client_id: string | null;
   sender: string;
   coworker_type: string | null;
   role: string;
@@ -83,6 +95,8 @@ export interface MessageRow {
   thread_id: string | null;
   created_at: Date;
   deleted_at: Date | null;
+  image_file_id: string | null;
+  image_mime: string | null;
 }
 
 export function toConversationJson(c: ConversationRow) {
@@ -104,13 +118,13 @@ export function toConversationJson(c: ConversationRow) {
 
 export async function createConversation(
   userId: string,
-  input: { projectId?: string; title?: string; mode?: 'CHAT' | 'COWORK' },
+  input: { projectId?: string; title?: string; mode?: 'CHAT' | 'COWORK' | 'IMAGE' | 'AGENT' },
 ): Promise<ConversationRow> {
   const conversationId = newId(PREFIX.CONVERSATION);
   await withTenant(userId, async (q) => {
     // Validate project access inside the tenant transaction.
     if (input.projectId) {
-      const p = await q.query('SELECT 1 FROM projects WHERE id = $1 AND deleted_at IS NULL', [input.projectId]);
+      const p = await q.query('SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL', [input.projectId, userId]);
       if (!p.rows[0]) throw AppError.notFound('Project');
     }
     const title = input.title ?? 'New conversation';
@@ -139,11 +153,13 @@ export async function createConversation(
 }
 
 export async function getConversation(userId: string, conversationId: string): Promise<ConversationRow> {
-  const rows = await queryMany<ConversationRow>(
-    `SELECT * FROM conversations WHERE id = $1 AND deleted_at IS NULL
-     AND (owner_id = $2 OR team_id IN (SELECT team_id FROM team_members WHERE user_id = $2 AND status = 'ACTIVE'))`,
-    [conversationId, userId],
-  );
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<ConversationRow>(
+      `SELECT * FROM conversations WHERE id = $1 AND deleted_at IS NULL
+       AND (owner_id = $2 OR team_id IN (SELECT team_id FROM team_members WHERE user_id = $2 AND status = 'ACTIVE'))`,
+      [conversationId, userId],
+    )
+  ).rows);
   if (!rows[0]) throw AppError.notFound('Conversation');
   return rows[0];
 }
@@ -173,10 +189,12 @@ export async function listConversations(
     params.push(filters.archived);
     clauses.push(`archived = $${params.length}`);
   }
-  return queryMany<ConversationRow>(
-    `SELECT * FROM conversations WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC`,
-    params,
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<ConversationRow>(
+      `SELECT * FROM conversations WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC`,
+      params,
+    )
+  ).rows);
 }
 
 export async function updateConversation(
@@ -208,13 +226,17 @@ export async function updateConversation(
     params.push(input.tags);
   }
   if (fields.length) {
-    await pool.query(`UPDATE conversations SET ${fields.join(', ')} WHERE id = $1`, params);
+    await withTenant(userId, async (q) => {
+      await q.query(`UPDATE conversations SET ${fields.join(', ')} WHERE id = $1`, params);
+    });
   }
   if (input.title !== undefined) {
-    await pool.query(
-      `UPDATE conversations SET search_metadata = $2::jsonb WHERE id = $1`,
-      [conversationId, JSON.stringify({ title: input.title })],
-    );
+    await withTenant(userId, async (q) => {
+      await q.query(
+        `UPDATE conversations SET search_metadata = $2::jsonb WHERE id = $1`,
+        [conversationId, JSON.stringify({ title: input.title })],
+      );
+    });
     await recordAudit({
       action: AuditAction.CONVERSATION_RENAMED,
       actorUserId: userId,
@@ -261,11 +283,18 @@ export async function setConversationSharing(
   conversationId: string,
   sharing: Record<string, unknown>,
 ): Promise<ConversationRow> {
-  await getConversation(userId, conversationId);
-  await pool.query('UPDATE conversations SET sharing = $2::jsonb WHERE id = $1', [
-    conversationId,
-    JSON.stringify(sharing),
-  ]);
+  const conversation = await getConversation(userId, conversationId);
+  // Sharing metadata controls collaboration surface: team viewers must not
+  // rewrite it on someone else's conversation (mirrors delete privileges).
+  if (conversation.team_id && conversation.owner_id !== userId) {
+    await requireTeamRole(userId, conversation.team_id, [TeamRole.OWNER, TeamRole.ADMIN]);
+  }
+  await withTenant(userId, async (q) => {
+    await q.query('UPDATE conversations SET sharing = $2::jsonb WHERE id = $1', [
+      conversationId,
+      JSON.stringify(sharing),
+    ]);
+  });
   return getConversation(userId, conversationId);
 }
 
@@ -274,7 +303,9 @@ export async function softDeleteConversation(userId: string, conversationId: str
   if (conversation.team_id && conversation.owner_id !== userId) {
     await requireTeamRole(userId, conversation.team_id, [TeamRole.OWNER, TeamRole.ADMIN]);
   }
-  await pool.query('UPDATE conversations SET deleted_at = now() WHERE id = $1', [conversationId]);
+  await withTenant(userId, async (q) => {
+    await q.query('UPDATE conversations SET deleted_at = now() WHERE id = $1', [conversationId]);
+  });
   await recordAudit({
     action: AuditAction.CONVERSATION_DELETED,
     actorUserId: userId,
@@ -287,9 +318,11 @@ export async function softDeleteConversation(userId: string, conversationId: str
 }
 
 export async function restoreConversation(userId: string, conversationId: string): Promise<ConversationRow> {
-  const result = await pool.query(
-    'UPDATE conversations SET deleted_at = NULL WHERE id = $1 AND owner_id = $2 RETURNING *',
-    [conversationId, userId],
+  const result = await withTenant(userId, async (q) =>
+    q.query(
+      'UPDATE conversations SET deleted_at = NULL WHERE id = $1 AND owner_id = $2 RETURNING *',
+      [conversationId, userId],
+    ),
   );
   if (!result.rows[0]) throw AppError.notFound('Conversation');
   await recordAudit({
@@ -304,11 +337,13 @@ export async function restoreConversation(userId: string, conversationId: string
 }
 
 export async function trashConversations(userId: string): Promise<ConversationRow[]> {
-  return queryMany<ConversationRow>(
-    `SELECT * FROM conversations WHERE owner_id = $1 AND deleted_at IS NOT NULL
-     AND deleted_at > now() - interval '30 days' ORDER BY deleted_at DESC`,
-    [userId],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<ConversationRow>(
+      `SELECT * FROM conversations WHERE owner_id = $1 AND deleted_at IS NOT NULL
+       AND deleted_at > now() - interval '30 days' ORDER BY deleted_at DESC`,
+      [userId],
+    )
+  ).rows);
 }
 
 // ---------------------------------------------------------------- messages
@@ -328,39 +363,141 @@ export async function insertMessage(
     latencyMs?: number | null;
     status?: string;
     errorCode?: string | null;
+    /** Generated/attached image artifact (IMAGE_GENERATION). */
+    imageFileId?: string | null;
+    imageMime?: string | null;
+    /** Continuity: client-generated idempotency key (exactly-once retry). */
+    clientId?: string | null;
   },
 ): Promise<MessageRow> {
+  return (await insertMessageExact(userId, input)).row;
+}
+
+/**
+ * Same as insertMessage but also reports whether the insert was a NEW row or an
+ * idempotent replay of an existing row (same conversationId + clientId). This
+ * is the exactly-once primitive the sync engine relies on: a retried send must
+ * never create a duplicate and must never be misreported as new.
+ */
+export async function insertMessageExact(
+  userId: string,
+  input: {
+    conversationId: string;
+    sender: string;
+    coworkerType?: string | null;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    modelId?: string | null;
+    providerId?: string | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    latencyMs?: number | null;
+    status?: string;
+    errorCode?: string | null;
+    imageFileId?: string | null;
+    imageMime?: string | null;
+    clientId?: string | null;
+  },
+): Promise<{ row: MessageRow; replayed: boolean }> {
   await getConversation(userId, input.conversationId);
   const id = newId(PREFIX.MESSAGE);
-  await pool.query(
-    `INSERT INTO messages
-       (id, conversation_id, sender, coworker_type, role, content, model_id, provider_id,
-        input_tokens, output_tokens, latency_ms, status, error_code)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-    [
-      id,
-      input.conversationId,
-      input.sender,
-      input.coworkerType ?? null,
-      input.role,
-      input.content,
-      input.modelId ?? null,
-      input.providerId ?? null,
-      input.inputTokens ?? null,
-      input.outputTokens ?? null,
-      input.latencyMs ?? null,
-      input.status ?? 'COMPLETED',
-      input.errorCode ?? null,
-    ],
-  );
-  await pool.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [input.conversationId]);
-  const rows = await queryMany<MessageRow>('SELECT * FROM messages WHERE id = $1', [id]);
-  return rows[0]!;
+  const clientId = input.clientId?.trim() || null;
+  const params = [
+    id,
+    input.conversationId,
+    input.sender,
+    input.coworkerType ?? null,
+    input.role,
+    input.content,
+    input.modelId ?? null,
+    input.providerId ?? null,
+    input.inputTokens ?? null,
+    input.outputTokens ?? null,
+    input.latencyMs ?? null,
+    input.status ?? 'COMPLETED',
+    input.errorCode ?? null,
+    input.imageFileId ?? null,
+    input.imageMime ?? null,
+    clientId,
+  ];
+  if (clientId) {
+    // Partial unique index inference: a retried clientId resolves to the
+    // existing row atomically — no duplicates, no read-then-write race.
+    const res = await withTenant(userId, async (q) =>
+      q.query(
+        `INSERT INTO messages
+           (id, conversation_id, sender, coworker_type, role, content, model_id, provider_id,
+            input_tokens, output_tokens, latency_ms, status, error_code, image_file_id, image_mime, client_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         ON CONFLICT (conversation_id, client_id) WHERE client_id IS NOT NULL DO NOTHING`,
+        params,
+      ),
+    );
+    if (res.rowCount === 0) {
+      const existing = await withTenant(userId, async (q) => (
+        await q.query<MessageRow>(
+          'SELECT * FROM messages WHERE conversation_id = $1 AND client_id = $2',
+          [input.conversationId, clientId],
+        )
+      ).rows);
+      if (existing[0]) {
+        await withTenant(userId, async (q) => {
+          await q.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [input.conversationId]);
+        });
+        return { row: existing[0], replayed: true };
+      }
+      throw AppError.conflict(
+        'message_idempotency_conflict',
+        'The message already exists on the server but could not be resolved to a row.',
+      );
+    }
+  } else {
+    await withTenant(userId, async (q) => {
+      await q.query(
+        `INSERT INTO messages
+           (id, conversation_id, sender, coworker_type, role, content, model_id, provider_id,
+            input_tokens, output_tokens, latency_ms, status, error_code, image_file_id, image_mime)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        params.slice(0, 15),
+      );
+    });
+  }
+  await withTenant(userId, async (q) => {
+    await q.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [input.conversationId]);
+  });
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MessageRow>('SELECT * FROM messages WHERE id = $1', [id])
+  ).rows);
+  return { row: rows[0]!, replayed: false };
+}
+
+/**
+ * Continuity: resolve a previously inserted USER message by its client
+ * idempotency key. Ownership-checked via getConversation, so a clientId from
+ * another user's conversation can never resolve. Returns null for a fresh
+ * key. Used by the chat send paths to skip quota/usage consumption (and
+ * duplicate side effects) when a client retries a send whose ack was lost.
+ */
+export async function findMessageByClientId(
+  userId: string,
+  conversationId: string,
+  clientId: string | null | undefined,
+): Promise<MessageRow | null> {
+  await getConversation(userId, conversationId);
+  const clean = clientId?.trim() || null;
+  if (!clean) return null;
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MessageRow>(
+      'SELECT * FROM messages WHERE conversation_id = $1 AND client_id = $2',
+      [conversationId, clean],
+    )
+  ).rows);
+  return rows[0] ?? null;
 }
 
 export async function updateMessageStatus(
   messageId: string,
-  patch: { status?: string; content?: string; inputTokens?: number | null; outputTokens?: number | null; latencyMs?: number | null; errorCode?: string | null; modelId?: string | null; providerId?: string | null },
+  patch: { status?: string; content?: string; inputTokens?: number | null; outputTokens?: number | null; latencyMs?: number | null; errorCode?: string | null; modelId?: string | null; providerId?: string | null; imageFileId?: string | null; imageMime?: string | null },
 ): Promise<void> {
   const fields: string[] = [];
   const params: unknown[] = [messageId];
@@ -376,8 +513,12 @@ export async function updateMessageStatus(
   if (patch.outputTokens !== undefined) set('output_tokens', patch.outputTokens);
   if (patch.latencyMs !== undefined) set('latency_ms', patch.latencyMs);
   if (patch.errorCode !== undefined) set('error_code', patch.errorCode);
+  if (patch.imageFileId !== undefined) set('image_file_id', patch.imageFileId);
+  if (patch.imageMime !== undefined) set('image_mime', patch.imageMime);
   if (!fields.length) return;
-  await pool.query(`UPDATE messages SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withSystem(async (q) => {
+    await q.query(`UPDATE messages SET ${fields.join(', ')} WHERE id = $1`, params);
+  });
 }
 
 export async function listMessages(userId: string, conversationId: string, before?: Date, limit = 100): Promise<MessageRow[]> {
@@ -388,11 +529,25 @@ export async function listMessages(userId: string, conversationId: string, befor
     params.push(before);
     beforeClause = 'AND created_at < $3';
   }
-  return queryMany<MessageRow>(
-    `SELECT * FROM messages WHERE conversation_id = $1 AND deleted_at IS NULL ${beforeClause}
-     ORDER BY created_at DESC, seq DESC LIMIT $2`,
-    params,
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<MessageRow>(
+      `SELECT * FROM messages WHERE conversation_id = $1 AND deleted_at IS NULL ${beforeClause}
+       ORDER BY created_at DESC, seq DESC LIMIT $2`,
+      params,
+    )
+  ).rows);
+}
+
+/**
+ * Require a content-editing role for team conversations the caller does not
+ * own. Personal conversations keep the existing owner-only behavior; team
+ * VIEWER/GUEST members may read but must not rewrite (or delete) messages.
+ */
+async function requireConversationEdit(userId: string, conversationId: string): Promise<void> {
+  const conversation = await getConversation(userId, conversationId);
+  if (conversation.team_id && conversation.owner_id !== userId) {
+    await requireTeamRole(userId, conversation.team_id, [TeamRole.OWNER, TeamRole.ADMIN, TeamRole.EDITOR]);
+  }
 }
 
 /** Edit message content with an immutable edit-history snapshot (owner only). */
@@ -402,21 +557,25 @@ export async function editMessage(
   messageId: string,
   content: string,
 ): Promise<MessageRow> {
-  await getConversation(userId, conversationId);
-  const result = await pool.query(
-    'SELECT content FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
-    [messageId, conversationId],
+  await requireConversationEdit(userId, conversationId);
+  const result = await withTenant(userId, async (q) =>
+    q.query(
+      'SELECT content FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
+      [messageId, conversationId],
+    ),
   );
   const prev = result.rows[0] as { content: string } | undefined;
   if (!prev) throw AppError.notFound('Message');
-  await pool.query(
-    `INSERT INTO message_edits (id, message_id, content, edited_by) VALUES ($1,$2,$3,$4)`,
-    [newId(PREFIX.MESSAGE_EDIT), messageId, prev.content, userId],
-  );
-  await pool.query(
-    `UPDATE messages SET content = $2, edited_at = now(), edit_count = edit_count + 1 WHERE id = $1`,
-    [messageId, content],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO message_edits (id, message_id, content, edited_by) VALUES ($1,$2,$3,$4)`,
+      [newId(PREFIX.MESSAGE_EDIT), messageId, prev.content, userId],
+    );
+    await q.query(
+      `UPDATE messages SET content = $2, edited_at = now(), edit_count = edit_count + 1 WHERE id = $1`,
+      [messageId, content],
+    );
+  });
   await recordAudit({
     action: AuditAction.MESSAGE_EDITED,
     actorUserId: userId,
@@ -425,15 +584,19 @@ export async function editMessage(
     resourceType: 'message',
     resourceId: messageId,
   });
-  const rows = await queryMany<MessageRow>('SELECT * FROM messages WHERE id = $1', [messageId]);
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MessageRow>('SELECT * FROM messages WHERE id = $1', [messageId])
+  ).rows);
   return rows[0]!;
 }
 
 export async function softDeleteMessage(userId: string, conversationId: string, messageId: string): Promise<void> {
-  await getConversation(userId, conversationId);
-  const result = await pool.query(
-    'UPDATE messages SET deleted_at = now() WHERE id = $1 AND conversation_id = $2 RETURNING id',
-    [messageId, conversationId],
+  await requireConversationEdit(userId, conversationId);
+  const result = await withTenant(userId, async (q) =>
+    q.query(
+      'UPDATE messages SET deleted_at = now() WHERE id = $1 AND conversation_id = $2 RETURNING id',
+      [messageId, conversationId],
+    ),
   );
   if (!result.rows[0]) throw AppError.notFound('Message');
 }
@@ -447,17 +610,25 @@ export async function createThread(
   title: string,
 ): Promise<{ id: string; conversation_id: string; parent_message_id: string; title: string; created_at: Date }> {
   await getConversation(userId, conversationId);
-  const msg = await pool.query(
-    'SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
-    [parentMessageId, conversationId],
-  );
-  if (!msg.rows[0]) throw AppError.notFound('Message');
   const threadId = newId(PREFIX.THREAD);
-  await pool.query(
-    `INSERT INTO threads (id, conversation_id, parent_message_id, title, created_by)
-     VALUES ($1,$2,$3,$4,$5)`,
-    [threadId, conversationId, parentMessageId, title.slice(0, 200), userId],
-  );
+  const rows = await withTenant(userId, async (q) => {
+    const msg = await q.query(
+      'SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
+      [parentMessageId, conversationId],
+    );
+    if (!msg.rows[0]) throw AppError.notFound('Message');
+    await q.query(
+      `INSERT INTO threads (id, conversation_id, parent_message_id, title, created_by)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [threadId, conversationId, parentMessageId, title.slice(0, 200), userId],
+    );
+    return (
+      await q.query<{ id: string; conversation_id: string; parent_message_id: string; title: string; created_at: Date }>(
+        'SELECT id, conversation_id, parent_message_id, title, created_at FROM threads WHERE id = $1',
+        [threadId],
+      )
+    ).rows;
+  });
   await recordAudit({
     action: AuditAction.THREAD_CREATED,
     actorUserId: userId,
@@ -466,22 +637,20 @@ export async function createThread(
     resourceType: 'thread',
     resourceId: threadId,
   });
-  const rows = await queryMany<{ id: string; conversation_id: string; parent_message_id: string; title: string; created_at: Date }>(
-    'SELECT id, conversation_id, parent_message_id, title, created_at FROM threads WHERE id = $1',
-    [threadId],
-  );
   return rows[0]!;
 }
 
 export async function listThreads(userId: string, conversationId: string): Promise<unknown[]> {
   await getConversation(userId, conversationId);
-  return queryMany(
-    `SELECT t.id, t.parent_message_id, t.title, t.created_at, u.display_name AS created_by_name
-     FROM threads t LEFT JOIN users u ON u.id = t.created_by
-     WHERE t.conversation_id = $1 AND t.deleted_at IS NULL
-     ORDER BY t.created_at ASC`,
-    [conversationId],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query(
+      `SELECT t.id, t.parent_message_id, t.title, t.created_at, u.display_name AS created_by_name
+       FROM threads t LEFT JOIN users u ON u.id = t.created_by
+       WHERE t.conversation_id = $1 AND t.deleted_at IS NULL
+       ORDER BY t.created_at ASC`,
+      [conversationId],
+    )
+  ).rows);
 }
 
 // ---------------------------------------------------------------- mentions
@@ -493,15 +662,17 @@ export async function addMention(
   targetUserId: string,
 ): Promise<void> {
   await getConversation(userId, conversationId);
-  const msg = await pool.query(
-    'SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
-    [messageId, conversationId],
-  );
-  if (!msg.rows[0]) throw AppError.notFound('Message');
-  await pool.query(
-    `INSERT INTO mentions (id, message_id, user_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-    [newId(PREFIX.MENTION), messageId, targetUserId],
-  );
+  await withTenant(userId, async (q) => {
+    const msg = await q.query(
+      'SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $2 AND deleted_at IS NULL',
+      [messageId, conversationId],
+    );
+    if (!msg.rows[0]) throw AppError.notFound('Message');
+    await q.query(
+      `INSERT INTO mentions (id, message_id, user_id) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+      [newId(PREFIX.MENTION), messageId, targetUserId],
+    );
+  });
   await recordAudit({
     action: AuditAction.MENTION_CREATED,
     actorUserId: userId,
@@ -526,60 +697,154 @@ export async function addMention(
 }
 
 export async function listMentionsForUser(userId: string, limit = 50): Promise<unknown[]> {
-  return queryMany(
-    `SELECT m.id, m.message_id, m.created_at, c.id AS conversation_id, c.title AS conversation_title
-     FROM mentions m
-     JOIN messages msg ON msg.id = m.message_id
-     JOIN conversations c ON c.id = msg.conversation_id
-     WHERE m.user_id = $1 AND c.owner_id = $1 AND msg.deleted_at IS NULL AND c.deleted_at IS NULL
-     ORDER BY m.created_at DESC LIMIT $2`,
-    [userId, Math.min(limit, 200)],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query(
+      `SELECT m.id, m.message_id, m.created_at, c.id AS conversation_id, c.title AS conversation_title
+       FROM mentions m
+       JOIN messages msg ON msg.id = m.message_id
+       JOIN conversations c ON c.id = msg.conversation_id
+       WHERE m.user_id = $1 AND c.owner_id = $1 AND msg.deleted_at IS NULL AND c.deleted_at IS NULL
+       ORDER BY m.created_at DESC LIMIT $2`,
+      [userId, Math.min(limit, 200)],
+    )
+  ).rows);
+}
+
+// ---------------------------------------------------------------- continuity sync
+
+export interface SyncPendingMessage {
+  clientId: string;
+  content: string;
+}
+
+export interface ConversationSyncResult {
+  conversationId: string;
+  /** Server-authoritative last seq after the pull — the client stores this to
+   *  seed the next `afterSeq`. */
+  lastSeq: number;
+  /** Active (non-tombstoned) messages with seq > afterSeq, in order. */
+  messages: MessageRow[];
+  /** Tombstoned message ids that must be removed from the local cache. */
+  deletedIds: string[];
+  /** Newly inserted clientIds (never a duplicate). */
+  applied: string[];
+  /** Idempotent replays — the server already had this clientId. */
+  duplicates: string[];
+}
+
+/**
+ * Server-authoritative sync (pull-biased). Pushes pending client-composed USER
+ * messages exactly once via clientId idempotency; pulls server messages newer
+ * than `afterSeq` including tombstones so the local cache can merge truth
+ * without a full re-download. Pull capped at 500 rows per call (safe, bounded,
+ * non-blocking).
+ */
+export async function syncConversation(
+  userId: string,
+  conversationId: string,
+  input: { afterSeq?: number; pending?: SyncPendingMessage[] },
+): Promise<ConversationSyncResult> {
+  await getConversation(userId, conversationId);
+  const applied: string[] = [];
+  const duplicates: string[] = [];
+  for (const p of input.pending ?? []) {
+    const content = (p.content ?? '').trim();
+    if (!content) throw AppError.badRequest('sync_content_empty', 'A pending message cannot be empty');
+    if (content.length > 100_000) throw AppError.badRequest('sync_content_too_long', 'A pending message is limited to 100 000 characters');
+    if (!p.clientId || p.clientId.length > 128) throw AppError.badRequest('sync_client_id_invalid', 'A valid clientId (≤128 chars) is required for exactly-once delivery');
+    const { row: _row, replayed } = await insertMessageExact(userId, {
+      conversationId,
+      sender: 'USER',
+      role: 'user',
+      content,
+      status: 'COMPLETED',
+      clientId: p.clientId,
+    });
+    if (replayed) duplicates.push(p.clientId);
+    else applied.push(p.clientId);
+  }
+  const afterSeq = Math.max(0, Number(input.afterSeq ?? 0) || 0);
+  const rows = await withTenant(userId, async (q) => (
+    await q.query<MessageRow>(
+      `SELECT * FROM messages WHERE conversation_id = $1 AND seq > $2 ORDER BY seq ASC LIMIT 500`,
+      [conversationId, afterSeq],
+    )
+  ).rows);
+  const deletedIds = rows.filter((r) => r.deleted_at !== null).map((r) => r.id);
+  const messages = rows.filter((r) => r.deleted_at === null);
+  const lastSeq = rows.length ? rows[rows.length - 1]!.seq : afterSeq;
+  return { conversationId, lastSeq, messages, deletedIds, applied, duplicates };
 }
 
 // ---------------------------------------------------------------- reactions / search
 
 export async function addReaction(userId: string, conversationId: string, messageId: string, emoji: string): Promise<void> {
   await getConversation(userId, conversationId);
-  await pool.query(
-    `INSERT INTO reactions (id, message_id, user_id, emoji) VALUES ($1,$2,$3,$4)
-     ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
-    [newId(PREFIX.MESSAGE), messageId, userId, emoji.slice(0, 16)],
-  );
+  // Bind the message to the authorized conversation: without this, any valid
+  // conversationId of the caller could carry reactions for anyone's messages.
+  await withTenant(userId, async (q) => {
+    const bound = (
+      await q.query<{ id: string }>(
+        'SELECT id FROM messages WHERE id = $1 AND conversation_id = $2',
+        [messageId, conversationId],
+      )
+    ).rows;
+    if (!bound[0]) throw AppError.notFound('Message');
+    await q.query(
+      `INSERT INTO reactions (id, message_id, user_id, emoji) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+      [newId(PREFIX.MESSAGE), messageId, userId, emoji.slice(0, 16)],
+    );
+  });
 }
 
 export async function removeReaction(userId: string, conversationId: string, messageId: string, emoji: string): Promise<void> {
   await getConversation(userId, conversationId);
-  await pool.query('DELETE FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3', [messageId, userId, emoji]);
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `DELETE FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3
+         AND EXISTS (SELECT 1 FROM messages WHERE id = $1 AND conversation_id = $4)`,
+      [messageId, userId, emoji, conversationId],
+    );
+  });
 }
 
-export async function listReactions(conversationId: string): Promise<unknown[]> {
-  return queryMany(
-    `SELECT r.message_id, r.emoji, r.user_id, u.display_name
-     FROM reactions r JOIN messages m ON m.id = r.message_id
-     JOIN users u ON u.id = r.user_id
-     WHERE m.conversation_id = $1`,
-    [conversationId],
-  );
+export async function listReactions(userId: string, conversationId: string): Promise<unknown[]> {
+  // Ownership-checked: reactions expose who reacted to what, so the
+  // conversation gate applies exactly like every other read in this module.
+  await getConversation(userId, conversationId);
+  return withTenant(userId, async (q) => (
+    await q.query(
+      `SELECT r.message_id, r.emoji, r.user_id, u.display_name
+       FROM reactions r JOIN messages m ON m.id = r.message_id
+       JOIN users u ON u.id = r.user_id
+       WHERE m.conversation_id = $1`,
+      [conversationId],
+    )
+  ).rows);
 }
 
 export async function searchConversations(userId: string, query: string): Promise<ConversationRow[]> {
-  return queryMany<ConversationRow>(
-    `SELECT DISTINCT c.* FROM conversations c
-     JOIN messages m ON m.conversation_id = c.id
-     WHERE (c.owner_id = $1 OR c.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE'))
-       AND c.deleted_at IS NULL AND m.deleted_at IS NULL
-       AND (to_tsvector('simple', coalesce(m.content,'')) @@ plainto_tsquery('simple', $2)
-            OR m.content ILIKE $3)
-     ORDER BY c.updated_at DESC LIMIT 20`,
-    [userId, query, `%${query}%`],
-  );
+  return withTenant(userId, async (q) => (
+    await q.query<ConversationRow>(
+      `SELECT DISTINCT c.* FROM conversations c
+       JOIN messages m ON m.conversation_id = c.id
+       WHERE (c.owner_id = $1 OR c.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE'))
+         AND c.deleted_at IS NULL AND m.deleted_at IS NULL
+         AND (to_tsvector('simple', coalesce(m.content,'')) @@ plainto_tsquery('simple', $2)
+              OR m.content ILIKE $3)
+       ORDER BY c.updated_at DESC LIMIT 20`,
+      [userId, query, `%${query}%`],
+    )
+  ).rows);
 }
 
 export function toMessageJson(m: MessageRow): Message {
   return {
     id: m.id,
     conversationId: m.conversation_id,
+    seq: m.seq,
+    clientId: m.client_id ?? null,
     sender: m.sender as Message['sender'],
     coworkerType: (m.coworker_type as Message['coworkerType']) ?? null,
     role: m.role as Message['role'],
@@ -595,6 +860,8 @@ export function toMessageJson(m: MessageRow): Message {
     editCount: m.edit_count ?? 0,
     threadId: m.thread_id ?? null,
     createdAt: m.created_at,
+    imageFileId: m.image_file_id ?? null,
+    imageMime: m.image_mime ?? null,
   };
 }
 

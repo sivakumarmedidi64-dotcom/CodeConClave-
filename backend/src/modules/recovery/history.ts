@@ -5,7 +5,7 @@
  * irreversible actions, retries. Never mutated after write — historical events
  * are immutable; time travel always produces NEW events and NEW state.
  */
-import { queryMany, pool } from '../../shared/db.js';
+import { withTenant, withSystem, queryMany, pool } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { RecoveryEventType } from '@codeconclave/shared';
 
@@ -38,27 +38,35 @@ export async function recordRecoveryHistory(
     actor,
     created_at: new Date(),
   };
-  await pool.query(
+  await withTenant(ownerId, (q) => q.query(
     `INSERT INTO recovery_history (id, task_id, owner_id, event, detail, actor)
      VALUES ($1,$2,$3,$4,$5::jsonb,$6)`,
     [row.id, taskId, ownerId, event, JSON.stringify(detail), actor],
-  );
+  ));
   return row;
 }
 
 /** Tenant-scoped timeline for the recovery-aware history UI / API. */
 export async function listRecoveryHistory(userId: string, taskId: string): Promise<RecoveryHistoryRow[]> {
-  return queryMany<RecoveryHistoryRow>(
-    `SELECT * FROM recovery_history WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at`,
-    [taskId, userId],
+  return withTenant<RecoveryHistoryRow[]>(userId, async (q) =>
+    (
+      await q.query<RecoveryHistoryRow>(
+        `SELECT * FROM recovery_history WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at`,
+        [taskId, userId],
+      )
+    ).rows,
   );
 }
 
 /** Internal (unscoped) timeline used by autopsies and audits. */
 export async function listRecoveryHistoryInternal(taskId: string): Promise<RecoveryHistoryRow[]> {
-  return queryMany<RecoveryHistoryRow>(
-    `SELECT * FROM recovery_history WHERE task_id = $1 ORDER BY created_at`,
-    [taskId],
+  return withSystem<RecoveryHistoryRow[]>(async (q) =>
+    (
+      await q.query<RecoveryHistoryRow>(
+        `SELECT * FROM recovery_history WHERE task_id = $1 ORDER BY created_at`,
+        [taskId],
+      )
+    ).rows,
   );
 }
 

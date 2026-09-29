@@ -126,7 +126,10 @@ afterEach(() => {
 
 describe('createTask — priority and dependencies', () => {
   it('persists priority as the final INSERT parameter', async () => {
-    db.state.resolve = (text, params) => (text.includes('FROM tasks') ? [taskRow(String(params[0]), { priority: 7 })] : null);
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM projects WHERE id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+      return text.includes('FROM tasks') ? [taskRow(String(params[0]), { priority: 7 })] : null;
+    };
     await createTask({ userId: 'u1', projectId: 'p1', title: 't', priority: 7 });
     const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO tasks'))!;
     expect(insert.params[12]).toBe(7);
@@ -134,7 +137,10 @@ describe('createTask — priority and dependencies', () => {
   });
 
   it('registers finish dependencies for the task', async () => {
-    db.state.resolve = (text, params) => (text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null);
+    db.state.resolve = (text, params) => {
+      if (text.includes('FROM projects WHERE id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
+      return text.includes('FROM tasks') ? [taskRow(String(params[0]))] : null;
+    };
     await createTask({ userId: 'u1', projectId: 'p1', title: 't', dependsOn: ['tsk_a', 'tsk_b'] });
     const deps = db.state.calls.filter((c) => c.text.includes('INSERT INTO task_dependencies'));
     expect(deps.length).toBe(2);

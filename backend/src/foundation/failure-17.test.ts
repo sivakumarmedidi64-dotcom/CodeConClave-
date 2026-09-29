@@ -25,6 +25,7 @@ const db = vi.hoisted(() => {
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
     queryMany: async (text: string, params: unknown[] = []) => (await query(text, params)).rows,
     withTenant: async (_u: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -55,6 +56,7 @@ function setup(): Emulated {
 
     if (s.includes('select plan_id from users')) return [{ id: USER_ID, plan_id: 'free' }];
     if (s.includes('select team_id from projects')) return [];
+    if (s.includes('from projects where id = $1')) return [{ id: String(params[0]), owner_id: USER_ID, team_id: null, deleted_at: null }];
     if (s.includes('from notifications')) return [];
 
     if (s.includes('from tasks') && s.includes('where id = $1')) {
@@ -309,6 +311,10 @@ describe('FAILURE CATEGORY 13 — worker crash recovery resumes from the checkpo
     });
     const task = await seedCloudTask(t);
     const { executeTask } = await import('../modules/execution/orchestrator.js');
+    // The worker claims a task before executing (queue.ts claimNextTask flips
+    // CREATED → RUNNING); the PKG-25 state-machine guard rejects CREATED →
+    // VERIFIED, so the fixture must model the claim exactly as production does.
+    t.tasks[0]!.status = 'RUNNING';
     await executeTask(task);
 
     // Crash persisted: attempt 1 FAILURE with a checkpoint after stage 1.
@@ -316,6 +322,7 @@ describe('FAILURE CATEGORY 13 — worker crash recovery resumes from the checkpo
     expect(t.attempts[0]!.checkpoint).toBeTruthy();
 
     // Re-claim and re-execute (the retried worker).
+    t.tasks[0]!.status = 'RUNNING';
     await executeTask(t.tasks[0]!);
     const stored = t.tasks[0]!;
     expect(stored.status).toBe('COMPLETED');
@@ -343,6 +350,7 @@ describe('FAILURE CATEGORY 14 — verification evidence gate', () => {
     const t = setup();
     const task = await seedCloudTask(t);
     const { executeTask } = await import('../modules/execution/orchestrator.js');
+    t.tasks[0]!.status = 'RUNNING'; // worker claim (queue.ts) precedes executeTask
     await executeTask(task);
 
     const verifyStep = t.steps.find((x) => x.kind === 'verify')!;
@@ -363,6 +371,7 @@ describe('FAILURE CATEGORY 15 — planner AI outage falls back deterministically
     });
     const task = await seedCloudTask(t);
     const { executeTask } = await import('../modules/execution/orchestrator.js');
+    t.tasks[0]!.status = 'RUNNING'; // worker claim (queue.ts) precedes executeTask
     await executeTask(task);
 
     expect(t.plans.length).toBe(1);

@@ -2,6 +2,7 @@
  * CodeConClave — ideas routes (Phase 13).
  */
 import { Router } from 'express';
+import { z } from 'zod';
 import {
   ideaArchiveSchema,
   ideaCommentCreateSchema,
@@ -16,6 +17,7 @@ import {
   addIdeaComment,
   createIdea,
   deleteIdeaComment,
+  discussIdea,
   getIdea,
   ideaVoteState,
   listIdeaComments,
@@ -27,6 +29,19 @@ import {
   updateIdea,
   voteIdea,
 } from './service.js';
+
+const ideaDiscussSchema = z.object({
+  message: z.string().min(1).max(4000),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().min(1).max(4000),
+      }),
+    )
+    .max(20)
+    .optional(),
+});
 
 export const ideasRoutes = (): Router => {
   const router = Router();
@@ -95,6 +110,15 @@ export const ideasRoutes = (): Router => {
       const input = ideaUpdateSchema.parse(req.body);
       const idea = await updateIdea(req.ctx.user!.id, String(req.params.ideaId), input);
       res.json(jsonResult({ idea }));
+    }),
+  );
+
+  router.post(
+    '/:ideaId/discuss',
+    asyncRoute(async (req, res) => {
+      const input = ideaDiscussSchema.parse(req.body);
+      const result = await discussIdea(req.ctx.user!.id, String(req.params.ideaId), input);
+      res.json(jsonResult(result));
     }),
   );
 

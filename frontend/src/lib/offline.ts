@@ -205,21 +205,39 @@ export function lastReconnectMs(): number | null {
   return lastReconnectMsValue;
 }
 
+/**
+ * Offline sync binds exactly ONE global online/offline listener pair no matter
+ * how many times initOfflineSync() is called (App shell, desktop bootstrap,
+ * hot remounts). The pair is unregistered only when every holder has released
+ * it, so the web + desktop bundles never end up double-subscribed.
+ */
+let offlineSubscribers = 0;
+let offlineHandlers: { onOffline: () => void; onOnline: () => void } | null = null;
+
 export function initOfflineSync(): () => void {
-  const onOffline = () => {
-    offlineSince = Date.now();
-  };
-  const onOnline = () => {
-    if (offlineSince !== null) {
-      lastReconnectMsValue = Date.now() - offlineSince;
-      offlineSince = null;
-    }
-    void flushOfflineQueue();
-  };
-  window.addEventListener('offline', onOffline);
-  window.addEventListener('online', onOnline);
+  if (offlineSubscribers === 0) {
+    const onOffline = () => {
+      offlineSince = Date.now();
+    };
+    const onOnline = () => {
+      if (offlineSince !== null) {
+        lastReconnectMsValue = Date.now() - offlineSince;
+        offlineSince = null;
+      }
+      void flushOfflineQueue();
+    };
+    offlineHandlers = { onOffline, onOnline };
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
+  }
+  offlineSubscribers += 1;
+  const released = offlineHandlers; // stable for this holder
   return () => {
-    window.removeEventListener('offline', onOffline);
-    window.removeEventListener('online', onOnline);
+    offlineSubscribers = Math.max(0, offlineSubscribers - 1);
+    if (offlineSubscribers === 0 && released) {
+      window.removeEventListener('offline', released.onOffline);
+      window.removeEventListener('online', released.onOnline);
+      offlineHandlers = null;
+    }
   };
 }

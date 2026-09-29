@@ -25,6 +25,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_userId: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -46,6 +48,7 @@ vi.mock('../modules/memory/service.js', () => memory);
 const entitlements = vi.hoisted(() => ({
   FREE_LIMITS: { MAX_AGENTS: 2, AGENT_MAX_TASKS_PER_RUN: 5, AGENT_MAX_BUDGET_USD: 1 },
   PRO_LIMITS: { MAX_AGENTS: 10, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
+  TEAM_LIMITS: { MAX_AGENTS: 20, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 10 },
   effectivePlan: vi.fn(async () => 'free'),
 }));
 vi.mock('../modules/entitlements/service.js', () => entitlements);
@@ -79,7 +82,7 @@ const gateway = vi.hoisted(() => ({
 }));
 vi.mock('../modules/ai/gateway.js', () => gateway);
 
-import { createAgent, startRun, cancelRun, recomputeRun, sweepAgentRuns, ROLE_ROUTING, AGENT_ROLES, deleteAgent, updateAgent, listAgents } from '../modules/agents/service.js';
+import { createAgent, startRun, cancelRun, recomputeRun, sweepAgentRuns, ROLE_ROUTING, AGENT_ROLES, deleteAgent, updateAgent, listAgents, agentUsage } from '../modules/agents/service.js';
 import { AppError } from '../shared/errors.js';
 import type { AiModelDescriptor } from '@codeconclave/shared';
 
@@ -181,6 +184,48 @@ describe('AGENT CRUD', () => {
   it('enforces MAX_AGENTS', async () => {
     db.state.resolve = (text: string) => (text.includes('count(*)') ? [{ n: 2 }] : null);
     await expect(createAgent('u1', { name: 'x', role: 'CODER' })).rejects.toMatchObject({ errorCode: 'agent_limit_reached' });
+  });
+
+  it('entitlement boundaries — pro #11 denied, team #21 denied, free #3 denied (2/10/20 model)', async () => {
+    entitlements.effectivePlan.mockResolvedValue('pro');
+    db.state.resolve = (text: string) => (text.includes('count(*)') ? [{ n: 10 }] : null);
+    await expect(createAgent('u1', { name: 'x', role: 'CODER' })).rejects.toMatchObject({ errorCode: 'agent_limit_reached' });
+
+    entitlements.effectivePlan.mockResolvedValue('team');
+    db.state.resolve = (text: string) => (text.includes('count(*)') ? [{ n: 20 }] : null);
+    await expect(createAgent('u1', { name: 'x', role: 'CODER' })).rejects.toMatchObject({ errorCode: 'agent_limit_reached' });
+
+    entitlements.effectivePlan.mockResolvedValue('free');
+    db.state.resolve = (text: string) => (text.includes('count(*)') ? [{ n: 2 }] : null);
+    await expect(createAgent('u1', { name: 'x', role: 'CODER' })).rejects.toMatchObject({ errorCode: 'agent_limit_reached' });
+
+    entitlements.effectivePlan.mockResolvedValue('free');
+  });
+
+  it('count query is owner-scoped — another user at their cap never blocks u1', async () => {
+    entitlements.effectivePlan.mockResolvedValue('free');
+    let seen: { text: string; params: unknown[] } | null = null;
+    db.state.resolve = (text, params) => {
+      if (text.includes('count(*)')) {
+        seen = { text, params };
+        return [{ n: 1 }];
+      }
+      return null;
+    };
+    await createAgent('u1', { name: 'Mine', role: 'CODER' });
+    expect(seen).not.toBeNull();
+    expect(seen!.text).toContain('ai_agents');
+    expect(seen!.text).toContain('owner_id = $1');
+    expect(seen!.params[0]).toBe('u1');
+  });
+
+  it('usage reports the owner-scoped count and the entitlement max (never a hard-coded 5)', async () => {
+    entitlements.effectivePlan.mockResolvedValue('team');
+    db.state.resolve = (text: string) => (text.includes('count(*)') ? [{ n: 12 }] : null);
+    const usage = await agentUsage('u1');
+    expect(usage).toEqual({ count: 12, max: 20, plan: 'team' });
+    expect(entitlements.effectivePlan).toHaveBeenCalledWith('u1');
+    entitlements.effectivePlan.mockResolvedValue('free');
   });
 
   it('creates an agent and audits it', async () => {

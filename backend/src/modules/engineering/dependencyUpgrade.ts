@@ -17,7 +17,7 @@
  *
  * Reuses the existing task engine (createTask), audit, notifications.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -77,9 +77,11 @@ const NEXT_STEP: Record<UpgradeStep, Exclude<UpgradeStep, 'INSPECTING'> | null> 
 const IN_FLIGHT: UpgradeStatus[] = ['INSPECTING', 'MODIFYING', 'INSTALLING', 'TESTING', 'BUILDING', 'ANALYZING'];
 
 export async function getUpgrade(userId: string, upgradeId: string): Promise<DependencyUpgradeRow> {
-  const rows = await queryMany<DependencyUpgradeRow>(
-    'SELECT * FROM dependency_upgrades WHERE id = $1 AND owner_id = $2',
-    [upgradeId, userId],
+  const rows = await withTenant<DependencyUpgradeRow[]>(userId, async (q) =>
+    (await q.query<DependencyUpgradeRow>(
+      'SELECT * FROM dependency_upgrades WHERE id = $1 AND owner_id = $2',
+      [upgradeId, userId],
+    )).rows,
   );
   if (!rows[0]) throw AppError.notFound('Upgrade');
   return rows[0];
@@ -88,9 +90,11 @@ export async function getUpgrade(userId: string, upgradeId: string): Promise<Dep
 export async function listUpgrades(userId: string, projectId?: string): Promise<DependencyUpgradeRow[]> {
   const where = projectId ? 'owner_id = $1 AND project_id = $2' : 'owner_id = $1';
   const params = projectId ? [userId, projectId] : [userId];
-  return queryMany<DependencyUpgradeRow>(
-    `SELECT * FROM dependency_upgrades WHERE ${where} ORDER BY created_at DESC`,
-    params,
+  return withTenant<DependencyUpgradeRow[]>(userId, async (q) =>
+    (await q.query<DependencyUpgradeRow>(
+      `SELECT * FROM dependency_upgrades WHERE ${where} ORDER BY created_at DESC`,
+      params,
+    )).rows,
   );
 }
 
@@ -99,9 +103,11 @@ export async function startUpgrade(userId: string, input: StartUpgradeInput): Pr
   if (!input.projectId || !input.packageName || !input.fromVersion || !input.toVersion || !input.manifestPath) {
     throw AppError.badRequest('upgrade_invalid_input', 'projectId, packageName, fromVersion, toVersion and manifestPath are required');
   }
-  const inFlight = await queryMany<DependencyUpgradeRow>(
-    `SELECT * FROM dependency_upgrades WHERE owner_id = $1 AND project_id = $2 AND status = ANY($3::text[])`,
-    [userId, input.projectId, IN_FLIGHT],
+  const inFlight = await withTenant<DependencyUpgradeRow[]>(userId, async (q) =>
+    (await q.query<DependencyUpgradeRow>(
+      `SELECT * FROM dependency_upgrades WHERE owner_id = $1 AND project_id = $2 AND status = ANY($3::text[])`,
+      [userId, input.projectId, IN_FLIGHT],
+    )).rows,
   );
   if (inFlight.length > 0 && inFlight[0]) {
     throw AppError.conflict('upgrade_in_flight', `Another upgrade (${inFlight[0].package_name}) is still in flight`);
@@ -114,11 +120,13 @@ export async function startUpgrade(userId: string, input: StartUpgradeInput): Pr
     description: `One-dependency upgrade of ${input.packageName} in ${input.manifestPath}.`,
     riskLevel: 'HIGH',
   });
-  await pool.query(
-    `INSERT INTO dependency_upgrades
-       (id, owner_id, project_id, package_name, from_version, to_version, manifest_path, status, task_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'INSPECTING',$8)`,
-    [id, userId, input.projectId, input.packageName, input.fromVersion, input.toVersion, input.manifestPath, task.id],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO dependency_upgrades
+         (id, owner_id, project_id, package_name, from_version, to_version, manifest_path, status, task_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'INSPECTING',$8)`,
+      [id, userId, input.projectId, input.packageName, input.fromVersion, input.toVersion, input.manifestPath, task.id],
+    ),
   );
   await recordAudit({
     action: AuditAction.UPGRADE_STARTED,
@@ -172,9 +180,11 @@ export async function stepUpgrade(userId: string, upgradeId: string, input: Step
   const value = input.step === 'MODIFYING' || input.step === 'ANALYZING'
     ? JSON.stringify(input.diff ?? (input.step === 'ANALYZING' ? { summary: input.output ?? null } : {}))
     : input.output ?? '';
-  await pool.query(
-    `UPDATE dependency_upgrades SET status = $1, ${column} = $2, updated_at = now() WHERE id = $3 AND owner_id = $4`,
-    [input.step, value, upgradeId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE dependency_upgrades SET status = $1, ${column} = $2, updated_at = now() WHERE id = $3 AND owner_id = $4`,
+      [input.step, value, upgradeId, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.UPGRADE_STEP,
@@ -194,9 +204,11 @@ export async function acceptUpgrade(userId: string, upgradeId: string): Promise<
   if (upgrade.status !== 'ANALYZING') {
     throw AppError.conflict('upgrade_not_analyzable', `Upgrade is ${upgrade.status}`);
   }
-  await pool.query(
-    `UPDATE dependency_upgrades SET status = 'ACCEPTED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
-    [upgradeId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE dependency_upgrades SET status = 'ACCEPTED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
+      [upgradeId, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.UPGRADE_ACCEPTED,
@@ -219,9 +231,11 @@ export async function rollbackUpgrade(userId: string, upgradeId: string, reason:
   if (!reason || !reason.trim()) {
     throw AppError.badRequest('rollback_reason_required', 'A rollback reason is required');
   }
-  await pool.query(
-    `UPDATE dependency_upgrades SET status = 'ROLLED_BACK', rollback_reason = $1, updated_at = now() WHERE id = $2 AND owner_id = $3`,
-    [reason, upgradeId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE dependency_upgrades SET status = 'ROLLED_BACK', rollback_reason = $1, updated_at = now() WHERE id = $2 AND owner_id = $3`,
+      [reason, upgradeId, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.UPGRADE_ROLLED_BACK,
@@ -241,9 +255,11 @@ export async function failUpgrade(userId: string, upgradeId: string, reason: str
   if (!IN_FLIGHT.includes(upgrade.status as UpgradeStatus)) {
     throw AppError.conflict('upgrade_not_failable', `Upgrade is ${upgrade.status}`);
   }
-  await pool.query(
-    `UPDATE dependency_upgrades SET status = 'FAILED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
-    [upgradeId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE dependency_upgrades SET status = 'FAILED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
+      [upgradeId, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.UPGRADE_FAILED,

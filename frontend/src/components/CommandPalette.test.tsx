@@ -46,7 +46,6 @@ describe('CommandPalette', () => {
     await openPalette();
     expect(INPUT()).toBeInTheDocument();
     expect(screen.getByText('New Chat')).toBeInTheDocument();
-    expect(screen.getByText('Open Approvals')).toBeInTheDocument();
     expect(screen.getByText('Open Billing')).toBeInTheDocument();
     expect(screen.getByText('Toggle Theme')).toBeInTheDocument();
     expect(screen.getByText('Toggle Focus Mode')).toBeInTheDocument();
@@ -56,8 +55,8 @@ describe('CommandPalette', () => {
     stubFetch(projectsHandler());
     renderPalette();
     await openPalette();
-    await userEvent.type(INPUT(), 'approval');
-    expect(screen.getByText('Open Approvals')).toBeInTheDocument();
+    await userEvent.type(INPUT(), 'billing');
+    expect(screen.getByText('Open Billing')).toBeInTheDocument();
     expect(screen.queryByText('New Chat')).toBeNull();
   });
 
@@ -65,7 +64,7 @@ describe('CommandPalette', () => {
     stubFetch(projectsHandler());
     renderPalette();
     await openPalette();
-    await userEvent.type(INPUT(), 'open approvals');
+    await userEvent.type(INPUT(), 'open billing');
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     const location = window.location;

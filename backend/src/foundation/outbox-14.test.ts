@@ -70,15 +70,38 @@ beforeEach(() => {
   db.state.rowCount = 1;
   db.state.resolve = null;
   recordAudit.mockClear();
-  for (const key of ['RESEND_API_KEY', 'RESEND_ENABLED', 'RESEND_FROM_EMAIL']) {
+  for (const key of [
+    'RESEND_API_KEY',
+    'RESEND_ENABLED',
+    'RESEND_FROM_EMAIL',
+    'EMAIL_TRANSPORT',
+    'GMAIL_USER',
+    'GMAIL_APP_PASSWORD',
+    'GMAIL_FROM_EMAIL',
+  ]) {
     originalEnv[key] = env[key as keyof typeof env];
   }
   env.RESEND_ENABLED = 'true';
   env.RESEND_API_KEY = 're_test_key';
+  // Hermetic: these fetch-mock assertions target the Resend rail. Without
+  // pinning the transport, a real .env EMAIL_TRANSPORT=gmail would open a
+  // live SMTP connection and time out instead of hitting the fetch mock.
+  env.EMAIL_TRANSPORT = 'resend';
+  env.GMAIL_USER = '';
+  env.GMAIL_APP_PASSWORD = '';
+  env.GMAIL_FROM_EMAIL = '';
 });
 
 afterEach(() => {
-  for (const key of ['RESEND_API_KEY', 'RESEND_ENABLED', 'RESEND_FROM_EMAIL']) {
+  for (const key of [
+    'RESEND_API_KEY',
+    'RESEND_ENABLED',
+    'RESEND_FROM_EMAIL',
+    'EMAIL_TRANSPORT',
+    'GMAIL_USER',
+    'GMAIL_APP_PASSWORD',
+    'GMAIL_FROM_EMAIL',
+  ]) {
     (env as Record<string, unknown>)[key] = originalEnv[key];
   }
   vi.unstubAllGlobals();

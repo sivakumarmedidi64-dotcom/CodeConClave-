@@ -253,6 +253,32 @@ export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
       }
       return { allowed: true, risk: 'LOW', requiresApproval: false };
     }
+    case 'file_list': {
+      if (!validWorkspacePath(path)) {
+        return deny('baseline_secrets', 'Path traversal or absolute paths are deny-by-default', 'paths_blocked');
+      }
+      if (!hasCapability(ownerId, 'READ_WORKSPACE', path)) {
+        return deny('capability', 'No READ_WORKSPACE grant for this path', 'capability_denied');
+      }
+      return { allowed: true, risk: 'LOW', requiresApproval: false };
+    }
+    case 'browser_open': {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return deny('baseline_network', 'Only http(s) URLs can be opened in the browser', 'network_blocked');
+        }
+      } catch {
+        return deny('baseline_network', 'Malformed URL', 'network_blocked');
+      }
+      if (blockedNetworkHost(url)) {
+        return deny('baseline_network', 'Destination is blocked by network policy', 'network_blocked');
+      }
+      if (!hasCapability(ownerId, 'EXECUTE_COMMAND', 'browser_open')) {
+        return deny('capability', 'No EXECUTE_COMMAND grant for this device', 'capability_denied');
+      }
+      return { allowed: true, risk: 'LOW', requiresApproval: false };
+    }
     case 'file_write':
     case 'file_create': {
       if (!validWorkspacePath(path)) {

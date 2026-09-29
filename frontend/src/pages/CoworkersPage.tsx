@@ -9,8 +9,8 @@ import type { CoworkerRun, CoworkerType } from '../lib/types';
 
 const RUN_STATE_COLOR: Record<string, string> = {
   COMPLETED: '#1e7d46',
-  FAILED: '#b3261e',
-  RUNNING: '#2f6fdb',
+  FAILED: '#dc2626',
+  RUNNING: '#2563eb',
   WAITING: '#c15f3c',
   PENDING: '#c15f3c',
 };

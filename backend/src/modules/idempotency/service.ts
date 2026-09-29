@@ -8,7 +8,7 @@
  * the payload hash matches — a different payload with the same key is a client
  * bug and is rejected, never silently executed.
  */
-import { pool, queryOne } from '../../shared/db.js';
+import { withTenant, pool, queryOne } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { sha256Hex } from '../../shared/crypto.js';
@@ -56,7 +56,9 @@ export async function beginIdempotent(input: {
   const key = input.key.trim();
   if (!key || key.length > 128) throw AppError.badRequest('invalid_idempotency_key', 'Idempotency-Key must be 1-128 characters');
   const payloadHash = hashPayload(input.op, input.payload);
-  const existing = await queryOne<IdempotencyRow>('SELECT * FROM idempotency_keys WHERE user_id = $1 AND key = $2', [input.userId, key]);
+  const existing = await withTenant<IdempotencyRow | null>(input.userId, async (q) =>
+    (await q.query<IdempotencyRow>('SELECT * FROM idempotency_keys WHERE user_id = $1 AND key = $2', [input.userId, key])).rows[0] ?? null,
+  );
   if (existing) {
     if (existing.payload_hash !== payloadHash) {
       throw AppError.conflict('idempotency_key_reused', 'Idempotency-Key was already used with a different payload');
@@ -71,13 +73,17 @@ export async function beginIdempotent(input: {
     // re-executes and we overwrite the pending row when it completes.
   }
   const id = newId(PREFIX.IDEMPOTENCY);
-  await pool.query(
-    `INSERT INTO idempotency_keys (id, key, user_id, op, payload_hash, status)
-     VALUES ($1,$2,$3,$4,$5,'PENDING')
-     ON CONFLICT (user_id, key) DO UPDATE SET payload_hash = EXCLUDED.payload_hash, op = EXCLUDED.op`,
-    [id, key, input.userId, input.op, payloadHash],
+  await withTenant(input.userId, (q) =>
+    q.query(
+      `INSERT INTO idempotency_keys (id, key, user_id, op, payload_hash, status)
+       VALUES ($1,$2,$3,$4,$5,'PENDING')
+       ON CONFLICT (user_id, key) DO UPDATE SET payload_hash = EXCLUDED.payload_hash, op = EXCLUDED.op`,
+      [id, key, input.userId, input.op, payloadHash],
+    ),
   );
-  const row = await queryOne<IdempotencyRow>('SELECT * FROM idempotency_keys WHERE user_id = $1 AND key = $2', [input.userId, key]);
+  const row = await withTenant<IdempotencyRow | null>(input.userId, async (q) =>
+    (await q.query<IdempotencyRow>('SELECT * FROM idempotency_keys WHERE user_id = $1 AND key = $2', [input.userId, key])).rows[0] ?? null,
+  );
   return { outcome: 'new', row: row! };
 }
 

@@ -23,6 +23,24 @@ function tokenFor(creds: PluginCredentials): string | undefined {
   return creds.kinds['token'] ?? creds.kinds['api_key'];
 }
 
+/**
+ * Discord webhook URLs are issued only on Discord's own hosts. A
+ * caller-supplied webhookUrl must match — never an arbitrary/fetch-any URL
+ * (SSRF guard). Stored credential webhooks were validated at connect time.
+ */
+const DISCORD_WEBHOOK_HOSTS = new Set(['discord.com', 'discordapp.com', 'ptb.discord.com', 'canary.discord.com']);
+
+export function discordWebhookAllowed(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+  return DISCORD_WEBHOOK_HOSTS.has(parsed.hostname.toLowerCase());
+}
+
 export const discordAdapter: PluginAdapter = {
   id: 'discord',
   name: 'Discord',
@@ -64,6 +82,7 @@ export const discordAdapter: PluginAdapter = {
       }
       const webhook = webhookFor(creds);
       if (!webhook) return { ok: false, latencyMs: Date.now() - start, detail: 'credentials_missing' };
+      if (!discordWebhookAllowed(webhook)) return { ok: false, latencyMs: Date.now() - start, detail: 'webhook_host_not_allowed' };
       // Webhook GET returns the webhook metadata without sending anything.
       const response = await fetch(webhook, { signal: outboundSignal() });
       if (!response.ok) return { ok: false, latencyMs: Date.now() - start, detail: `discord_status_${response.status}` };
@@ -77,6 +96,9 @@ export const discordAdapter: PluginAdapter = {
     if (action.name === 'messages.send') {
       const webhook = String(input.webhookUrl ?? '') || (webhookFor(creds) ?? '');
       if (!webhook) throw AppError.badRequest('discord_webhook_missing', 'Discord send requires a webhook URL');
+      if (!discordWebhookAllowed(webhook)) {
+        throw AppError.forbidden('plugin_url_not_allowed', 'Discord webhook URL must be on a Discord host');
+      }
       const response = await fetch(webhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

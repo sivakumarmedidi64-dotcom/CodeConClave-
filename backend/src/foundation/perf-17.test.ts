@@ -23,6 +23,7 @@ const db = vi.hoisted(() => {
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
     queryMany: async (text: string, params: unknown[] = []) => (await query(text, params)).rows,
     withTenant: async (_u: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -37,6 +38,7 @@ function setup() {
     const s = text.toLowerCase();
     if (s.includes('select plan_id from users')) return [{ id: 'u1', plan_id: 'free' }];
     if (s.includes('select team_id from projects')) return [];
+    if (s.includes('from projects where id = $1')) return [{ id: String(params[0]), owner_id: 'u1', team_id: null, deleted_at: null }];
     if (s.includes('from notifications')) return [];
     if (s.includes('from tasks') && s.includes('where id = $1')) return t.tasks.filter((x) => x.id === params[0]);
     if (s.includes('update tasks') && s.includes('last_heartbeat_at')) return [];
@@ -168,6 +170,7 @@ describe('PHASE 17 performance smoke — honest TARGET/MEASURED', () => {
       coworkerPipeline: [{ coworker: 'ARCHITECT' }, { coworker: 'CODER' }],
     });
     const startedAt = Date.now();
+    t.tasks[0]!.status = 'RUNNING'; // worker claim (queue.ts) precedes executeTask
     await executeTask(task);
     const measured = Date.now() - startedAt;
     console.error(`PERF task_execute_ms TARGET<=2000 MEASURED=${measured}`);

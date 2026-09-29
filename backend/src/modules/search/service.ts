@@ -4,7 +4,7 @@
  * (owner or project member), keyword ILIKE with filters (type, project,
  * date range, owner, tag), limit capped at 50. No external search engine.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { recordAudit } from '../audit/service.js';
 import { AuditAction, SearchEntity } from '@codeconclave/shared';
@@ -102,13 +102,17 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
       params.push(tag);
       clauses.push(`$${params.length} = ANY(f.tags)`);
     }
-    const rows = await queryMany<{ id: string; path: string; category: string | null; created_at: Date; project_id: string }>(
-      `SELECT f.id, f.path, f.category, f.created_at, f.project_id
-       FROM files f
-       JOIN projects p ON p.id = f.project_id
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY f.updated_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; path: string; category: string | null; created_at: Date; project_id: string }>>(userId, (q) =>
+      q
+        .query<{ id: string; path: string; category: string | null; created_at: Date; project_id: string }>(
+          `SELECT f.id, f.path, f.category, f.created_at, f.project_id
+           FROM files f
+           JOIN projects p ON p.id = f.project_id
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY f.updated_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = rows.map((r) => ({
       entity: SearchEntity.FILE,
@@ -131,12 +135,16 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
     }
     const ms = memberScope('p.owner_id', params);
     if (ms) clauses.push(ms);
-    const rows = await queryMany<{ id: string; name: string; description: string | null; created_at: Date; owner_id: string }>(
-      `SELECT p.id, p.name, p.description, p.created_at, p.owner_id
-       FROM projects p
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY p.updated_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; name: string; description: string | null; created_at: Date; owner_id: string }>>(userId, (q) =>
+      q
+        .query<{ id: string; name: string; description: string | null; created_at: Date; owner_id: string }>(
+          `SELECT p.id, p.name, p.description, p.created_at, p.owner_id
+           FROM projects p
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY p.updated_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,
@@ -158,12 +166,16 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
     if (ts) clauses.push(ts);
     const ms = memberScope('c.owner_id', params);
     if (ms) clauses.push(ms);
-    const rows = await queryMany<{ id: string; title: string; mode: string; created_at: Date; project_id: string | null }>(
-      `SELECT c.id, c.title, c.mode, c.created_at, c.project_id
-       FROM conversations c
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY c.updated_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; title: string; mode: string; created_at: Date; project_id: string | null }>>(userId, (q) =>
+      q
+        .query<{ id: string; title: string; mode: string; created_at: Date; project_id: string | null }>(
+          `SELECT c.id, c.title, c.mode, c.created_at, c.project_id
+           FROM conversations c
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY c.updated_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,
@@ -185,12 +197,16 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
     if (ts) clauses.push(ts);
     const ms = memberScope('m.owner_id', params);
     if (ms) clauses.push(ms);
-    const rows = await queryMany<{ id: string; content: string; type: string; created_at: Date; project_id: string | null }>(
-      `SELECT m.id, m.content, m.type, m.created_at, m.project_id
-       FROM memories m
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY m.updated_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; content: string; type: string; created_at: Date; project_id: string | null }>>(userId, (q) =>
+      q
+        .query<{ id: string; content: string; type: string; created_at: Date; project_id: string | null }>(
+          `SELECT m.id, m.content, m.type, m.created_at, m.project_id
+           FROM memories m
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY m.updated_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,
@@ -212,13 +228,17 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
     if (ts) clauses.push(ts);
     const ms = memberScope('t.owner_id', params);
     if (ms) clauses.push(ms);
-    const rows = await queryMany<{ id: string; title: string; status: string; created_at: Date; project_id: string }>(
-      `SELECT t.id, t.title, t.status, t.created_at, t.project_id
-       FROM tasks t
-       JOIN projects p ON p.id = t.project_id
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY t.created_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; title: string; status: string; created_at: Date; project_id: string }>>(userId, (q) =>
+      q
+        .query<{ id: string; title: string; status: string; created_at: Date; project_id: string }>(
+          `SELECT t.id, t.title, t.status, t.created_at, t.project_id
+           FROM tasks t
+           JOIN projects p ON p.id = t.project_id
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY t.created_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,
@@ -240,14 +260,18 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
     if (ts) clauses.push(ts);
     const ms = memberScope('t.owner_id', params);
     if (ms) clauses.push(ms);
-    const rows = await queryMany<{ id: string; name: string; kind: string; created_at: Date; project_id: string }>(
-      `SELECT a.id, a.name, a.kind, a.created_at, t.project_id
-       FROM artifacts a
-       JOIN tasks t ON t.id = a.task_id
-       JOIN projects p ON p.id = t.project_id
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY a.created_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; name: string; kind: string; created_at: Date; project_id: string }>>(userId, (q) =>
+      q
+        .query<{ id: string; name: string; kind: string; created_at: Date; project_id: string }>(
+          `SELECT a.id, a.name, a.kind, a.created_at, t.project_id
+           FROM artifacts a
+           JOIN tasks t ON t.id = a.task_id
+           JOIN projects p ON p.id = t.project_id
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY a.created_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,
@@ -282,12 +306,16 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
       params.push(tag);
       clauses.push(`$${params.length} = ANY(i.tags)`);
     }
-    const rows = await queryMany<{ id: string; title: string; status: string; priority: string; created_at: Date; project_id: string | null }>(
-      `SELECT i.id, i.title, i.status, i.priority, i.created_at, i.project_id
-       FROM ideas i
-       WHERE ${clauses.join('\n  AND ')}
-       ORDER BY i.updated_at DESC LIMIT ${limit}`,
-      params,
+    const rows = await withTenant<Array<{ id: string; title: string; status: string; priority: string; created_at: Date; project_id: string | null }>>(userId, (q) =>
+      q
+        .query<{ id: string; title: string; status: string; priority: string; created_at: Date; project_id: string | null }>(
+          `SELECT i.id, i.title, i.status, i.priority, i.created_at, i.project_id
+           FROM ideas i
+           WHERE ${clauses.join('\n  AND ')}
+           ORDER BY i.updated_at DESC LIMIT ${limit}`,
+          params,
+        )
+        .then((r) => r.rows),
     );
     results = [
       ...results,

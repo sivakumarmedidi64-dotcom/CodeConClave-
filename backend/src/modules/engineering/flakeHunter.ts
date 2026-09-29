@@ -19,7 +19,7 @@
  *
  * Reuses the existing task engine (createTask), audit, notifications.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, pool, queryMany } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -126,9 +126,8 @@ function classify(runs: TestRunRecord[]): { classification: FlakeClassification;
 }
 
 export async function getFlake(userId: string, flakeId: string): Promise<FlakeRecordRow> {
-  const rows = await queryMany<FlakeRecordRow>(
-    'SELECT * FROM flake_records WHERE id = $1 AND owner_id = $2',
-    [flakeId, userId],
+  const rows = await withTenant<FlakeRecordRow[]>(userId, async (q) =>
+    (await q.query<FlakeRecordRow>('SELECT * FROM flake_records WHERE id = $1 AND owner_id = $2', [flakeId, userId])).rows,
   );
   if (!rows[0]) throw AppError.notFound('Flake record');
   return rows[0];
@@ -137,9 +136,8 @@ export async function getFlake(userId: string, flakeId: string): Promise<FlakeRe
 export async function listFlakes(userId: string, projectId?: string): Promise<FlakeRecordRow[]> {
   const where = projectId ? 'owner_id = $1 AND project_id = $2' : 'owner_id = $1';
   const params = projectId ? [userId, projectId] : [userId];
-  return queryMany<FlakeRecordRow>(
-    `SELECT * FROM flake_records WHERE ${where} ORDER BY created_at DESC`,
-    params,
+  return withTenant<FlakeRecordRow[]>(userId, async (q) =>
+    (await q.query<FlakeRecordRow>(`SELECT * FROM flake_records WHERE ${where} ORDER BY created_at DESC`, params)).rows,
   );
 }
 
@@ -154,7 +152,7 @@ export async function analyzeTestRuns(userId: string, input: AnalyzeTestRunsInpu
   }
   const { classification, pattern, confidence } = classify(input.runs);
   const id = newId(PREFIX.FLAKE_RECORD);
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO flake_records
        (id, owner_id, project_id, test_id, test_name, runs_seen, failures_seen,
         classification, pattern, evidence, confidence, status)
@@ -164,7 +162,7 @@ export async function analyzeTestRuns(userId: string, input: AnalyzeTestRunsInpu
       input.runs.length, failures, classification, pattern,
       JSON.stringify(input.runs.slice(0, 50)), confidence,
     ],
-  );
+  ));
   await recordAudit({
     action: AuditAction.FLAKE_RECORDED,
     actorUserId: userId,
@@ -197,10 +195,10 @@ export async function createInvestigationTask(userId: string, flakeId: string): 
       `Investigate and fix the root cause. Do NOT delete or skip the test.`,
     riskLevel: 'LOW',
   });
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE flake_records SET investigation_task_id = $1, status = 'INVESTIGATING', updated_at = now() WHERE id = $2 AND owner_id = $3`,
     [task.id, flakeId, userId],
-  );
+  ));
   await recordAudit({
     action: AuditAction.FLAKE_INVESTIGATION_CREATED,
     actorUserId: userId,
@@ -228,10 +226,10 @@ export async function createInvestigationTask(userId: string, flakeId: string): 
 export async function markFlakeResolved(userId: string, flakeId: string): Promise<FlakeRecordRow> {
   const flake = await getFlake(userId, flakeId);
   if (flake.status === 'RESOLVED') throw AppError.conflict('flake_already_resolved', 'Flake is already resolved');
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `UPDATE flake_records SET status = 'RESOLVED', updated_at = now() WHERE id = $1 AND owner_id = $2`,
     [flakeId, userId],
-  );
+  ));
   await recordAudit({
     action: AuditAction.FLAKE_RESOLVED,
     actorUserId: userId,

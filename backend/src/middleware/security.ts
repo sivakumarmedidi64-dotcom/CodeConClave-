@@ -23,6 +23,25 @@ export function isZodError(err: unknown): err is { issues: Array<{ path: Array<s
   );
 }
 
+/**
+ * Structural body-parser / raw-body error detection. These are SyntaxError
+ * subclasses (or http-errors objects) tagged with a `type` like
+ * `entity.parse.failed`, `entity.too.large`, `entity.verify.failed`, etc., and
+ * a numeric `status`/`statusCode` of 400. They are neither AppErrors nor
+ * ZodErrors, so without this mapping a malformed JSON body falls through to
+ * the generic 500. Shape checks (not `instanceof`) keep this reliable across
+ * module graphs, mirroring isZodError above.
+ */
+export function isBodyParserError(
+  err: unknown,
+): err is { type?: string; status?: number; statusCode?: number; expose?: boolean } {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { type?: unknown; status?: unknown; statusCode?: unknown; expose?: unknown };
+  const tagged = typeof e.type === 'string' && e.type.startsWith('entity.');
+  const badRequest4xx = Number(e.status ?? e.statusCode) >= 400 && Number(e.status ?? e.statusCode) < 500;
+  return tagged && badRequest4xx;
+}
+
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -91,11 +110,22 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     });
     return;
   }
+  if (isBodyParserError(err)) {
+    // Malformed/oversized request body — a client error, not an internal one.
+    // Sanitized exactly like every other error path: never the raw message.
+    res.status(400).json({
+      error: {
+        code: 'invalid_body',
+        message: 'Invalid request body',
+      },
+    });
+    return;
+  }
   const message = err instanceof Error ? err.message : 'Unknown error';
-  logger.error('unhandled error', { message, traceId: req.ctx?.traceId, stack: err instanceof Error ? err.stack : undefined });
+  logger.error('unhandled error', { message, correlationId: req.ctx?.correlationId, stack: err instanceof Error ? err.stack : undefined });
   incMetric('http_5xx');
   // Real exception routing to Sentry (env-gated, never throws).
-  captureError(err, { tags: { traceId: req.ctx?.traceId ?? 'unknown' } });
+  captureError(err, { tags: { correlationId: req.ctx?.correlationId ?? 'unknown' } });
   // The client sees only a sanitized response: never the message, never a stack.
   res.status(500).json({ error: { code: 'internal_error', message: 'Internal server error' } });
 }

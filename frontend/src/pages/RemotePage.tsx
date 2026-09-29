@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import type { DeviceInfo, RemoteSessionInfo } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { PairQrCode } from '../components/PairQrCode';
 
 const PRESENCE_CLASS: Record<string, string> = {
   ONLINE: 'ok',
@@ -137,7 +138,42 @@ export function RemotePage() {
   return (
     <div className="cc-page">
       <h1>Remote Control</h1>
-      <div className="cc-card">
+      <div className="cc-card" data-testid="remote-guide">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: 660 }}>
+            <h3>How Remote Control works</h3>
+            <ol className="cc-hint" style={{ margin: '6px 0 0 18px', lineHeight: 1.8 }}>
+              <li>
+                Run the Local Agent on the machine you want to control:{' '}
+                <span className="cc-mono">npx codeconclave-agent@latest init</span>.
+              </li>
+              <li>
+                Start pairing below — you get a 6-digit code and a QR. Run the printed{' '}
+                <span className="cc-mono">pair</span> command on that machine.
+              </li>
+              <li>
+                When the device shows <strong>online</strong> and reports terminal capability, start a remote session
+                (valid for 8 hours).
+              </li>
+              <li>Inside a session you can authorize a screenshot (15 min) or request one — and revoke any time.</li>
+            </ol>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <a className="cc-btn cc-btn--ghost cc-btn--sm" href="#remote-pairing">
+              1. Pair a device
+            </a>
+            <a className="cc-btn cc-btn--ghost cc-btn--sm" href="#remote-devices">
+              2. Devices &amp; sessions
+            </a>
+          </div>
+        </div>
+        <p className="cc-hint" style={{ marginTop: 8 }}>
+          Cloud never executes LOCAL tasks: commands run on the paired machine through the token-authenticated agent
+          socket. Screenshots are an external platform limitation here — the typed adapter is wired, but capture is
+          unavailable and nothing is simulated.
+        </p>
+      </div>
+      <div className="cc-card" id="remote-pairing">
         <h2>Pair the Local Agent</h2>
         <p className="cc-hint">
           Run <span className="cc-mono">npx codeconclave-agent@latest init</span> on the target
@@ -152,16 +188,24 @@ export function RemotePage() {
           </button>
         </div>
         {pairing && (
-          <div className="cc-mono" style={{ marginTop: 12, background: '#111', color: '#fff', borderRadius: 8, padding: '12px 16px' }}>
-            <div>1. On the target machine:</div>
-            <div style={{ paddingLeft: 12 }}>npx codeconclave-agent@latest init</div>
-            <div>2. Enter this pairing code (expires in {pairing.expiresInSeconds}s):</div>
-            <div style={{ paddingLeft: 12, fontSize: 22, letterSpacing: 4 }}>{pairing.pairingCode}</div>
-            <div>3. Then run: npx codeconclave-agent pair {pairing.deviceId} {pairing.pairingCode}</div>
+          <div style={{ marginTop: 12, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <div className="cc-mono" style={{ background: '#111', color: '#fff', borderRadius: 8, padding: '12px 16px', flex: '1 1 auto' }}>
+              <div>1. On the target machine:</div>
+              <div style={{ paddingLeft: 12 }}>npx codeconclave-agent@latest init</div>
+              <div>2. Enter this pairing code (expires in {pairing.expiresInSeconds}s):</div>
+              <div style={{ paddingLeft: 12, fontSize: 22, letterSpacing: 4 }}>{pairing.pairingCode}</div>
+              <div>3. Then run: npx codeconclave-agent pair {pairing.deviceId} {pairing.pairingCode}</div>
+            </div>
+            <div style={{ flex: '0 0 auto', textAlign: 'center' }}>
+              <PairQrCode command={`npx codeconclave-agent pair ${pairing.deviceId} ${pairing.pairingCode}`} />
+              <div className="cc-hint" style={{ marginTop: 4 }}>
+                Scan to get the pair command
+              </div>
+            </div>
           </div>
         )}
       </div>
-      <div className="cc-card">
+      <div className="cc-card" id="remote-devices">
         <h3>Devices</h3>
         {devices.length === 0 && <div className="cc-hint">No devices registered.</div>}
         {devices.map((d) => {

@@ -7,7 +7,7 @@
  * with placeholders so callers can log/surface content without leaking
  * secrets. Scan results are persisted to secret_guard_scans.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant, queryMany } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType, SecretGuardTarget } from '@codeconclave/shared';
@@ -32,7 +32,8 @@ export const SECRET_PATTERNS: SecretPattern[] = [
   { kind: 'private_key', label: 'Private key', re: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, confidence: 1 },
   { kind: 'google_api_key', label: 'Google API key', re: /\bAIza[0-9A-Za-z_-]{35}\b/g, confidence: 0.95 },
   { kind: 'stripe_secret', label: 'Stripe secret key', re: /\bsk_live_[0-9A-Za-z]{24,}\b/g, confidence: 0.95 },
-  { kind: 'generic_api_key', label: 'API key', re: /\b(?:api[_-]?key|apikey|secret(?:[_-]?key)?|access[_-]?token)\b\s*[:=]\s*["']?[A-Za-z0-9_\-\.]{12,}/gi, confidence: 0.6 },
+  { kind: 'openrouter_api_key', label: 'OpenRouter API key', re: /\bsk-or-v1-[0-9A-Za-z_-]{32,}\b/g, confidence: 0.95 },
+  { kind: 'generic_api_key', label: 'API key', re: /\b(?:api[_-]?key|apikey|secret(?:[_-]?key)?|access[_-]?token)\b\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}/gi, confidence: 0.6 },
   { kind: 'jwt', label: 'JWT', re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, confidence: 0.9 },
   { kind: 'connection_string', label: 'Connection string', re: /\b(?:postgres(?:ql)?|mysql|redis|amqp|mongodb(?:\+srv)?):\/\/[^\s"'<>]{6,}\b/gi, confidence: 0.9 },
 ];
@@ -99,11 +100,11 @@ export async function scanContent(
   const findings = scanContentForSecrets(input.content);
   const id = newId(PREFIX.SECRET_GUARD_SCAN);
   const { pool } = await import('../../shared/db.js');
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO secret_guard_scans (id, owner_id, target_type, target_ref, result, findings)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
     [id, userId, input.targetType, input.targetRef ?? null, findings.length > 0 ? 'FINDINGS' : 'CLEAN', JSON.stringify(findings)],
-  );
+  ));
   await recordAudit({
     action: findings.length > 0 ? AuditAction.SECRET_GUARD_FINDINGS : AuditAction.SECRET_GUARD_SCANNED,
     actorUserId: userId,
@@ -130,8 +131,12 @@ export async function scanContent(
 }
 
 export async function listSecretGuardScans(userId: string, limit = 50): Promise<SecretGuardRow[]> {
-  return queryMany<SecretGuardRow>(
-    'SELECT * FROM secret_guard_scans WHERE owner_id = $1 ORDER BY scanned_at DESC LIMIT $2',
-    [userId, Math.min(Math.max(limit, 1), 200)],
+  return withTenant<SecretGuardRow[]>(userId, async (q) =>
+    (
+      await q.query<SecretGuardRow>(
+        'SELECT * FROM secret_guard_scans WHERE owner_id = $1 ORDER BY scanned_at DESC LIMIT $2',
+        [userId, Math.min(Math.max(limit, 1), 200)],
+      )
+    ).rows,
   );
 }

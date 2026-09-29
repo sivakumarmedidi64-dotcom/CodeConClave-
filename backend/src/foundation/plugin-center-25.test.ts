@@ -25,6 +25,8 @@ const db = vi.hoisted(() => {
       const rows = state.resolve ? state.resolve(text, params) : [];
       return rows;
     },
+    withTenant: async (_userId: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 
@@ -93,7 +95,7 @@ beforeEach(() => {
 
 describe('plugin integration classification (server-authoritative)', () => {
   it('classifies connectors without an adapter as UNSUPPORTED', () => {
-    for (const type of ['teams', 'notion', 'jira', 'figma', 'supabase', 'render']) {
+    for (const type of ['teams', 'figma', 'zoom', 'onedrive', 'box', 'workday', 'quickbooks']) {
       expect(classifyPluginIntegration(type, undefined)).toBe('UNSUPPORTED');
       expect(ADAPTER_IDS).not.toContain(type);
     }
@@ -117,6 +119,11 @@ describe('plugin integration classification (server-authoritative)', () => {
     expect(classifyPluginIntegration('sentry', undefined)).toBe('CONFIGURED');
     expect(classifyPluginIntegration('vercel', undefined)).toBe('CONFIGURED');
     expect(classifyPluginIntegration('cloudflare', undefined)).toBe('CONFIGURED');
+    expect(classifyPluginIntegration('notion', undefined)).toBe('CONFIGURED');
+    expect(classifyPluginIntegration('stripe', undefined)).toBe('CONFIGURED');
+    expect(classifyPluginIntegration('twilio', undefined)).toBe('CONFIGURED');
+    expect(classifyPluginIntegration('pagerduty', undefined)).toBe('CONFIGURED');
+    expect(classifyPluginIntegration('asana', undefined)).toBe('CONFIGURED');
   });
 
   it('classifies server-config adapters from the real deployment env', () => {
@@ -130,7 +137,7 @@ describe('plugin integration classification (server-authoritative)', () => {
 
   it('never shows an unsupported connector as CONFIGURED or LIVE', () => {
     // Even with a phantom connection row, unsupported types stay UNSUPPORTED.
-    for (const type of ['teams', 'notion', 'jira', 'figma', 'supabase', 'render']) {
+    for (const type of ['teams', 'figma', 'zoom', 'onedrive', 'box', 'workday', 'quickbooks']) {
       expect(classifyPluginIntegration(type, connection({ plugin_type: type, state: 'CONNECTED' }))).toBe('UNSUPPORTED');
     }
   });

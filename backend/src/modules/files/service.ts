@@ -7,7 +7,7 @@
  * favorites, recent, trash lifecycle (30-day recovery) and expiry purge.
  * Storage is provider-agnostic (local memory / S3-compatible / R2-deferred).
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { pool, withTenant, withSystem, type DbQueryable } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { env } from '../../config/env.js';
@@ -23,6 +23,16 @@ import {
   PreviewKind,
   PreviewStatus,
 } from '@codeconclave/shared';
+
+/**
+ * P0-2 Path 1: every query in this module runs on a tenant- or system-scoped
+ * client (`q`) obtained from `withTenant(userId, ...)` / `withSystem(...)`.
+ * File tenancy is project-scoped: membership is proven once by `getProject`
+ * before the transaction, and `assertFileAccess` re-checks owner / member /
+ * explicit grant on the same scoped connection the statements run on. The
+ * authenticated principal is the only tenant key ever used.
+ */
+type Q = DbQueryable;
 
 // ---------------------------------------------------------------- security policy
 
@@ -278,28 +288,29 @@ export interface VersionView {
  * Owner, project member or explicit file permission grant. The owner of the
  * project is a member of their own project — the owner check covers it.
  */
-async function assertFileAccess(userId: string, file: FileRow): Promise<void> {
+async function assertFileAccess(q: Q, userId: string, file: FileRow): Promise<void> {
   if (file.owner_id === userId) return;
-  const member = await queryOne<{ role: string }>(
+  const memberRes = await q.query<{ role: string }>(
     'SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2',
     [file.project_id, userId],
   );
-  if (member) return;
-  const grant = await queryOne<{ ok: number }>(
+  if (memberRes.rows[0]) return;
+  const grantRes = await q.query<{ ok: number }>(
     'SELECT 1 AS ok FROM file_permissions WHERE file_id = $1 AND grantee_user_id = $2',
     [file.id, userId],
   );
-  if (grant) return;
+  if (grantRes.rows[0]) return;
   throw AppError.forbidden('file_access_denied', 'You do not have access to this file');
 }
 
-async function getFileRow(userId: string, projectId: string, fileId: string): Promise<FileRow> {
-  const row = await queryOne<FileRow>(
+async function getFileRow(q: Q, userId: string, projectId: string, fileId: string): Promise<FileRow> {
+  const res = await q.query<FileRow>(
     'SELECT * FROM files WHERE id = $1 AND project_id = $2',
     [fileId, projectId],
   );
+  const row = res.rows[0] ?? null;
   if (!row) throw AppError.notFound('File');
-  await assertFileAccess(userId, row);
+  await assertFileAccess(q, userId, row);
   return row;
 }
 
@@ -313,11 +324,11 @@ async function recordFileActivity(
   detail?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await pool.query(
+    await withTenant(actorUserId, (q) => q.query(
       `INSERT INTO file_activity (id, file_id, project_id, actor_user_id, action, detail, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,now())`,
       [newId('fac'), fileId, projectId, actorUserId, action, detail ? JSON.stringify(detail) : null],
-    );
+    ));
   } catch {
     /* activity history must never break the operation */
   }
@@ -356,6 +367,12 @@ export async function uploadFile(
     throw AppError.badRequest('file_too_large', `File exceeds the ${env.MAX_UPLOAD_MB} MB upload limit`);
   }
 
+  // Tenant gate: the caller must own the project or belong to it (member /
+  // team). Without this, any authenticated user could plant files into a
+  // victim's project namespace (the overwrite path is already protected by
+  // assertFileAccess; only the new-file path was missing the check).
+  await getProject(userId, projectId);
+
   const tags = cleanTags(options?.tags);
   const category = options?.category?.trim() || null;
   const description = options?.description?.trim() || null;
@@ -364,34 +381,39 @@ export async function uploadFile(
   const encrypt = storageEncryptionEnabled();
   const stored = encrypt ? encryptBuffer(buffer) : buffer;
 
-  const existing = await queryOne<{ id: string }>(
-    'SELECT id FROM files WHERE project_id = $1 AND path = $2',
-    [projectId, path],
-  );
+  const existing = await withTenant(userId, async (q) => {
+    const res = await q.query<{ id: string }>(
+      'SELECT id FROM files WHERE project_id = $1 AND path = $2 FOR UPDATE',
+      [projectId, path],
+    );
+    return res.rows[0]?.id ?? null;
+  });
 
   if (!existing) {
     const fileId = newId(PREFIX.FILE);
     const storageKey = `${FILE_STORAGE_PREFIX}/projects/${projectId}/${fileId}`;
     await storage.put(storageKey, stored, mime);
-    await pool.query(
-      `INSERT INTO files
-         (id, project_id, owner_id, path, size_bytes, sha256, storage_key, storage_provider,
-          mime_type, tags, category, description, preview_kind, preview_status, ocr_status,
-          encrypted, is_favorite)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-      [
-        fileId, projectId, userId, path, buffer.length, sha, storageKey, storage.kind,
-        mime, tags, category, description, preview.kind, preview.status, OcrStatus.UNAVAILABLE,
-        encrypt, false,
-      ],
-    );
-    await pool.query(
-      `INSERT INTO file_versions
-         (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
-          created_by, parent_version, rollback_reference)
-       VALUES ($1,$2,1,$3,$4,$5,'upload',$6,0,NULL)`,
-      [newId('ver'), fileId, sha, buffer.length, storageKey, userId],
-    );
+    await withTenant(userId, async (q) => {
+      await q.query(
+        `INSERT INTO files
+           (id, project_id, owner_id, path, size_bytes, sha256, storage_key, storage_provider,
+            mime_type, tags, category, description, preview_kind, preview_status, ocr_status,
+            encrypted, is_favorite)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        [
+          fileId, projectId, userId, path, buffer.length, sha, storageKey, storage.kind,
+          mime, tags, category, description, preview.kind, preview.status, OcrStatus.UNAVAILABLE,
+          encrypt, false,
+        ],
+      );
+      await q.query(
+        `INSERT INTO file_versions
+           (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+            created_by, parent_version, rollback_reference)
+         VALUES ($1,$2,1,$3,$4,$5,'upload',$6,0,NULL)`,
+        [newId('ver'), fileId, sha, buffer.length, storageKey, userId],
+      );
+    });
     await incrementUsage(userId, 'storage_bytes_used', buffer.length);
     await recordAudit({
       action: AuditAction.FILE_UPLOADED,
@@ -403,26 +425,29 @@ export async function uploadFile(
       detail: { path, sizeBytes: buffer.length },
     });
     await recordFileActivity(fileId, projectId, userId, 'file.uploaded', { path, sizeBytes: buffer.length });
-    const row = await queryOne<FileRow>('SELECT * FROM files WHERE id = $1', [fileId]);
+    const row = await withTenant(userId, async (q) => {
+      const res = await q.query<FileRow>('SELECT * FROM files WHERE id = $1', [fileId]);
+      return res.rows[0] ?? null;
+    });
     return toFile(row ?? ({ id: fileId, project_id: projectId, owner_id: userId, path } as FileRow));
   }
 
   // ------------------------------------------------------------ overwrite → new version
-  const fileId = existing.id;
-  const file = await queryOne<FileRow>('SELECT * FROM files WHERE id = $1', [fileId]);
-  if (!file) throw AppError.notFound('File');
-  await assertFileAccess(userId, file);
-
-  const old = await queryOne<{ size_bytes: number; encrypted: boolean }>(
-    'SELECT size_bytes, encrypted FROM files WHERE id = $1',
-    [fileId],
-  );
-  const oldSize = Number(old?.size_bytes ?? 0);
-  const maxV = await queryOne<{ v: number }>(
-    'SELECT COALESCE(MAX(version),0) AS v FROM file_versions WHERE file_id = $1',
-    [fileId],
-  );
-  const parentVersion = Number(maxV?.v ?? 0);
+  const fileId = existing;
+  const { file, oldSize, parentVersion } = await withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    const oldRes = await q.query<{ size_bytes: number; encrypted: boolean }>(
+      'SELECT size_bytes, encrypted FROM files WHERE id = $1',
+      [fileId],
+    );
+    const oldSize = Number(oldRes.rows[0]?.size_bytes ?? 0);
+    const maxV = await q.query<{ v: number }>(
+      'SELECT COALESCE(MAX(version),0) AS v FROM file_versions WHERE file_id = $1 FOR UPDATE',
+      [fileId],
+    );
+    const parentVersion = Number(maxV.rows[0]?.v ?? 0);
+    return { file, oldSize, parentVersion };
+  });
   const nextVersion = parentVersion + 1;
 
   const storageKey = file.storage_key ?? `${FILE_STORAGE_PREFIX}/projects/${projectId}/${fileId}`;
@@ -430,30 +455,36 @@ export async function uploadFile(
     const previous = await storage.get(file.storage_key);
     const versionKey = `${storageKey}/versions/${parentVersion}`;
     await storage.put(versionKey, previous, file.mime_type ?? undefined);
-    await pool.query(
-      `INSERT INTO file_versions
-         (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
-          created_by, parent_version, rollback_reference)
-       VALUES ($1,$2,$3,$4,$5,$6,'upload',$7,$8,$9)`,
-      [newId('ver'), fileId, nextVersion, file.sha256, oldSize, versionKey, userId, parentVersion, null],
-    );
+    await withTenant(userId, async (q) => {
+      await q.query(
+        `INSERT INTO file_versions
+           (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+            created_by, parent_version, rollback_reference)
+         VALUES ($1,$2,$3,$4,$5,$6,'upload',$7,$8,$9)`,
+        [newId('ver'), fileId, nextVersion, file.sha256, oldSize, versionKey, userId, parentVersion, null],
+      );
+    });
   } else {
-    await pool.query(
-      `INSERT INTO file_versions
-         (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
-          created_by, parent_version, rollback_reference)
-       VALUES ($1,$2,$3,$4,$5,$6,'upload',$7,$8,$9)`,
-      [newId('ver'), fileId, nextVersion, file.sha256, oldSize, storageKey, userId, parentVersion, null],
-    );
+    await withTenant(userId, async (q) => {
+      await q.query(
+        `INSERT INTO file_versions
+           (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+            created_by, parent_version, rollback_reference)
+         VALUES ($1,$2,$3,$4,$5,$6,'upload',$7,$8,$9)`,
+        [newId('ver'), fileId, nextVersion, file.sha256, oldSize, storageKey, userId, parentVersion, null],
+      );
+    });
   }
 
   await storage.put(storageKey, stored, mime);
-  await pool.query(
-    `UPDATE files SET sha256 = $2, size_bytes = $3, storage_key = $4, mime_type = $5,
-       preview_kind = $6, preview_status = $7, ocr_status = $8, encrypted = $9
-     WHERE id = $1`,
-    [fileId, sha, buffer.length, storageKey, mime, preview.kind, preview.status, OcrStatus.UNAVAILABLE, encrypt],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `UPDATE files SET sha256 = $2, size_bytes = $3, storage_key = $4, mime_type = $5,
+         preview_kind = $6, preview_status = $7, ocr_status = $8, encrypted = $9
+       WHERE id = $1`,
+      [fileId, sha, buffer.length, storageKey, mime, preview.kind, preview.status, OcrStatus.UNAVAILABLE, encrypt],
+    );
+  });
   const delta = buffer.length - oldSize;
   if (delta !== 0) await incrementUsage(userId, 'storage_bytes_used', delta);
   await recordAudit({
@@ -467,14 +498,82 @@ export async function uploadFile(
   });
   await recordFileActivity(fileId, projectId, userId, 'file.uploaded', { path, version: nextVersion });
 
-  const row = await queryOne<FileRow>('SELECT * FROM files WHERE id = $1', [fileId]);
+  const row = await withTenant(userId, async (q) => {
+    const res = await q.query<FileRow>('SELECT * FROM files WHERE id = $1', [fileId]);
+    return res.rows[0] ?? null;
+  });
   return toFile(row ?? file);
+}
+
+// ---------------------------------------------------------------- generated images (IMAGE_GENERATION)
+
+/**
+ * Persist a generated image (server-side) as a files-gateway row + storage
+ * blob + file_reference. The base64 payload never travels to a client; only
+ * the file id + mime are returned. Ownership/tenant scoping reuses the files
+ * table exactly like uploads (owner + project), so existing RLS/tenant rules
+ * apply unchanged.
+ */
+export async function persistGeneratedImage(
+  userId: string,
+  projectId: string,
+  opts: { dataB64: string; mimeType: string; messageId?: string; prompt?: string },
+): Promise<{ fileId: string; mimeType: string }> {
+  const buffer = Buffer.from(opts.dataB64, 'base64');
+  if (buffer.length === 0) throw AppError.badRequest('image_empty', 'Generated image payload was empty');
+  const mime = opts.mimeType.startsWith('image/') ? opts.mimeType : 'image/png';
+  const ext = MIME_BY_EXT[mime] === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+  const path = `.codeconclave/generated/${newId('img')}.${ext}`;
+  const fileId = newId(PREFIX.FILE);
+  const sha = sha256Hex(buffer);
+  const encrypt = storageEncryptionEnabled();
+  const stored = encrypt ? encryptBuffer(buffer) : buffer;
+  const storageKey = `${FILE_STORAGE_PREFIX}/projects/${projectId}/${fileId}`;
+  await storage.put(storageKey, stored, mime);
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO files
+         (id, project_id, owner_id, path, size_bytes, sha256, storage_key, storage_provider,
+          mime_type, category, description, preview_kind, preview_status, ocr_status,
+          encrypted, is_favorite)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'image','AI-generated image',NULL,$10,$11,$12,false)`,
+      [
+        fileId, projectId, userId, path, buffer.length, sha, storageKey, storage.kind,
+        mime, PreviewKind.IMAGE, PreviewStatus.UNAVAILABLE, encrypt,
+      ],
+    );
+    await q.query(
+      `INSERT INTO file_versions
+         (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+          created_by, parent_version)
+       VALUES ($1,$2,1,$3,$4,$5,'generated',$6,0)`,
+      [newId('ver'), fileId, sha, buffer.length, storageKey, userId],
+    );
+    await incrementUsage(userId, 'storage_bytes_used', buffer.length);
+    if (opts.messageId) {
+      await q.query(
+        `INSERT INTO file_references (id, file_id, project_id, ref_type, ref_id)
+         VALUES ($1,$2,$3,'message',$4)`,
+        [newId('fref'), fileId, projectId, opts.messageId],
+      );
+    }
+  });
+  await recordAudit({
+    action: 'ai.image_generated',
+    actorUserId: userId,
+    scope: 'USER',
+    tenantId: userId,
+    resourceType: 'file',
+    resourceId: fileId,
+    detail: { mime, mimeTypeUnsafe: false, generated: true, messageId: opts.messageId ?? null },
+  });
+  return { fileId, mimeType: mime };
 }
 
 // ---------------------------------------------------------------- read / preview
 
 export async function getFile(userId: string, projectId: string, fileId: string): Promise<FileView> {
-  return toFile(await getFileRow(userId, projectId, fileId));
+  return toFile(await withTenant(userId, async (q) => getFileRow(q, userId, projectId, fileId)));
 }
 
 export async function getFileContent(
@@ -482,7 +581,7 @@ export async function getFileContent(
   projectId: string,
   fileId: string,
 ): Promise<{ buffer: Buffer; mimeType: string | null; name: string }> {
-  const file = await getFileRow(userId, projectId, fileId);
+  const file = await withTenant(userId, async (q) => getFileRow(q, userId, projectId, fileId));
   if (!file.storage_key) throw AppError.conflict('content_missing', 'This file has no stored content');
   let raw = await storage.get(file.storage_key);
   if (file.encrypted) {
@@ -509,9 +608,13 @@ export async function getFileContent(
 
 export async function listFiles(userId: string, projectId: string): Promise<FileView[]> {
   await getProject(userId, projectId);
-  const rows = await queryMany<FileRow>(
-    'SELECT * FROM files WHERE project_id = $1 AND deleted_at IS NULL ORDER BY path',
-    [projectId],
+  const rows = await withTenant(userId, async (q) =>
+    (
+      await q.query<FileRow>(
+        'SELECT * FROM files WHERE project_id = $1 AND deleted_at IS NULL ORDER BY path',
+        [projectId],
+      )
+    ).rows,
   );
   return rows.map(toFile);
 }
@@ -528,9 +631,13 @@ export interface TreeEntry {
 
 export async function fileTree(userId: string, projectId: string): Promise<TreeEntry[]> {
   await getProject(userId, projectId);
-  const rows = await queryMany<FileRow>(
-    'SELECT * FROM files WHERE project_id = $1 AND deleted_at IS NULL ORDER BY path',
-    [projectId],
+  const rows = await withTenant(userId, async (q) =>
+    (
+      await q.query<FileRow>(
+        'SELECT * FROM files WHERE project_id = $1 AND deleted_at IS NULL ORDER BY path',
+        [projectId],
+      )
+    ).rows,
   );
   const root: TreeEntry[] = [];
   const folders = new Map<string, TreeEntry>();
@@ -567,27 +674,39 @@ export async function fileTree(userId: string, projectId: string): Promise<TreeE
 const TENANT_CLAUSE = '(f.owner_id = $1 OR f.project_id IN (SELECT project_id FROM project_members WHERE user_id = $1))';
 
 export async function favoriteFiles(userId: string): Promise<FileView[]> {
-  const rows = await queryMany<FileRow>(
-    `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NULL AND f.is_favorite ORDER BY f.updated_at DESC LIMIT 50`,
-    [userId],
+  const rows = await withTenant(userId, async (q) =>
+    (
+      await q.query<FileRow>(
+        `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NULL AND f.is_favorite ORDER BY f.updated_at DESC LIMIT 50`,
+        [userId],
+      )
+    ).rows,
   );
   return rows.map(toFile);
 }
 
 export async function recentFiles(userId: string): Promise<FileView[]> {
-  const rows = await queryMany<FileRow>(
-    `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NULL ORDER BY f.updated_at DESC LIMIT 20`,
-    [userId],
+  const rows = await withTenant(userId, async (q) =>
+    (
+      await q.query<FileRow>(
+        `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NULL ORDER BY f.updated_at DESC LIMIT 20`,
+        [userId],
+      )
+    ).rows,
   );
   return rows.map(toFile);
 }
 
 export async function trashFiles(userId: string): Promise<FileView[]> {
-  const rows = await queryMany<FileRow>(
-    `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NOT NULL
-       AND f.deleted_at > now() - interval '30 days'
-     ORDER BY f.deleted_at DESC`,
-    [userId],
+  const rows = await withTenant(userId, async (q) =>
+    (
+      await q.query<FileRow>(
+        `SELECT f.* FROM files f WHERE ${TENANT_CLAUSE} AND f.deleted_at IS NOT NULL
+           AND f.deleted_at > now() - interval '30 days'
+         ORDER BY f.deleted_at DESC`,
+        [userId],
+      )
+    ).rows,
   );
   return rows.map(toFile);
 }
@@ -595,13 +714,17 @@ export async function trashFiles(userId: string): Promise<FileView[]> {
 // ---------------------------------------------------------------- versions + rollback
 
 export async function fileVersions(userId: string, projectId: string, fileId: string): Promise<VersionView[]> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const rows = await queryMany<VersionRow>(
-    `SELECT id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
-            created_by, parent_version, rollback_reference, created_at
-     FROM file_versions WHERE file_id = $1 ORDER BY version DESC`,
-    [file.id],
-  );
+  const rows = await withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    return (
+      await q.query<VersionRow>(
+        `SELECT id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+                created_by, parent_version, rollback_reference, created_at
+         FROM file_versions WHERE file_id = $1 ORDER BY version DESC`,
+        [file.id],
+      )
+    ).rows;
+  });
   return rows.map((r) => ({
     id: r.id,
     fileId: r.file_id,
@@ -629,7 +752,7 @@ export async function restoreFileVersion(
   fileId: string,
   version: number,
 ): Promise<VersionView> {
-  const file = await getFileRow(userId, projectId, fileId);
+  const file = await withTenant(userId, async (q) => getFileRow(q, userId, projectId, fileId));
   if (!file.storage_key) throw AppError.conflict('content_missing', 'This file has no stored content');
   const current = await storage.get(file.storage_key);
   const currentRaw = file.encrypted ? decryptBuffer(current) : current;
@@ -637,41 +760,46 @@ export async function restoreFileVersion(
     throw AppError.conflict('hash_mismatch', 'Stored content hash does not match the record');
   }
 
-  const target = await queryOne<VersionRow>(
-    'SELECT * FROM file_versions WHERE file_id = $1 AND version = $2',
-    [file.id, version],
-  );
-  if (!target) throw AppError.notFound('File version');
-  if (!target.storage_key) throw AppError.conflict('content_missing', 'Version has no stored content');
-  const targetRaw = await storage.get(target.storage_key);
+  const { target, parentVersion } = await withTenant(userId, async (q) => {
+    const targetRes = await q.query<VersionRow>(
+      'SELECT * FROM file_versions WHERE file_id = $1 AND version = $2',
+      [file.id, version],
+    );
+    const target = targetRes.rows[0] ?? null;
+    if (!target) throw AppError.notFound('File version');
+    if (!target.storage_key) throw AppError.conflict('content_missing', 'Version has no stored content');
+    const maxV = await q.query<{ v: number }>(
+      'SELECT COALESCE(MAX(version),0) AS v FROM file_versions WHERE file_id = $1',
+      [file.id],
+    );
+    const parentVersion = Number(maxV.rows[0]?.v ?? 0);
+    return { target, parentVersion };
+  });
+  const targetRaw = await storage.get(target.storage_key!);
   const targetBytes = file.encrypted ? decryptBuffer(targetRaw) : targetRaw;
   if (sha256Hex(targetBytes) !== target.content_sha256) {
     throw AppError.conflict('hash_mismatch', 'Version content hash does not match the record');
   }
-
-  const maxV = await queryOne<{ v: number }>(
-    'SELECT COALESCE(MAX(version),0) AS v FROM file_versions WHERE file_id = $1',
-    [file.id],
-  );
-  const parentVersion = Number(maxV?.v ?? 0);
   const nextVersion = parentVersion + 1;
 
   const restored = file.encrypted ? encryptBuffer(targetBytes) : targetBytes;
   await storage.put(file.storage_key, restored);
-  await pool.query(
-    `INSERT INTO file_versions
-       (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
-        created_by, parent_version, rollback_reference)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [
-      newId('ver'), file.id, nextVersion, target.content_sha256, Number(target.size_bytes),
-      file.storage_key, 'restore-v1', userId, parentVersion, `version:${version}`,
-    ],
-  );
-  await pool.query(
-    'UPDATE files SET sha256 = $2, size_bytes = $3, updated_at = now() WHERE id = $1',
-    [file.id, target.content_sha256, Number(target.size_bytes)],
-  );
+  await withTenant(userId, async (q) => {
+    await q.query(
+      `INSERT INTO file_versions
+         (id, file_id, version, content_sha256, size_bytes, storage_key, change_reason,
+          created_by, parent_version, rollback_reference)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        newId('ver'), file.id, nextVersion, target.content_sha256, Number(target.size_bytes),
+        file.storage_key, 'restore-v1', userId, parentVersion, `version:${version}`,
+      ],
+    );
+    await q.query(
+      'UPDATE files SET sha256 = $2, size_bytes = $3, updated_at = now() WHERE id = $1',
+      [file.id, target.content_sha256, Number(target.size_bytes)],
+    );
+  });
   const delta = Number(target.size_bytes) - Number(file.size_bytes ?? 0);
   if (delta !== 0) await incrementUsage(userId, 'storage_bytes_used', delta);
   await recordAudit({
@@ -702,9 +830,12 @@ export async function restoreFileVersion(
 // ---------------------------------------------------------------- metadata
 
 export async function setFileTags(userId: string, projectId: string, fileId: string, tags: string[]): Promise<FileView> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const cleaned = cleanTags(tags);
-  await pool.query('UPDATE files SET tags = $2, updated_at = now() WHERE id = $1', [file.id, cleaned]);
+  const file = await withTenant(userId, async (q) => {
+    const f = await getFileRow(q, userId, projectId, fileId);
+    const cleaned = cleanTags(tags);
+    await q.query('UPDATE files SET tags = $2, updated_at = now() WHERE id = $1', [f.id, cleaned]);
+    return { ...f, tags: cleaned };
+  });
   await recordAudit({
     action: AuditAction.FILE_TAGS_UPDATED,
     actorUserId: userId,
@@ -712,15 +843,18 @@ export async function setFileTags(userId: string, projectId: string, fileId: str
     tenantId: userId,
     resourceType: 'file',
     resourceId: file.id,
-    detail: { tags: cleaned },
+    detail: { tags: file.tags },
   });
-  return toFile({ ...file, tags: cleaned });
+  return toFile(file);
 }
 
 export async function setFileCategory(userId: string, projectId: string, fileId: string, category: string): Promise<FileView> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const cleaned = category.trim() || null;
-  await pool.query('UPDATE files SET category = $2, updated_at = now() WHERE id = $1', [file.id, cleaned]);
+  const file = await withTenant(userId, async (q) => {
+    const f = await getFileRow(q, userId, projectId, fileId);
+    const cleaned = category.trim() || null;
+    await q.query('UPDATE files SET category = $2, updated_at = now() WHERE id = $1', [f.id, cleaned]);
+    return { ...f, category: cleaned };
+  });
   await recordAudit({
     action: AuditAction.FILE_CATEGORY_UPDATED,
     actorUserId: userId,
@@ -728,14 +862,17 @@ export async function setFileCategory(userId: string, projectId: string, fileId:
     tenantId: userId,
     resourceType: 'file',
     resourceId: file.id,
-    detail: { category: cleaned },
+    detail: { category: file.category },
   });
-  return toFile({ ...file, category: cleaned });
+  return toFile(file);
 }
 
 export async function toggleFavorite(userId: string, projectId: string, fileId: string, favorite: boolean): Promise<FileView> {
-  const file = await getFileRow(userId, projectId, fileId);
-  await pool.query('UPDATE files SET is_favorite = $2, updated_at = now() WHERE id = $1', [file.id, favorite]);
+  const file = await withTenant(userId, async (q) => {
+    const f = await getFileRow(q, userId, projectId, fileId);
+    await q.query('UPDATE files SET is_favorite = $2, updated_at = now() WHERE id = $1', [f.id, favorite]);
+    return { ...f, is_favorite: favorite };
+  });
   await recordAudit({
     action: AuditAction.FILE_FAVORITED,
     actorUserId: userId,
@@ -745,7 +882,7 @@ export async function toggleFavorite(userId: string, projectId: string, fileId: 
     resourceId: file.id,
     detail: { favorite },
   });
-  return toFile({ ...file, is_favorite: favorite });
+  return toFile(file);
 }
 
 // ---------------------------------------------------------------- references
@@ -760,13 +897,16 @@ export async function addFileReference(
   if (!REFERENCE_TYPES.has(refType)) {
     throw AppError.badRequest('invalid_reference_type', `Reference type must be one of: ${[...REFERENCE_TYPES].join(', ')}`);
   }
-  const file = await getFileRow(userId, projectId, fileId);
-  await pool.query(
-    `INSERT INTO file_references (id, file_id, project_id, ref_path, ref_type, ref_id, created_by, created_at)
-     VALUES ($1,$2,$3,NULL,$4,$5,$6,now())
-     ON CONFLICT (ref_type, ref_id, file_id) DO NOTHING`,
-    [newId('ref'), file.id, file.project_id, refType, refId, userId],
-  );
+  const file = await withTenant(userId, async (q) => {
+    const f = await getFileRow(q, userId, projectId, fileId);
+    await q.query(
+      `INSERT INTO file_references (id, file_id, project_id, ref_path, ref_type, ref_id, created_by, created_at)
+       VALUES ($1,$2,$3,NULL,$4,$5,$6,now())
+       ON CONFLICT (ref_type, ref_id, file_id) DO NOTHING`,
+      [newId('ref'), f.id, f.project_id, refType, refId, userId],
+    );
+    return f;
+  });
   await recordAudit({
     action: AuditAction.FILE_REFERENCE_ADDED,
     actorUserId: userId,
@@ -791,45 +931,50 @@ export async function setFilePermission(
   if (!PERMISSION_VALUES.has(permission)) {
     throw AppError.badRequest('invalid_permission', 'Permission must be read, write, or delete');
   }
-  const file = await getFileRow(userId, projectId, fileId);
-  if (granted) {
-    await pool.query(
-      `INSERT INTO file_permissions (id, file_id, grantee_user_id, permission, granted_by, created_at)
-       VALUES ($1,$2,$3,$4,$5,now())`,
-      [newId('fpr'), file.id, granteeUserId, permission, userId],
-    );
-    await recordAudit({
-      action: AuditAction.FILE_PERMISSION_GRANTED,
-      actorUserId: userId,
-      scope: 'USER',
-      tenantId: userId,
-      resourceType: 'file',
-      resourceId: file.id,
-      detail: { granteeUserId, permission },
-    });
-  } else {
-    await pool.query(
-      'DELETE FROM file_permissions WHERE file_id = $1 AND grantee_user_id = $2',
-      [file.id, granteeUserId],
-    );
-    await recordAudit({
-      action: AuditAction.FILE_PERMISSION_REVOKED,
-      actorUserId: userId,
-      scope: 'USER',
-      tenantId: userId,
-      resourceType: 'file',
-      resourceId: file.id,
-      detail: { granteeUserId, permission },
-    });
-  }
+  await withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    if (granted) {
+      await q.query(
+        `INSERT INTO file_permissions (id, file_id, grantee_user_id, permission, granted_by, created_at)
+         VALUES ($1,$2,$3,$4,$5,now())`,
+        [newId('fpr'), file.id, granteeUserId, permission, userId],
+      );
+      await recordAudit({
+        action: AuditAction.FILE_PERMISSION_GRANTED,
+        actorUserId: userId,
+        scope: 'USER',
+        tenantId: userId,
+        resourceType: 'file',
+        resourceId: file.id,
+        detail: { granteeUserId, permission },
+      });
+    } else {
+      await q.query(
+        'DELETE FROM file_permissions WHERE file_id = $1 AND grantee_user_id = $2',
+        [file.id, granteeUserId],
+      );
+      await recordAudit({
+        action: AuditAction.FILE_PERMISSION_REVOKED,
+        actorUserId: userId,
+        scope: 'USER',
+        tenantId: userId,
+        resourceType: 'file',
+        resourceId: file.id,
+        detail: { granteeUserId, permission },
+      });
+    }
+  });
 }
 
 // ---------------------------------------------------------------- trash lifecycle
 
 export async function softDeleteFile(userId: string, projectId: string, fileId: string): Promise<FileView> {
-  const file = await getFileRow(userId, projectId, fileId);
-  if (file.deleted_at) return toFile(file);
-  await pool.query('UPDATE files SET deleted_at = now() WHERE id = $1 AND project_id = $2', [file.id, projectId]);
+  const file = await withTenant(userId, async (q) => {
+    const f = await getFileRow(q, userId, projectId, fileId);
+    if (f.deleted_at) return f;
+    await q.query('UPDATE files SET deleted_at = now() WHERE id = $1 AND project_id = $2', [f.id, projectId]);
+    return { ...f, deleted_at: new Date() };
+  });
   await incrementUsage(userId, 'storage_bytes_used', -Number(file.size_bytes ?? 0));
   await recordAudit({
     action: AuditAction.FILE_TRASHED,
@@ -840,17 +985,19 @@ export async function softDeleteFile(userId: string, projectId: string, fileId: 
     resourceId: file.id,
   });
   await recordFileActivity(file.id, projectId, userId, 'file.trashed');
-  return toFile({ ...file, deleted_at: new Date() });
+  return toFile(file);
 }
 
 export async function restoreFile(userId: string, projectId: string, fileId: string): Promise<FileView> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const result = await pool.query(
-    'UPDATE files SET deleted_at = NULL WHERE id = $1 AND project_id = $2 RETURNING *',
-    [file.id, projectId],
-  );
-  const restored = (result.rows[0] as FileRow | undefined) ?? file;
-  if (file.deleted_at) {
+  const restored = await withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    const result = await q.query(
+      'UPDATE files SET deleted_at = NULL WHERE id = $1 AND project_id = $2 RETURNING *',
+      [file.id, projectId],
+    );
+    return (result.rows[0] as FileRow | undefined) ?? file;
+  });
+  if (restored.deleted_at) {
     await incrementUsage(userId, 'storage_bytes_used', Number(restored.size_bytes ?? 0));
   }
   await recordAudit({
@@ -859,22 +1006,24 @@ export async function restoreFile(userId: string, projectId: string, fileId: str
     scope: 'USER',
     tenantId: userId,
     resourceType: 'file',
-    resourceId: file.id,
+    resourceId: restored.id,
   });
-  await recordFileActivity(file.id, projectId, userId, 'file.restored');
+  await recordFileActivity(restored.id, projectId, userId, 'file.restored');
   return toFile(restored);
 }
 
 export async function restoreFilesBulk(userId: string, projectId: string, ids: string[]): Promise<number> {
   if (!ids.length) return 0;
   await getProject(userId, projectId);
-  const result = await pool.query(
-    `UPDATE files SET deleted_at = NULL WHERE id = ANY($1::text[]) AND project_id = $2
-       AND deleted_at IS NOT NULL
-     RETURNING id, size_bytes`,
-    [ids, projectId],
-  );
-  const rows = (result.rows ?? []) as { id: string; size_bytes: number }[];
+  const { rows, count } = await withTenant(userId, async (q) => {
+    const result = await q.query(
+      `UPDATE files SET deleted_at = NULL WHERE id = ANY($1::text[]) AND project_id = $2
+         AND deleted_at IS NOT NULL
+       RETURNING id, size_bytes`,
+      [ids, projectId],
+    );
+    return { rows: (result.rows ?? []) as { id: string; size_bytes: number }[], count: result.rowCount ?? null };
+  });
   for (const row of rows) {
     await incrementUsage(userId, 'storage_bytes_used', Number(row.size_bytes ?? 0));
     await recordAudit({
@@ -886,19 +1035,21 @@ export async function restoreFilesBulk(userId: string, projectId: string, ids: s
       resourceId: row.id,
     });
   }
-  return result.rowCount ?? rows.length;
+  return count ?? rows.length;
 }
 
 export async function softDeleteFilesBulk(userId: string, projectId: string, ids: string[]): Promise<number> {
   if (!ids.length) return 0;
   await getProject(userId, projectId);
-  const result = await pool.query(
-    `UPDATE files SET deleted_at = now() WHERE id = ANY($1::text[]) AND project_id = $2
-       AND deleted_at IS NULL
-     RETURNING id, size_bytes`,
-    [ids, projectId],
-  );
-  const rows = (result.rows ?? []) as { id: string; size_bytes: number }[];
+  const { rows, count } = await withTenant(userId, async (q) => {
+    const result = await q.query(
+      `UPDATE files SET deleted_at = now() WHERE id = ANY($1::text[]) AND project_id = $2
+         AND deleted_at IS NULL
+       RETURNING id, size_bytes`,
+      [ids, projectId],
+    );
+    return { rows: (result.rows ?? []) as { id: string; size_bytes: number }[], count: result.rowCount ?? null };
+  });
   for (const row of rows) {
     await incrementUsage(userId, 'storage_bytes_used', -Number(row.size_bytes ?? 0));
     await recordAudit({
@@ -910,26 +1061,31 @@ export async function softDeleteFilesBulk(userId: string, projectId: string, ids
       resourceId: row.id,
     });
   }
-  return result.rowCount ?? rows.length;
+  return count ?? rows.length;
 }
 
 // ---------------------------------------------------------------- permanent delete (trashed-only)
 
-async function purgeFileRow(row: FileRow): Promise<void> {
+async function purgeFileRow(q: Q, row: FileRow): Promise<void> {
   if (row.storage_key) await storage.delete(row.storage_key);
-  await pool.query('DELETE FROM file_versions WHERE file_id = $1', [row.id]);
-  await pool.query('DELETE FROM file_permissions WHERE file_id = $1', [row.id]);
-  await pool.query('DELETE FROM files WHERE id = $1', [row.id]);
+  await q.query('DELETE FROM file_versions WHERE file_id = $1', [row.id]);
+  await q.query('DELETE FROM file_permissions WHERE file_id = $1', [row.id]);
+  await q.query('DELETE FROM files WHERE id = $1', [row.id]);
 }
 
 export async function permanentDeleteFile(userId: string, projectId: string, fileId: string): Promise<void> {
-  const row = await queryOne<FileRow>(
-    'SELECT * FROM files WHERE id = $1 AND project_id = $2 AND deleted_at IS NOT NULL',
-    [fileId, projectId],
-  );
-  if (!row) throw AppError.conflict('not_trashed', 'Only trashed files can be permanently deleted');
-  await assertFileAccess(userId, row);
-  await purgeFileRow(row);
+  const row = await withTenant(userId, async (q) => {
+    const res = await q.query<FileRow>(
+      'SELECT * FROM files WHERE id = $1 AND project_id = $2 AND deleted_at IS NOT NULL',
+      [fileId, projectId],
+    );
+    const r = res.rows[0] ?? null;
+    if (!r) throw AppError.conflict('not_trashed', 'Only trashed files can be permanently deleted');
+    await assertFileAccess(q, userId, r);
+    return r;
+  });
+  await storage.delete(row.storage_key!);
+  await withTenant(userId, async (q) => purgeFileRow(q, row));
   await recordAudit({
     action: AuditAction.FILE_DELETED_PERMANENT,
     actorUserId: userId,
@@ -943,13 +1099,19 @@ export async function permanentDeleteFile(userId: string, projectId: string, fil
 export async function purgeFilesBulk(userId: string, projectId: string, ids: string[]): Promise<number> {
   let purged = 0;
   for (const id of ids) {
-    const row = await queryOne<FileRow>(
-      'SELECT * FROM files WHERE id = $1 AND project_id = $2 AND deleted_at IS NOT NULL',
-      [id, projectId],
-    );
+    const row = await withTenant(userId, async (q) => {
+      const res = await q.query<FileRow>(
+        'SELECT * FROM files WHERE id = $1 AND project_id = $2 AND deleted_at IS NOT NULL',
+        [id, projectId],
+      );
+      const r = res.rows[0] ?? null;
+      if (!r) return null;
+      await assertFileAccess(q, userId, r);
+      return r;
+    });
     if (!row) continue;
-    await assertFileAccess(userId, row);
-    await purgeFileRow(row);
+    await storage.delete(row.storage_key!);
+    await withTenant(userId, async (q) => purgeFileRow(q, row));
     purged += 1;
   }
   if (purged > 0) {
@@ -974,20 +1136,33 @@ export async function purgeExpiredTrash(userId?: string): Promise<number> {
   const retention = `${FileRetention.TRASH_RETENTION_DAYS} days`;
   let rows: FileRow[];
   if (userId) {
-    rows = await queryMany<FileRow>(
-      `SELECT f.* FROM files f WHERE f.deleted_at IS NOT NULL AND f.deleted_at < now() - $2::interval
-         AND (f.owner_id = $1 OR f.project_id IN (SELECT project_id FROM project_members WHERE user_id = $1))`,
-      [userId, retention],
+    rows = await withTenant(userId, async (q) =>
+      (
+        await q.query<FileRow>(
+          `SELECT f.* FROM files f WHERE f.deleted_at IS NOT NULL AND f.deleted_at < now() - $2::interval
+             AND (f.owner_id = $1 OR f.project_id IN (SELECT project_id FROM project_members WHERE user_id = $1))`,
+          [userId, retention],
+        )
+      ).rows,
     );
   } else {
-    rows = await queryMany<FileRow>(
-      'SELECT f.* FROM files f WHERE f.deleted_at IS NOT NULL AND f.deleted_at < now() - $1::interval',
-      [retention],
+    rows = await withSystem(async (q) =>
+      (
+        await q.query<FileRow>(
+          'SELECT f.* FROM files f WHERE f.deleted_at IS NOT NULL AND f.deleted_at < now() - $1::interval',
+          [retention],
+        )
+      ).rows,
     );
   }
   let purged = 0;
   for (const row of rows) {
-    await purgeFileRow(row);
+    if (row.storage_key) await storage.delete(row.storage_key);
+    if (userId) {
+      await withTenant(userId, async (q) => purgeFileRow(q, row));
+    } else {
+      await withSystem(async (q) => purgeFileRow(q, row));
+    }
     purged += 1;
   }
   if (purged > 0) {
@@ -1016,11 +1191,15 @@ function escapeLike(value: string): string {
 export async function searchProjectFiles(userId: string, projectId: string, q: string): Promise<FileView[]> {
   const project = await getProject(userId, projectId);
   if (!project) throw AppError.notFound('Project');
-  const rows = await queryMany<FileRow>(
-    `SELECT * FROM files
-     WHERE project_id = $1 AND deleted_at IS NULL AND path ILIKE $2
-     ORDER BY path LIMIT 100`,
-    [projectId, `%${escapeLike(q.trim())}%`],
+  const rows = await withTenant(userId, async (qc) =>
+    (
+      await qc.query<FileRow>(
+        `SELECT * FROM files
+         WHERE project_id = $1 AND deleted_at IS NULL AND path ILIKE $2
+         ORDER BY path LIMIT 100`,
+        [projectId, `%${escapeLike(q.trim())}%`],
+      )
+    ).rows,
   );
   return rows.map(toFile);
 }
@@ -1041,15 +1220,18 @@ export async function listFileReferences(
   projectId: string,
   fileId: string,
 ): Promise<FileReferenceRow[]> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const rows = await queryMany<FileReferenceRow>(
-    `SELECT fr.id, fr.file_id, fr.ref_path, fr.ref_type, fr.ref_id, fr.created_by, fr.created_at
-     FROM file_references fr
-     WHERE fr.file_id = $1
-     ORDER BY fr.created_at DESC`,
-    [file.id],
-  );
-  return rows;
+  return withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    return (
+      await q.query<FileReferenceRow>(
+        `SELECT fr.id, fr.file_id, fr.ref_path, fr.ref_type, fr.ref_id, fr.created_by, fr.created_at
+         FROM file_references fr
+         WHERE fr.file_id = $1
+         ORDER BY fr.created_at DESC`,
+        [file.id],
+      )
+    ).rows;
+  });
 }
 
 export interface FileActivityRow {
@@ -1067,13 +1249,16 @@ export async function listFileActivity(
   projectId: string,
   fileId: string,
 ): Promise<FileActivityRow[]> {
-  const file = await getFileRow(userId, projectId, fileId);
-  const rows = await queryMany<FileActivityRow>(
-    `SELECT id, file_id, actor_user_id, action, detail, created_at
-     FROM file_activity
-     WHERE file_id = $1
-     ORDER BY created_at DESC LIMIT 50`,
-    [file.id],
-  );
-  return rows;
+  return withTenant(userId, async (q) => {
+    const file = await getFileRow(q, userId, projectId, fileId);
+    return (
+      await q.query<FileActivityRow>(
+        `SELECT id, file_id, actor_user_id, action, detail, created_at
+         FROM file_activity
+         WHERE file_id = $1
+         ORDER BY created_at DESC LIMIT 50`,
+        [file.id],
+      )
+    ).rows;
+  });
 }

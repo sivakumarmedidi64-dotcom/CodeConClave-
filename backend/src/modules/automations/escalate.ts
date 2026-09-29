@@ -7,7 +7,7 @@
  * the Stage 26C goal decision handler and handle automation/schedule/task
  * escalations here.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, NotificationType } from '@codeconclave/shared';
@@ -100,9 +100,13 @@ export async function smartEscalate(userId: string, input: EscalationInput): Pro
     goal: 'goal_id', schedule: 'schedule_id', automation: 'automation_id', task: 'task_id',
   };
   const col = targetCol[input.targetType]!;
-  const dupCheck = await queryMany<Record<string, unknown>>(
-    `SELECT id FROM escalations WHERE owner_id = $1 AND status = 'OPEN' AND ${col} = $2 LIMIT 1`,
-    [userId, input.targetId],
+  const dupCheck = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT id FROM escalations WHERE owner_id = $1 AND status = 'OPEN' AND ${col} = $2 LIMIT 1`,
+        [userId, input.targetId],
+      )
+      .then((r) => r.rows),
   );
   if (dupCheck[0]) {
     const existing = await getEscalation(userId, String(dupCheck[0].id));
@@ -112,9 +116,11 @@ export async function smartEscalate(userId: string, input: EscalationInput): Pro
   columns.push(col);
   params.push(input.targetId);
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(',');
-  await pool.query(
-    `INSERT INTO escalations (${columns.join(', ')}) VALUES (${placeholders})`,
-    params,
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO escalations (${columns.join(', ')}) VALUES (${placeholders})`,
+      params,
+    ),
   );
   const esc = await getEscalation(userId, String(params[0]));
 
@@ -136,8 +142,12 @@ export async function smartEscalate(userId: string, input: EscalationInput): Pro
 }
 
 export async function getEscalation(userId: string, escalationId: string): Promise<EscalationRow> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM escalations WHERE id = $1 AND owner_id = $2', [escalationId, userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        'SELECT * FROM escalations WHERE id = $1 AND owner_id = $2', [escalationId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Escalation');
   return mapEscalation(rows[0]);
@@ -150,10 +160,14 @@ export async function listEscalations(userId: string, status?: string): Promise<
     params.push(status);
     clause = `AND status = $${params.length}`;
   }
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM escalations WHERE owner_id = $1 ${clause}
-     ORDER BY (status = 'OPEN') DESC, created_at DESC LIMIT 100`,
-    params,
+  const rows = await withTenant<Record<string, unknown>[]>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT * FROM escalations WHERE owner_id = $1 ${clause}
+         ORDER BY (status = 'OPEN') DESC, created_at DESC LIMIT 100`,
+        params,
+      )
+      .then((r) => r.rows),
   );
   return rows.map(mapEscalation);
 }
@@ -167,10 +181,12 @@ function targetOf(esc: EscalationRow): { type: EscalationInput['targetType']; id
 }
 
 async function markResolved(esc: EscalationRow, decision: string, note: string | null): Promise<void> {
-  await pool.query(
-    `UPDATE escalations SET status = 'RESOLVED', user_decision = $2, decision_note = $3, resolved_at = now()
-     WHERE id = $1 AND owner_id = $4`,
-    [esc.id, decision, note, esc.owner_id],
+  await withTenant(esc.owner_id, (q) =>
+    q.query(
+      `UPDATE escalations SET status = 'RESOLVED', user_decision = $2, decision_note = $3, resolved_at = now()
+       WHERE id = $1 AND owner_id = $4`,
+      [esc.id, decision, note, esc.owner_id],
+    ),
   );
 }
 
@@ -180,9 +196,11 @@ async function retryAutomation(esc: EscalationRow, userId: string): Promise<void
   const eventCtx = esc.evidence.find((e) => e.kind === 'event_context') as
     | { source: string; eventId: string; eventType: string } | undefined;
   if (!eventCtx?.eventId) return;
-  await pool.query(
-    `DELETE FROM automation_runs WHERE automation_id = $1 AND event_id = $2 AND status = 'FAILED' AND owner_id = $3`,
-    [esc.automation_id, eventCtx.eventId, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `DELETE FROM automation_runs WHERE automation_id = $1 AND event_id = $2 AND status = 'FAILED' AND owner_id = $3`,
+      [esc.automation_id, eventCtx.eventId, userId],
+    ),
   );
   const ctx: EventContext = {
     source: eventCtx.source as EventContext['source'],
@@ -238,10 +256,12 @@ export async function decideEscalation(
       });
     } else if (decision === 'REJECT' || decision === 'CANCEL') {
       await setRuleStatus(userId, target.id, 'DISABLED');
-      await pool.query(
-        `UPDATE automation_runs SET status = 'CANCELLED', completed_at = now()
-         WHERE automation_id = $1 AND status IN ('RUNNING','WAITING_FOR_APPROVAL') AND owner_id = $2`,
-        [target.id, userId],
+      await withTenant(userId, (q) =>
+        q.query(
+          `UPDATE automation_runs SET status = 'CANCELLED', completed_at = now()
+           WHERE automation_id = $1 AND status IN ('RUNNING','WAITING_FOR_APPROVAL') AND owner_id = $2`,
+          [target.id, userId],
+        ),
       );
     }
   } else if (target?.type === 'schedule') {
@@ -258,9 +278,13 @@ export async function decideEscalation(
 
 /** Watchdog: keep escalation scans cheap (re-export for scheduling sweep reuse). */
 export async function openEscalationCount(userId: string): Promise<number> {
-  const rows = await queryMany<{ n: number }>(
-    'SELECT COUNT(*)::int AS n FROM escalations WHERE owner_id = $1 AND status = $2',
-    [userId, 'OPEN'],
+  const rows = await withTenant<{ n: number }[]>(userId, (q) =>
+    q
+      .query<{ n: number }>(
+        'SELECT COUNT(*)::int AS n FROM escalations WHERE owner_id = $1 AND status = $2',
+        [userId, 'OPEN'],
+      )
+      .then((r) => r.rows),
   );
   return rows[0]?.n ?? 0;
 }

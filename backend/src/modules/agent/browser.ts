@@ -7,7 +7,7 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import { sha256Hex } from '../../shared/crypto.js';
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 import { incMetric } from '../../observability/metrics.js';
 import { agentWs } from './ws.js';
@@ -242,10 +242,10 @@ async function sessionUser(req: IncomingMessage): Promise<string | null> {
 }
 
 async function ownsDevice(userId: string, deviceId: string): Promise<boolean> {
-  const rows = await pool.query(
+  const rows = await withTenant(userId, (q) => q.query(
     `SELECT 1 FROM devices WHERE id = $1 AND user_id = $2 AND state = 'PAIRED'`,
     [deviceId, userId],
-  );
+  ));
   return rows.rowCount === 1;
 }
 

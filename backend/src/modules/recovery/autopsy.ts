@@ -12,7 +12,7 @@
  * recommendations are saved as NEXT_ACTIONS DNA), workers (watchdog sweep
  * generates autopsies for every failed/dead-lettered task without one).
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, DnaKind, MemorySource, MemoryType, RecoveryEventType, RootCauseCode } from '@codeconclave/shared';
@@ -137,12 +137,18 @@ export async function generateAutopsy(userId: string, taskId: string, attemptId?
   const targetAttempt = attemptId ? attempts.find((a) => a.id === attemptId) ?? attempts[attempts.length - 1] : attempts[attempts.length - 1];
   const history = await listRecoveryHistoryInternal(taskId);
   const dependencies = await listTaskDependencies(taskId);
-  const branches = await queryMany<{ id: string; branched_task_id: string; status: string; created_at: Date }>(
-    'SELECT id, branched_task_id, status, created_at FROM task_branches WHERE source_task_id = $1 ORDER BY created_at',
-    [taskId],
+  const branches = await withTenant<{ id: string; branched_task_id: string; status: string; created_at: Date }[]>(userId, (q) =>
+    q
+      .query<{ id: string; branched_task_id: string; status: string; created_at: Date }>(
+        'SELECT id, branched_task_id, status, created_at FROM task_branches WHERE source_task_id = $1 ORDER BY created_at',
+        [taskId],
+      )
+      .then((r) => r.rows),
   );
   for (const b of branches) {
-    const t = await queryOne<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [b.branched_task_id]);
+    const t = await withTenant<{ status: string } | null>(userId, (q) =>
+      q.query<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [b.branched_task_id]).then((r) => r.rows[0] ?? null),
+    );
     b.status = t?.status ?? b.status;
   }
 
@@ -201,35 +207,39 @@ export async function generateAutopsy(userId: string, taskId: string, attemptId?
   // Re-autopsy on the same attempt supersedes the previous report (never deletes
   // history — the superseded row stays readable, and recovery_history keeps
   // every AUTOPSIED event immutably).
-  await pool.query(
-    `UPDATE failure_autopsies SET status = 'SUPERSEDED'
-      WHERE task_id = $1 AND attempt_id IS NOT DISTINCT FROM $2 AND status = 'GENERATED'`,
-    [taskId, targetAttempt?.id ?? null],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE failure_autopsies SET status = 'SUPERSEDED'
+        WHERE task_id = $1 AND attempt_id IS NOT DISTINCT FROM $2 AND status = 'GENERATED'`,
+      [taskId, targetAttempt?.id ?? null],
+    ),
   );
-  await pool.query(
-    `INSERT INTO failure_autopsies (
-       id, task_id, attempt_id, owner_id, status, root_cause_code, root_cause,
-       confidence, timeline, attempts, errors, dependency_state, recovery_attempts,
-       successful_fix, prevention, evidence, memory_id
-     ) VALUES ($1,$2,$3,$4,'GENERATED',$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16)`,
-    [
-      id,
-      taskId,
-      targetAttempt?.id ?? null,
-      userId,
-      code,
-      reason,
-      confidence,
-      JSON.stringify(history.map((h) => ({ event: h.event, at: h.created_at, detail: h.detail }))),
-      JSON.stringify(attempts.map((a) => ({ attempt_number: a.attempt_number, result: a.result, error_code: a.error_code, output_summary: a.output_summary, finished_at: a.finished_at }))),
-      JSON.stringify(errors),
-      JSON.stringify(dependencies.map((d) => ({ depends_on_task_id: d.depends_on_task_id, depends_on_title: d.depends_on_title, depends_on_status: d.depends_on_status }))),
-      JSON.stringify(recoveryAttempts),
-      JSON.stringify(successfulFix),
-      JSON.stringify(prevention),
-      JSON.stringify(evidence),
-      memoryId,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO failure_autopsies (
+         id, task_id, attempt_id, owner_id, status, root_cause_code, root_cause,
+         confidence, timeline, attempts, errors, dependency_state, recovery_attempts,
+         successful_fix, prevention, evidence, memory_id
+       ) VALUES ($1,$2,$3,$4,'GENERATED',$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16)`,
+      [
+        id,
+        taskId,
+        targetAttempt?.id ?? null,
+        userId,
+        code,
+        reason,
+        confidence,
+        JSON.stringify(history.map((h) => ({ event: h.event, at: h.created_at, detail: h.detail }))),
+        JSON.stringify(attempts.map((a) => ({ attempt_number: a.attempt_number, result: a.result, error_code: a.error_code, output_summary: a.output_summary, finished_at: a.finished_at }))),
+        JSON.stringify(errors),
+        JSON.stringify(dependencies.map((d) => ({ depends_on_task_id: d.depends_on_task_id, depends_on_title: d.depends_on_title, depends_on_status: d.depends_on_status }))),
+        JSON.stringify(recoveryAttempts),
+        JSON.stringify(successfulFix),
+        JSON.stringify(prevention),
+        JSON.stringify(evidence),
+        memoryId,
+      ],
+    ),
   );
   await recordRecoveryHistory(taskId, userId, RecoveryEventType.AUTOPSIED, {
     autopsyId: id,
@@ -274,9 +284,13 @@ function findSuccessfulFix(
 
 /** Latest generated autopsy for a task (tenant-scoped). */
 export async function getAutopsy(userId: string, taskId: string): Promise<AutopsyRow> {
-  const rows = await queryMany<AutopsyRow>(
-    `SELECT * FROM failure_autopsies WHERE task_id = $1 AND owner_id = $2 AND status = 'GENERATED' ORDER BY created_at DESC LIMIT 1`,
-    [taskId, userId],
+  const rows = await withTenant<AutopsyRow[]>(userId, (q) =>
+    q
+      .query<AutopsyRow>(
+        `SELECT * FROM failure_autopsies WHERE task_id = $1 AND owner_id = $2 AND status = 'GENERATED' ORDER BY created_at DESC LIMIT 1`,
+        [taskId, userId],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Autopsy');
   return rows[0];
@@ -284,9 +298,10 @@ export async function getAutopsy(userId: string, taskId: string): Promise<Autops
 
 /** All autopsies for a task (newest first). */
 export async function listAutopsies(userId: string, taskId: string): Promise<AutopsyRow[]> {
-  return queryMany<AutopsyRow>(
-    `SELECT * FROM failure_autopsies WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at DESC`,
-    [taskId, userId],
+  return withTenant<AutopsyRow[]>(userId, (q) =>
+    q
+      .query<AutopsyRow>(`SELECT * FROM failure_autopsies WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at DESC`, [taskId, userId])
+      .then((r) => r.rows),
   );
 }
 
@@ -318,14 +333,16 @@ export async function applyRemediation(userId: string, taskId: string, input: { 
  * created. Individual failures are logged, never propagated.
  */
 export async function sweepAutopsies(): Promise<number> {
-  const rows = await queryMany<{ id: string; owner_id: string }>(
-    `SELECT t.id, t.owner_id FROM tasks t
-      WHERE (t.status IN ('FAILED','TIMED_OUT') OR t.recovery_status = 'DEAD_LETTERED')
-        AND NOT EXISTS (
-          SELECT 1 FROM failure_autopsies a
-           WHERE a.task_id = t.id AND a.status = 'GENERATED'
-        )`,
-  );
+  const rows = await withSystem(async (q) => (
+    await q.query<{ id: string; owner_id: string }>(
+      `SELECT t.id, t.owner_id FROM tasks t
+        WHERE (t.status IN ('FAILED','TIMED_OUT') OR t.recovery_status = 'DEAD_LETTERED')
+          AND NOT EXISTS (
+            SELECT 1 FROM failure_autopsies a
+             WHERE a.task_id = t.id AND a.status = 'GENERATED'
+          )`,
+    )
+  ).rows);
   let created = 0;
   for (const row of rows) {
     try {

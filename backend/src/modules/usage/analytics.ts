@@ -7,7 +7,7 @@
  * estimate is clearly labeled as an estimate (tasks × a fixed manual
  * equivalent baseline) — never presented as a precise accounting figure.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AuditAction, UsageFeature } from '@codeconclave/shared';
 import { recordAudit } from '../audit/service.js';
 
@@ -85,11 +85,13 @@ interface UsageRow {
 }
 
 async function ledgerRows(userId: string, days: number, extraWhere = '', extraParams: unknown[] = []): Promise<UsageRow[]> {
-  return queryMany<UsageRow>(
-    `SELECT session_id, coworker_type, task_id, input_tokens, output_tokens, estimated_cost_usd
-     FROM model_usage_logs
-     WHERE user_id = $1 AND created_at >= now() - ($2 || ' days')::interval ${extraWhere}`,
-    [userId, Math.max(1, Math.min(days, 90)), ...extraParams],
+  return withTenant<UsageRow[]>(userId, async (q) =>
+    (await q.query<UsageRow>(
+      `SELECT session_id, coworker_type, task_id, input_tokens, output_tokens, estimated_cost_usd
+       FROM model_usage_logs
+       WHERE user_id = $1 AND created_at >= now() - ($2 || ' days')::interval ${extraWhere}`,
+      [userId, Math.max(1, Math.min(days, 90)), ...extraParams],
+    )).rows,
   );
 }
 
@@ -157,17 +159,23 @@ export async function roiEstimate(userId: string, days = 30): Promise<{ rows: Ro
 
 /** Transparency feed: every AI call with provider/model/agent/task/usage/cost/fallback/outcome. */
 export async function transparencyLog(userId: string, days = 7, limit = 200): Promise<TransparencyRow[]> {
-  const rows = await queryMany<{
+  const rows = await withTenant<{
     provider_id: string; model_id: string; coworker_type: string | null; task_id: string | null;
     created_at: string; input_tokens: number; output_tokens: number; estimated_cost_usd: number;
     used_fallback: boolean; fallback_reason: string | null; error_code: string | null;
-  }>(
-    `SELECT provider_id, model_id, coworker_type, task_id, created_at, input_tokens, output_tokens,
-            estimated_cost_usd, used_fallback, fallback_reason, error_code
-     FROM model_usage_logs
-     WHERE user_id = $1 AND created_at >= now() - ($2 || ' days')::interval
-     ORDER BY created_at DESC LIMIT $3`,
-    [userId, Math.max(1, Math.min(days, 90)), Math.min(Math.max(limit, 1), 500)],
+  }[]>(userId, async (q) =>
+    (await q.query<{
+      provider_id: string; model_id: string; coworker_type: string | null; task_id: string | null;
+      created_at: string; input_tokens: number; output_tokens: number; estimated_cost_usd: number;
+      used_fallback: boolean; fallback_reason: string | null; error_code: string | null;
+    }>(
+      `SELECT provider_id, model_id, coworker_type, task_id, created_at, input_tokens, output_tokens,
+              estimated_cost_usd, used_fallback, fallback_reason, error_code
+       FROM model_usage_logs
+       WHERE user_id = $1 AND created_at >= now() - ($2 || ' days')::interval
+       ORDER BY created_at DESC LIMIT $3`,
+      [userId, Math.max(1, Math.min(days, 90)), Math.min(Math.max(limit, 1), 500)],
+    )).rows,
   );
   return rows.map((r) => ({
     providerId: r.provider_id,
@@ -186,12 +194,14 @@ export async function transparencyLog(userId: string, days = 7, limit = 200): Pr
 
 /** Change heatmap: REAL file activity only (file_activity ledger). */
 export async function changeHeatmap(userId: string, projectId: string, days = 14): Promise<HeatmapCell[]> {
-  const rows = await queryMany<{ path: string; action: string; day: string }>(
-    `SELECT f.path, fa.action, to_char(fa.created_at, 'YYYY-MM-DD') AS day
-     FROM file_activity fa
-     JOIN files f ON f.id = fa.file_id
-     WHERE fa.project_id = $1 AND fa.actor_user_id = $2 AND fa.created_at >= now() - ($3 || ' days')::interval`,
-    [projectId, userId, Math.max(1, Math.min(days, 90))],
+  const rows = await withTenant<{ path: string; action: string; day: string }[]>(userId, async (q) =>
+    (await q.query<{ path: string; action: string; day: string }>(
+      `SELECT f.path, fa.action, to_char(fa.created_at, 'YYYY-MM-DD') AS day
+       FROM file_activity fa
+       JOIN files f ON f.id = fa.file_id
+       WHERE fa.project_id = $1 AND fa.actor_user_id = $2 AND fa.created_at >= now() - ($3 || ' days')::interval`,
+      [projectId, userId, Math.max(1, Math.min(days, 90))],
+    )).rows,
   );
   const byCell = new Map<string, HeatmapCell>();
   for (const r of rows) {
@@ -223,7 +233,6 @@ export async function refreshUsageRollups(userId: string, days = 7): Promise<num
     cur.costUsd += Number(row.estimated_cost_usd) || 0;
     byFeatureTask.set(key, cur);
   }
-  const { pool } = await import('../../shared/db.js');
   const bucket = new Date().toISOString().slice(0, 10);
   for (const f of features) {
     await upsertRollup(userId, bucket, f.feature, null, f.calls, f.inputTokens, f.outputTokens, f.costUsd);
@@ -254,25 +263,28 @@ async function upsertRollup(
   outputTokens: number,
   costUsd: number,
 ): Promise<void> {
-  const { pool } = await import('../../shared/db.js');
   const { newId, PREFIX } = await import('../../shared/ids.js');
-  await pool.query(
-    `INSERT INTO usage_rollups (id, owner_id, bucket, feature, task_id, calls, input_tokens, output_tokens, cost_usd)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     ON CONFLICT (owner_id, bucket, feature, COALESCE(task_id,'__none__'))
-     DO UPDATE SET calls = usage_rollups.calls + EXCLUDED.calls,
-                   input_tokens = usage_rollups.input_tokens + EXCLUDED.input_tokens,
-                   output_tokens = usage_rollups.output_tokens + EXCLUDED.output_tokens,
-                   cost_usd = usage_rollups.cost_usd + EXCLUDED.cost_usd`,
-    [newId(PREFIX.USAGE_ROLLUP), userId, bucket, feature, taskId, calls, inputTokens, outputTokens, costUsd],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO usage_rollups (id, owner_id, bucket, feature, task_id, calls, input_tokens, output_tokens, cost_usd)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (owner_id, bucket, feature, COALESCE(task_id,'__none__'))
+       DO UPDATE SET calls = usage_rollups.calls + EXCLUDED.calls,
+                     input_tokens = usage_rollups.input_tokens + EXCLUDED.input_tokens,
+                     output_tokens = usage_rollups.output_tokens + EXCLUDED.output_tokens,
+                     cost_usd = usage_rollups.cost_usd + EXCLUDED.cost_usd`,
+      [newId(PREFIX.USAGE_ROLLUP), userId, bucket, feature, taskId, calls, inputTokens, outputTokens, costUsd],
+    ),
   );
 }
 
 export async function listUsageRollups(userId: string, days = 7): Promise<Array<Record<string, unknown>>> {
-  return queryMany<Record<string, unknown>>(
-    `SELECT bucket, feature, COALESCE(task_id,'') AS task_id, calls, input_tokens, output_tokens, cost_usd
-     FROM usage_rollups WHERE owner_id = $1 AND bucket >= (now() - ($2 || ' days')::interval)::date
-     ORDER BY bucket DESC, cost_usd DESC`,
-    [userId, Math.max(1, Math.min(days, 90))],
+  return withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT bucket, feature, COALESCE(task_id,'') AS task_id, calls, input_tokens, output_tokens, cost_usd
+       FROM usage_rollups WHERE owner_id = $1 AND bucket >= (now() - ($2 || ' days')::interval)::date
+       ORDER BY bucket DESC, cost_usd DESC`,
+      [userId, Math.max(1, Math.min(days, 90))],
+    )).rows,
   );
 }

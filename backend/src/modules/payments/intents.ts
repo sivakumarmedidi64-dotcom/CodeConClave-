@@ -8,14 +8,14 @@
  * move (PENDING -> REVIEW -> ACTIVE -> GRACE -> EXPIRED/REFUNDED/REVOKED/
  * CHARGEBACK). Entitlements activate exclusively through activation.ts.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { env } from '../../config/env.js';
 import { recordAudit } from '../audit/service.js';
 import { notify } from '../notifications/service.js';
 import { NotificationType } from '@codeconclave/shared';
-import { PLAN_PRICES_INR } from './service.js';
+import { PLAN_PRICES_INR, paymentLinkForPlan, createRazorpayPaymentLinkForIntent } from './service.js';
 
 export type IntentStatus =
   | 'PENDING'
@@ -38,6 +38,8 @@ export interface PaymentIntentRow {
   reference: string;
   payment_link: string;
   mode: string;
+  provider_payment_link_id: string | null;
+  provider_reference_id: string | null;
   status: IntentStatus;
   confidence: number;
   decision: IntentDecision | null;
@@ -50,6 +52,24 @@ export interface PaymentIntentRow {
   tenant_id?: string | null;
   created_at: Date;
   updated_at: Date;
+  // Payment Link-Pool reservation columns (POLICY B). Null/absent when the
+  // intent was created through the legacy rails (Rail A survives unchanged).
+  pool_link_index: number | null;
+  pool_reference_id: string | null;
+  reservation_status: 'RESERVED' | 'FULFILLED' | 'EXPIRED' | 'RELEASED' | null;
+  reservation_expires_at: Date | null;
+  reservation_locked_at: Date | null;
+  reservation_fulfilled_at: Date | null;
+  pool_session_id: string | null;
+  pool_client_ip: string | null;
+  pool_heartbeat_last: Date | null;
+  /**
+   * Explicit purchase identity (server-authoritative). Products are NEVER
+   * inferred from amount or link id — Solo(₹999), Team(₹4,999) and API
+   * Access(₹9,999) are distinct products. The intent's own plan +
+   * purchase_type decide the product: solo / team / api_access.
+   */
+  purchase_type: 'solo' | 'team' | 'api_access' | null;
 }
 
 export const INTENT_STATUSES: IntentStatus[] = [
@@ -62,6 +82,23 @@ export const INTENT_STATUSES: IntentStatus[] = [
   'REVOKED',
   'CHARGEBACK',
 ];
+
+/**
+ * Explicit product -> purchase identity mapping. The plan key selects the
+ * entitled capability; purchase_type is the authoritative product label used
+ * by the callback binding. Products are distinct (Solo ₹999, Team ₹4,999,
+ * API Access ₹9,999), so purchase identity always comes from this intent
+ * field, never the amount or the link id.
+ */
+export const PURCHASE_TYPE_BY_PLAN: Record<string, 'solo' | 'team' | 'api_access'> = {
+  pro: 'solo',
+  team: 'team',
+  api: 'api_access',
+};
+
+export function purchaseTypeForPlan(planId: string): 'solo' | 'team' | 'api_access' | null {
+  return PURCHASE_TYPE_BY_PLAN[planId] ?? null;
+}
 
 export function intentThresholds(): { active: number; grace: number } {
   return {
@@ -86,26 +123,49 @@ function makeReference(planId: string): string {
 }
 
 export async function createPaymentIntent(userId: string, planId: string): Promise<PaymentIntentRow> {
-  if (!(planId in PLAN_PRICES_INR)) throw AppError.badRequest('invalid_plan', 'plan must be pro or team');
+  if (!(planId in PLAN_PRICES_INR)) throw AppError.badRequest('invalid_plan', 'plan must be pro, team or api');
 
-  const active = await queryOne<PaymentIntentRow>(
-    `SELECT * FROM payment_intents WHERE owner_id = $1 AND plan_id = $2 AND status IN ('PENDING','REVIEW','ACTIVE','GRACE') ORDER BY created_at DESC LIMIT 1`,
-    [userId, planId],
+  const active = await withTenant(userId, async (q) =>
+    (await q.query<PaymentIntentRow>(
+      `SELECT * FROM payment_intents WHERE owner_id = $1 AND plan_id = $2 AND status IN ('PENDING','REVIEW','ACTIVE','GRACE') ORDER BY created_at DESC LIMIT 1`,
+      [userId, planId],
+    )).rows[0] ?? null,
   );
   if (active) return active;
 
   const id = newId(PREFIX.PAYMENT_INTENT);
   const amount = PLAN_PRICES_INR[planId]!;
   let reference: string;
+  let row: PaymentIntentRow | null = null;
   // Collision-safe: the column is UNIQUE; retry a handful of times.
   for (let attempt = 0; ; attempt += 1) {
     reference = makeReference(planId);
+    // Server-authoritative unique Payment Link per intent (automatic-activation
+    // path). When the Razorpay API is unavailable this returns null and we fall
+    // back to the static per-plan link (compat/manual checkout; such intents
+    // cannot auto-activate from a webhook and go to REVIEW instead).
+    let paymentLink = paymentLinkForPlan(planId);
+    let providerPaymentLinkId: string | null = null;
+    let providerReferenceId: string | null = null;
     try {
-      await pool.query(
-        `INSERT INTO payment_intents (id, owner_id, plan_id, amount_inr, currency, reference, payment_link, mode, status, expires_at, tenant_id)
-         VALUES ($1,$2,$3,$4,'INR',$5,$6,'PAYMENT_LINK','PENDING', now() + make_interval(hours => $7), $8)`,
-        [id, userId, planId, amount, reference, env.RAZORPAY_PRO_PAYMENT_LINK, intentTtlHours(), userId],
-      );
+      const created = await createRazorpayPaymentLinkForIntent(userId, planId, reference);
+      if (created) {
+        paymentLink = created.short_url;
+        providerPaymentLinkId = created.id;
+        providerReferenceId = created.reference_id ?? reference;
+      }
+    } catch {
+      // Fall back to the static per-plan link on any API/link failure.
+    }
+    try {
+      row = await withTenant(userId, async (q) => {
+        await q.query(
+          `INSERT INTO payment_intents (id, owner_id, plan_id, purchase_type, amount_inr, currency, reference, payment_link, mode, provider_payment_link_id, provider_reference_id, status, expires_at, tenant_id)
+           VALUES ($1,$2,$3,$4,$5,'INR',$6,$7,'PAYMENT_LINK',$8,$9,'PENDING', now() + make_interval(hours => $10), $11)`,
+          [id, userId, planId, purchaseTypeForPlan(planId), amount, reference, paymentLink, providerPaymentLinkId, providerReferenceId, intentTtlHours(), userId],
+        );
+        return (await q.query<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [id])).rows[0] ?? null;
+      });
       break;
     } catch (err) {
       if (attempt >= 4 || !String((err as { message?: string }).message ?? '').includes('uq_payment_intents_reference')) {
@@ -124,22 +184,26 @@ export async function createPaymentIntent(userId: string, planId: string): Promi
     detail: { plan: planId, amountInr: amount, reference, expiresInHours: intentTtlHours() },
   });
 
-  return (await queryOne<PaymentIntentRow>('SELECT * FROM payment_intents WHERE id = $1', [id]))!;
+  return row!;
 }
 
 export async function getIntent(userId: string, intentId: string): Promise<PaymentIntentRow> {
-  const row = await queryOne<PaymentIntentRow>(
-    'SELECT * FROM payment_intents WHERE id = $1 AND owner_id = $2',
-    [intentId, userId],
+  const row = await withTenant(userId, async (q) =>
+    (await q.query<PaymentIntentRow>(
+      'SELECT * FROM payment_intents WHERE id = $1 AND owner_id = $2',
+      [intentId, userId],
+    )).rows[0] ?? null,
   );
   if (!row) throw AppError.notFound('Payment intent');
   return row;
 }
 
 export async function listIntents(userId: string): Promise<PaymentIntentRow[]> {
-  return queryMany<PaymentIntentRow>(
-    'SELECT * FROM payment_intents WHERE owner_id = $1 ORDER BY created_at DESC',
-    [userId],
+  return withTenant(userId, async (q) =>
+    (await q.query<PaymentIntentRow>(
+      'SELECT * FROM payment_intents WHERE owner_id = $1 ORDER BY created_at DESC',
+      [userId],
+    )).rows,
   );
 }
 
@@ -173,11 +237,13 @@ export async function intentInstructions(userId: string, intentId: string): Prom
  * Returns the number of intents transitioned.
  */
 export async function sweepIntentExpiry(): Promise<number> {
-  const out = await pool.query(
-    `UPDATE payment_intents
-        SET status = 'EXPIRED', updated_at = now()
-      WHERE status IN ('PENDING','REVIEW') AND expires_at <= now()
-      RETURNING id, owner_id, plan_id`,
+  const out = await withSystem(async (q) =>
+    q.query(
+      `UPDATE payment_intents
+          SET status = 'EXPIRED', updated_at = now()
+        WHERE status IN ('PENDING','REVIEW') AND expires_at <= now()
+        RETURNING id, owner_id, plan_id`,
+    ),
   );
   const expired = out.rows as Array<{ id: string; owner_id: string; plan_id: string }>;
   for (const row of expired) {
@@ -192,12 +258,14 @@ export async function sweepIntentExpiry(): Promise<number> {
     });
   }
 
-  const grace = await pool.query(
-    `UPDATE payment_intents
-        SET status = 'GRACE', grace_until = now() + make_interval(hours => $1), updated_at = now()
-      WHERE status = 'ACTIVE' AND expires_at <= now() AND (grace_until IS NULL OR grace_until <= now())
-      RETURNING id, owner_id, plan_id`,
-    [env.PAYMENT_GRACE_HOURS],
+  const grace = await withSystem(async (q) =>
+    q.query(
+      `UPDATE payment_intents
+          SET status = 'GRACE', grace_until = now() + make_interval(hours => $1), updated_at = now()
+        WHERE status = 'ACTIVE' AND expires_at <= now() AND (grace_until IS NULL OR grace_until <= now())
+        RETURNING id, owner_id, plan_id`,
+      [env.PAYMENT_GRACE_HOURS],
+    ),
   );
   const enteringGrace = grace.rows as Array<{ id: string; owner_id: string; plan_id: string }>;
   for (const row of enteringGrace) {
@@ -218,11 +286,13 @@ export async function sweepIntentExpiry(): Promise<number> {
     });
   }
 
-  const revoked = await pool.query(
-    `UPDATE payment_intents
-        SET status = 'EXPIRED', updated_at = now()
-      WHERE status = 'GRACE' AND grace_until <= now()
-      RETURNING id, owner_id, plan_id`,
+  const revoked = await withSystem(async (q) =>
+    q.query(
+      `UPDATE payment_intents
+          SET status = 'EXPIRED', updated_at = now()
+        WHERE status = 'GRACE' AND grace_until <= now()
+        RETURNING id, owner_id, plan_id`,
+    ),
   );
   const afterGrace = revoked.rows as Array<{ id: string; owner_id: string; plan_id: string }>;
   for (const row of afterGrace) {

@@ -288,6 +288,26 @@ describe('executeTask — failure goes through the retry policy', () => {
     );
   });
 
+  it('stops before later stages when the task is cancelled mid-run (cooperative cancel)', async () => {
+    const task = taskRow('tsk_cancel');
+    db.state.resolve = standardResolver(task);
+    coworkers.runCoworker.mockImplementationOnce(async () => {
+      task.status = 'CANCELLED'; // user cancels while the first coworker runs
+    });
+    await executeTask(task as never);
+    // Only the first group ran; later coworkers never executed.
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(1);
+    // The attempt is finished as CANCELLED — never FAILURE, never retried,
+    // never dead-lettered, never completed.
+    const finishCancel = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'CANCELLED')!;
+    expect(finishCancel).toBeDefined();
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'VERIFIED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'CREATED'"))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'task.cancelled' }));
+  });
+
   it('dead-letters when retries are exhausted', async () => {
     const task = taskRow('tsk_dlq', { max_attempts: 1, retry_count: 0 });
     db.state.resolve = standardResolver(task);

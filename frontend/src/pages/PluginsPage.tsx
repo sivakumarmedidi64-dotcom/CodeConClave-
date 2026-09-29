@@ -21,6 +21,7 @@ import {
   type SandboxRunRow,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { PluginLogo } from '../components/PluginLogo';
 
 const STATE_COLORS: Record<string, string> = {
   CONNECTED: '#16a34a',
@@ -82,6 +83,7 @@ export function PluginsPage() {
   const [capability, setCapability] = useState('');
   const [integration, setIntegration] = useState('');
   const [popularOnly, setPopularOnly] = useState(false);
+  const [showUnsupported, setShowUnsupported] = useState(false);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [connecting, setConnecting] = useState<PluginType | null>(null);
   const [connectForm, setConnectForm] = useState<ConnectState>({ type: 'github', name: '', kind: 'token', value: '' });
@@ -139,9 +141,11 @@ export function PluginsPage() {
   // Client-side fuzzy re-rank of server results (server filtering is
   // authoritative; ranking only changes display order).
   const ranked = useMemo(() => {
-    if (!query.trim()) return catalogue;
+    let list = catalogue;
+    if (!showUnsupported) list = list.filter((p) => p.integration !== 'UNSUPPORTED');
+    if (!query.trim()) return list;
     const q = query.trim();
-    return [...catalogue]
+    return [...list]
       .map((p) => {
         const haystack = [p.name, p.description ?? '', p.category ?? '', p.plugin_type, ...p.capabilities].join(' ');
         return { p, score: fuzzyScore(q, haystack) };
@@ -149,7 +153,7 @@ export function PluginsPage() {
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((r) => r.p);
-  }, [catalogue, query]);
+  }, [catalogue, query, showUnsupported]);
 
   const categories = useMemo(() => [...new Set(catalogue.map((c) => c.category).filter(Boolean))] as string[], [catalogue]);
   const capabilities = useMemo(() => [...new Set(catalogue.flatMap((c) => c.capabilities))].sort(), [catalogue]);
@@ -310,7 +314,8 @@ export function PluginsPage() {
       <p className="cc-hint">
         External integrations run behind the plugin isolation boundary: typed actions, scope checks, rate limits, circuit
         breakers, approvals, and health tracking. Integration status is server-derived — Live means a usable connection,
-        Configured means this deployment can connect, Unsupported means no adapter is implemented in this build.
+        Configured means this deployment can connect, Unsupported means no adapter is implemented in this build
+        (hidden unless you enable "Show unavailable").
       </p>
 
       <div className="cc-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -344,6 +349,10 @@ export function PluginsPage() {
             <input type="checkbox" checked={popularOnly} onChange={(e) => setPopularOnly(e.target.checked)} />
             Popular only
           </label>
+          <label className="cc-hint" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input type="checkbox" checked={showUnsupported} onChange={(e) => setShowUnsupported(e.target.checked)} />
+            Show unavailable
+          </label>
           <span className="cc-hint cc-mono">{ranked.length} plugins</span>
         </div>
       </div>
@@ -354,8 +363,9 @@ export function PluginsPage() {
           const intStyle = (INTEGRATION_STYLES[p.integration] ?? INTEGRATION_STYLES.UNSUPPORTED)!;
           return (
             <div className="cc-card" key={p.plugin_type} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <h3 style={{ margin: 0 }}>{p.name} {p.popular && <span className="cc-pill">popular</span>}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <PluginLogo type={p.plugin_type} size={26} />
+                <h3 style={{ margin: 0, flex: 1 }}>{p.name} {p.popular && <span className="cc-pill">popular</span>}</h3>
                 <span
                   className="cc-pill"
                   style={{ background: intStyle.bg, color: intStyle.color, fontWeight: 700 }}
@@ -537,7 +547,8 @@ export function PluginsPage() {
             const current = scopes[conn.id] ?? [];
             return (
               <>
-                <h3 style={{ margin: '0 0 12px' }}>
+                <h3 style={{ margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <PluginLogo type={conn.plugin_type} size={24} />
                   {conn.name} <span className="cc-hint cc-mono">({conn.plugin_type})</span>
                 </h3>
                 {health[conn.id] && (

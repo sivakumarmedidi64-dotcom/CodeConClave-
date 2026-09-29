@@ -47,12 +47,19 @@ import {
   getConversation,
   listConversations,
   insertMessage,
+  insertMessageExact,
+  findMessageByClientId,
+  addReaction,
+  removeReaction,
+  listReactions,
+  syncConversation,
   listMessages,
   editMessage,
   updateConversation,
   softDeleteConversation,
   restoreConversation,
   softDeleteMessage,
+  setConversationSharing,
   createThread,
   listThreads,
   addMention,
@@ -100,6 +107,7 @@ function msgRow(overrides: Record<string, unknown> = {}): Record<string, unknown
     thread_id: null,
     created_at: new Date(),
     deleted_at: null,
+    client_id: null,
     ...overrides,
   };
 }
@@ -229,6 +237,44 @@ describe('message persistence + ordering + edit history', () => {
     await expect(editMessage('u1', 'c1', 'm_other', 'x')).rejects.toMatchObject({ errorCode: 'not_found' });
   });
 
+  it('team viewers cannot edit, delete, or reshare messages in a conversation they do not own', async () => {
+    const teamConv = () => convRow({ owner_id: 'owner-1', team_id: 'team-1' });
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        // getConversation: owner-1's team conversation is visible to u-viewer.
+        return [teamConv()];
+      }
+      if (text.includes('SELECT role FROM team_members')) return [{ role: 'viewer' }];
+      if (text.includes('SELECT content FROM messages')) return [{ content: 'hello' }];
+      if (text.includes('SELECT * FROM messages')) return [msgRow()];
+      return null;
+    };
+    await expect(editMessage('u-viewer', 'c1', 'm1', 'rewritten')).rejects.toMatchObject({
+      errorCode: 'insufficient_permission',
+    });
+    await expect(softDeleteMessage('u-viewer', 'c1', 'm1')).rejects.toMatchObject({
+      errorCode: 'insufficient_permission',
+    });
+    await expect(setConversationSharing('u-viewer', 'c1', {})).rejects.toMatchObject({
+      errorCode: 'insufficient_permission',
+    });
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE messages SET content'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE messages SET deleted_at'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE conversations SET sharing'))).toBe(false);
+  });
+
+  it('team editors may edit messages in shared conversations', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT * FROM conversations')) return [convRow({ owner_id: 'owner-1', team_id: 'team-1' })];
+      if (text.includes('SELECT role FROM team_members')) return [{ role: 'editor' }];
+      if (text.includes('SELECT content FROM messages')) return [{ content: 'hello' }];
+      if (text.includes('SELECT * FROM messages')) return [msgRow({ content: 'hello world', edit_count: 1 })];
+      return null;
+    };
+    const edited = await editMessage('u-editor', 'c1', 'm1', 'hello world');
+    expect(edited.content).toBe('hello world');
+  });
+
   it('soft deletes a message scoped to its conversation', async () => {
     ownedConversation();
     db.state.resolve = (text, params) => {
@@ -247,6 +293,193 @@ describe('message persistence + ordering + edit history', () => {
     const json = toMessageJson(msgRow({ edited_at: new Date(), edit_count: 2, thread_id: 't1' }) as never);
     expect(json.editCount).toBe(2);
     expect(json.threadId).toBe('t1');
+  });
+});
+
+describe('continuity: idempotent message insert (clientId)', () => {
+  it('insertMessageExact inserts a NEW row and reports replayed=false when there is no conflict', async () => {
+    db.state.rowCount = 1;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('SELECT * FROM messages WHERE id')) return [msgRow({ id: 'm-new', client_id: 'cl-1' })];
+      return null;
+    };
+    const { row, replayed } = await insertMessageExact('u1', {
+      conversationId: 'c1',
+      sender: 'USER',
+      role: 'user',
+      content: 'hello',
+      clientId: 'cl-1',
+    });
+    expect(replayed).toBe(false);
+    expect(row.id).toBe('m-new');
+  });
+
+  it('insertMessageExact replays the existing row (replayed=true) when clientId already exists', async () => {
+    db.state.rowCount = 0;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('WHERE conversation_id = $1 AND client_id = $2')) {
+        return [msgRow({ id: 'm-existing', content: 'hello', client_id: 'cl-1' })];
+      }
+      return null;
+    };
+    const { row, replayed } = await insertMessageExact('u1', {
+      conversationId: 'c1',
+      sender: 'USER',
+      role: 'user',
+      content: 'hello',
+      clientId: 'cl-1',
+    });
+    expect(replayed).toBe(true);
+    expect(row.id).toBe('m-existing');
+  });
+
+  it('insertMessageExact throws idempotency_conflict when the row cannot be resolved', async () => {
+    db.state.rowCount = 0;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      return null; // no existing row to resolve to
+    };
+    await expect(
+      insertMessageExact('u1', {
+        conversationId: 'c1',
+        sender: 'USER',
+        role: 'user',
+        content: 'hello',
+        clientId: 'cl-1',
+      }),
+    ).rejects.toMatchObject({ errorCode: 'message_idempotency_conflict' });
+  });
+
+  it('findMessageByClientId resolves a prior send (ownership-checked) and nulls fresh/blank keys', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('WHERE conversation_id = $1 AND client_id = $2')) {
+        return params[1] === 'cl-1' ? [msgRow({ id: 'm-existing', client_id: 'cl-1' })] : [];
+      }
+      return null;
+    };
+    const found = await findMessageByClientId('u1', 'c1', 'cl-1');
+    expect(found?.id).toBe('m-existing');
+    // Ownership is checked first: another user's conversation never resolves.
+    await expect(findMessageByClientId('u2', 'c1', 'cl-1')).rejects.toMatchObject({ errorCode: 'not_found' });
+    expect(await findMessageByClientId('u1', 'c1', 'cl-fresh')).toBeNull();
+    expect(await findMessageByClientId('u1', 'c1', '   ')).toBeNull();
+    expect(await findMessageByClientId('u1', 'c1', null)).toBeNull();
+    const lookup = db.state.calls.find((c) => c.text.includes('WHERE conversation_id = $1 AND client_id = $2'))!;
+    expect(lookup.params).toEqual(['c1', 'cl-1']);
+  });
+
+  it('reactions are bound to the authorized conversation (no cross-message injection)', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      // Binding check: message m1 lives in c1; anything else is foreign.
+      if (text.includes('FROM messages WHERE id = $1 AND conversation_id = $2')) {
+        return params[0] === 'm1' && params[1] === 'c1' ? [{ id: 'm1' }] : [];
+      }
+      return null;
+    };
+    await addReaction('u1', 'c1', 'm1', '👍');
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO reactions'))!;
+    expect(insert.params.slice(1, 4)).toEqual(['m1', 'u1', '👍']);
+    // Same caller, own conversation c1, but someone else's message id.
+    await expect(addReaction('u1', 'c1', 'm-victim', '👍')).rejects.toMatchObject({ errorCode: 'not_found' });
+    expect(db.state.calls.filter((c) => c.text.includes('INSERT INTO reactions')).length).toBe(1);
+    // Remove scopes the delete to the conversation in a single statement.
+    await removeReaction('u1', 'c1', 'm1', '👍');
+    const del = db.state.calls.find((c) => c.text.includes('DELETE FROM reactions'))!;
+    expect(del.text).toContain('conversation_id = $4');
+    expect(del.params).toEqual(['m1', 'u1', '👍', 'c1']);
+  });
+
+  it('listReactions requires conversation ownership (no cross-tenant read)', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('FROM reactions')) return [{ message_id: 'm1', emoji: '👍', user_id: 'u1' }];
+      return null;
+    };
+    await expect(listReactions('u1', 'c1')).resolves.toHaveLength(1);
+    await expect(listReactions('u2', 'c1')).rejects.toMatchObject({ errorCode: 'not_found' });
+  });
+
+  it('insertMessage without clientId still works (legacy path)', async () => {
+    db.state.rowCount = 1;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('SELECT * FROM messages WHERE id')) return [msgRow({ id: 'm-plain' })];
+      return null;
+    };
+    const msg = await insertMessage('u1', { conversationId: 'c1', sender: 'USER', role: 'user', content: 'hi' });
+    expect(msg.id).toBe('m-plain');
+  });
+});
+
+describe('continuity: syncConversation (push + pull + tombstones)', () => {
+  it('applies new pending messages and reports duplicates for idempotent retries', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      if (text.includes('ON CONFLICT (conversation_id, client_id)')) {
+        // Simulate the partial unique index: a retried clientId conflicts.
+        db.state.rowCount = params[15] === 'cl-push' ? 1 : 0;
+        return [];
+      }
+      if (text.includes('SELECT * FROM messages WHERE id')) {
+        return [msgRow({ id: String(params[0]), client_id: 'cl-push' })];
+      }
+      if (text.includes('WHERE conversation_id = $1 AND client_id = $2')) {
+        return [msgRow({ id: 'm-existing', client_id: 'cl-dup' })];
+      }
+      if (text.includes('seq > $2')) {
+        return [msgRow({ id: 'm1', seq: 5 }), msgRow({ id: 'm-del', seq: 6, deleted_at: new Date() })];
+      }
+      return null;
+    };
+    const result = await syncConversation('u1', 'c1', {
+      afterSeq: 4,
+      pending: [
+        { clientId: 'cl-push', content: '  new message  ' },
+        { clientId: 'cl-dup', content: 'already there' },
+      ],
+    });
+    expect(result.applied).toEqual(['cl-push']);
+    expect(result.duplicates).toEqual(['cl-dup']);
+    expect(result.messages.map((m) => m.id)).toEqual(['m1']);
+    expect(result.deletedIds).toEqual(['m-del']);
+    expect(result.lastSeq).toBe(6);
+  });
+
+  it('rejects an empty pending message', async () => {
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT * FROM conversations')) {
+        return params[1] === 'u1' ? [convRow()] : [];
+      }
+      return null;
+    };
+    await expect(
+      syncConversation('u1', 'c1', { pending: [{ clientId: 'cl-x', content: '   ' }] }),
+    ).rejects.toMatchObject({ errorCode: 'sync_content_empty' });
+  });
+
+  it('does not leak another user’s conversation', async () => {
+    db.state.resolve = (text) => (text.includes('SELECT * FROM conversations') ? [] : null);
+    await expect(syncConversation('u1', 'c1', { afterSeq: 0 })).rejects.toMatchObject({ errorCode: 'not_found' });
   });
 });
 

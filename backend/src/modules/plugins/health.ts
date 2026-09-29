@@ -8,7 +8,7 @@
  * listing and the plugin_health ledger with degradation/failure/recovery
  * transitions + notifications.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { recordAudit } from '../audit/service.js';
@@ -21,15 +21,24 @@ import {
   type PluginIntegrationStatus,
 } from '@codeconclave/shared';
 import { env } from '../../config/env.js';
+import { revokePluginCredentials } from './credentials.js';
 
 const PLUGIN_TYPES = [
   'github', 'google', 'resend', 'slack', 'teams', 'discord', 'notion', 'linear',
   'jira', 'figma', 'sentry', 'cloudflare', 'supabase', 'vercel', 'render', 'vscode', 'webhook',
+  'stripe', 'twilio', 'pagerduty', 'asana',
+  'gitlab', 'hubspot', 'pipedrive', 'clickup', 'monday', 'coda', 'trello', 'klaviyo', 'databricks', 'zendesk',
+  'datadog', 'mailgun', 'confluence', 'servicenow',
 ] as const;
 export type PluginType = (typeof PLUGIN_TYPES)[number];
 
 /** Adapters genuinely implemented in this deployment (honest marketplace capability). */
-export const ADAPTER_IDS = ['github', 'google', 'resend', 'slack', 'linear', 'discord', 'sentry', 'vercel', 'cloudflare', 'webhook'] as const;
+export const ADAPTER_IDS = [
+  'github', 'google', 'resend', 'slack', 'linear', 'discord', 'sentry', 'vercel', 'cloudflare', 'webhook',
+  'notion', 'stripe', 'twilio', 'pagerduty', 'asana',
+  'gitlab', 'hubspot', 'pipedrive', 'clickup', 'monday', 'coda', 'trello', 'klaviyo', 'databricks', 'zendesk',
+  'datadog', 'mailgun', 'confluence', 'servicenow', 'jira', 'supabase', 'render',
+] as const;
 
 export interface PluginConnectionRow {
   id: string;
@@ -86,7 +95,7 @@ export interface PluginHealthRow {
 }
 
 export async function listCatalogue(): Promise<PluginCatalogueRow[]> {
-  return queryMany<PluginCatalogueRow>('SELECT * FROM plugins WHERE enabled = true ORDER BY name');
+  return withSystem<PluginCatalogueRow[]>((db) => db.query<PluginCatalogueRow>('SELECT * FROM plugins WHERE enabled = true ORDER BY name').then((r) => r.rows));
 }
 
 /**
@@ -186,6 +195,28 @@ export function pluginServerConfigured(pluginType: string): boolean {
     case 'sentry':
     case 'vercel':
     case 'cloudflare':
+    case 'notion':
+    case 'stripe':
+    case 'twilio':
+    case 'pagerduty':
+    case 'asana':
+    case 'gitlab':
+    case 'hubspot':
+    case 'pipedrive':
+    case 'clickup':
+    case 'monday':
+    case 'coda':
+    case 'trello':
+    case 'klaviyo':
+    case 'databricks':
+    case 'zendesk':
+    case 'datadog':
+    case 'mailgun':
+    case 'confluence':
+    case 'servicenow':
+    case 'jira':
+    case 'supabase':
+    case 'render':
       // Per-connection credential path only: connect with a user-supplied token.
       return true;
     default:
@@ -208,7 +239,9 @@ export function classifyPluginIntegration(
 }
 
 export async function listConnections(userId: string): Promise<PluginConnectionRow[]> {
-  return queryMany<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE owner_id = $1 ORDER BY updated_at DESC', [userId]);
+  return withTenant<PluginConnectionRow[]>(userId, (db) =>
+    db.query<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE owner_id = $1 ORDER BY updated_at DESC', [userId]).then((r) => r.rows),
+  );
 }
 
 export async function connectPlugin(
@@ -218,20 +251,25 @@ export async function connectPlugin(
   credentialRef?: string,
 ): Promise<PluginConnectionRow> {
   if (!PLUGIN_TYPES.includes(pluginType)) throw AppError.badRequest('invalid_plugin_type', 'Unknown plugin type');
-  const exists = await queryMany<PluginConnectionRow>(
-    'SELECT * FROM plugin_connections WHERE owner_id = $1 AND plugin_type = $2',
-    [userId, pluginType],
+  const exists = await withTenant<PluginConnectionRow[]>(userId, (db) =>
+    db
+      .query<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE owner_id = $1 AND plugin_type = $2', [userId, pluginType])
+      .then((r) => r.rows),
   );
   if (exists[0]) throw AppError.conflict('plugin_connected', 'A connection for this plugin already exists');
 
   const state: string = credentialRef ? 'CONNECTED' : 'CONNECTING';
   const id = newId(PREFIX.PLUGIN);
-  await pool.query(
-    `INSERT INTO plugin_connections (id, owner_id, plugin_type, name, state, credential_ref)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [id, userId, pluginType, name, state, credentialRef ?? null],
+  await withTenant(userId, (db) =>
+    db.query(
+      `INSERT INTO plugin_connections (id, owner_id, plugin_type, name, state, credential_ref)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [id, userId, pluginType, name, state, credentialRef ?? null],
+    ),
   );
-  const row = (await queryMany<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE id = $1', [id]))[0]!;
+  const row = (await withTenant<PluginConnectionRow[]>(userId, (db) =>
+    db.query<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE id = $1', [id]).then((r) => r.rows),
+  ))[0]!;
   await recordAudit({
     action: AuditAction.PLUGIN_CONNECTED,
     actorUserId: userId,
@@ -246,8 +284,9 @@ export async function connectPlugin(
 
 export async function revokePlugin(userId: string, connectionId: string): Promise<void> {
   const row = await getConnection(userId, connectionId);
-  await pool.query(`UPDATE plugin_connections SET state = 'REVOKED', credential_ref = NULL WHERE id = $1`, [connectionId]);
-  await pool.query(`UPDATE plugin_scopes SET revoked_at = now() WHERE connection_id = $1 AND revoked_at IS NULL`, [connectionId]);
+  await withTenant(userId, (db) => db.query(`UPDATE plugin_connections SET state = 'REVOKED', credential_ref = NULL WHERE id = $1`, [connectionId]));
+  await revokePluginCredentials(userId, connectionId);
+  await withTenant(userId, (db) => db.query(`UPDATE plugin_scopes SET revoked_at = now() WHERE connection_id = $1 AND revoked_at IS NULL`, [connectionId]));
   await recordAudit({
     action: AuditAction.PLUGIN_REVOKED,
     actorUserId: userId,
@@ -260,30 +299,37 @@ export async function revokePlugin(userId: string, connectionId: string): Promis
 }
 
 export async function getConnection(userId: string, connectionId: string): Promise<PluginConnectionRow> {
-  const rows = await queryMany<PluginConnectionRow>(
-    'SELECT * FROM plugin_connections WHERE id = $1 AND owner_id = $2',
-    [connectionId, userId],
+  const rows = await withTenant<PluginConnectionRow[]>(userId, (db) =>
+    db
+      .query<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE id = $1 AND owner_id = $2', [connectionId, userId])
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Plugin connection');
   return rows[0];
 }
 
 export async function getConnectionInternal(connectionId: string): Promise<PluginConnectionRow | null> {
-  const rows = await queryMany<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE id = $1', [connectionId]);
+  const rows = await withSystem<PluginConnectionRow[]>((db) =>
+    db.query<PluginConnectionRow>('SELECT * FROM plugin_connections WHERE id = $1', [connectionId]).then((r) => r.rows),
+  );
   return rows[0] ?? null;
 }
 
 export async function setConnectionState(connectionId: string, state: string, lastError?: string): Promise<void> {
-  await pool.query(
-    `UPDATE plugin_connections SET state = $2, last_error = $3, last_health_check_at = now() WHERE id = $1`,
-    [connectionId, state, lastError ?? null],
+  await withSystem((db) =>
+    db.query(
+      `UPDATE plugin_connections SET state = $2, last_error = $3, last_health_check_at = now() WHERE id = $1`,
+      [connectionId, state, lastError ?? null],
+    ),
   );
 }
 
 export async function recordPluginEvent(connectionId: string, eventType: string, payload: Record<string, unknown>, state = 'RECEIVED'): Promise<void> {
-  await pool.query(
-    `INSERT INTO plugin_events (id, connection_id, event_type, payload, state) VALUES ($1,$2,$3,$4::jsonb,$5)`,
-    [newId(PREFIX.PLUGIN), connectionId, eventType, JSON.stringify(payload), state],
+  await withSystem((db) =>
+    db.query(
+      `INSERT INTO plugin_events (id, connection_id, event_type, payload, state) VALUES ($1,$2,$3,$4::jsonb,$5)`,
+      [newId(PREFIX.PLUGIN), connectionId, eventType, JSON.stringify(payload), state],
+    ),
   );
 }
 
@@ -382,20 +428,26 @@ export async function updateConnectionScopes(userId: string, connectionId: strin
   for (const s of canonical) {
     if (!valid.includes(s)) throw AppError.badRequest('invalid_plugin_scope', `Unknown plugin scope: ${s}`);
   }
-  await pool.query(
-    `UPDATE plugin_scopes SET revoked_at = now() WHERE connection_id = $1 AND revoked_at IS NULL`,
-    [connectionId],
+  await withTenant(userId, (db) =>
+    db.query(
+      `UPDATE plugin_scopes SET revoked_at = now() WHERE connection_id = $1 AND revoked_at IS NULL`,
+      [connectionId],
+    ),
   );
   for (const scope of canonical) {
-    await pool.query(
-      `INSERT INTO plugin_scopes (id, connection_id, scope, granted_at) VALUES ($1,$2,$3,now())`,
-      [newId(PREFIX.PLUGIN + '_scope'), connectionId, scope],
+    await withTenant(userId, (db) =>
+      db.query(
+        `INSERT INTO plugin_scopes (id, connection_id, scope, granted_at) VALUES ($1,$2,$3,now())`,
+        [newId(PREFIX.PLUGIN + '_scope'), connectionId, scope],
+      ),
     );
   }
-  await pool.query(`UPDATE plugin_connections SET scopes = $2::jsonb, updated_at = now() WHERE id = $1`, [
-    connectionId,
-    JSON.stringify(canonical),
-  ]);
+  await withTenant(userId, (db) =>
+    db.query(`UPDATE plugin_connections SET scopes = $2::jsonb, updated_at = now() WHERE id = $1`, [
+      connectionId,
+      JSON.stringify(canonical),
+    ]),
+  );
   await recordAudit({
     action: AuditAction.PLUGIN_SCOPE_CHANGED,
     actorUserId: userId,
@@ -410,9 +462,13 @@ export async function updateConnectionScopes(userId: string, connectionId: strin
 
 /** Active (non-revoked, non-expired) scope rows for a connection. */
 export async function listPluginScopes(connectionId: string): Promise<PluginScopeRow[]> {
-  return queryMany<PluginScopeRow>(
-    `SELECT * FROM plugin_scopes WHERE connection_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) ORDER BY granted_at`,
-    [connectionId],
+  return withSystem<PluginScopeRow[]>((db) =>
+    db
+      .query<PluginScopeRow>(
+        `SELECT * FROM plugin_scopes WHERE connection_id = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) ORDER BY granted_at`,
+        [connectionId],
+      )
+      .then((r) => r.rows),
   );
 }
 
@@ -426,9 +482,13 @@ export async function effectivePluginScopes(connectionId: string): Promise<Set<s
 
 export async function listPluginEvents(userId: string, connectionId: string, limit = 50): Promise<PluginEventRow[]> {
   await getConnection(userId, connectionId);
-  return queryMany<PluginEventRow>(
-    `SELECT * FROM plugin_events WHERE connection_id = $1 ORDER BY created_at DESC LIMIT $2`,
-    [connectionId, Math.min(200, Math.max(1, limit))],
+  return withTenant<PluginEventRow[]>(userId, (db) =>
+    db
+      .query<PluginEventRow>(
+        `SELECT * FROM plugin_events WHERE connection_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [connectionId, Math.min(200, Math.max(1, limit))],
+      )
+      .then((r) => r.rows),
   );
 }
 
@@ -441,10 +501,12 @@ export async function recordPluginHealth(
   lastError?: string,
   detail?: Record<string, unknown>,
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO plugin_health (id, connection_id, checked_at, ok, latency_ms, consecutive_failures, last_error, detail)
-     VALUES ($1,$2,now(),$3,$4,$5,$6,$7::jsonb)`,
-    [newId(PREFIX.PLUGIN + '_health'), connectionId, ok, Math.max(0, Math.round(latencyMs)), consecutiveFailures, lastError ?? null, JSON.stringify(detail ?? {})],
+  await withSystem((db) =>
+    db.query(
+      `INSERT INTO plugin_health (id, connection_id, checked_at, ok, latency_ms, consecutive_failures, last_error, detail)
+       VALUES ($1,$2,now(),$3,$4,$5,$6,$7::jsonb)`,
+      [newId(PREFIX.PLUGIN + '_health'), connectionId, ok, Math.max(0, Math.round(latencyMs)), consecutiveFailures, lastError ?? null, JSON.stringify(detail ?? {})],
+    ),
   );
 }
 
@@ -462,11 +524,13 @@ export function parsePluginOAuthState(state: string): { userId: string; connecti
 
 /** Watchdog: connections whose health check is stale (>10 min) → ERROR (honest). */
 export async function sweepPluginHealth(): Promise<number> {
-  const result = await pool.query(
-    `UPDATE plugin_connections SET state = 'ERROR', last_error = 'health_check_timeout', last_health_check_at = now()
-      WHERE state IN ('CONNECTING','CONNECTED','DEGRADED','REAUTH_REQUIRED')
-        AND last_health_check_at < now() - interval '10 minutes'
-      RETURNING id`,
+  const result = await withSystem((db) =>
+    db.query(
+      `UPDATE plugin_connections SET state = 'ERROR', last_error = 'health_check_timeout', last_health_check_at = now()
+        WHERE state IN ('CONNECTING','CONNECTED','DEGRADED','REAUTH_REQUIRED')
+          AND last_health_check_at < now() - interval '10 minutes'
+        RETURNING id`,
+    ),
   );
   return result.rowCount ?? 0;
 }

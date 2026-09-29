@@ -107,6 +107,18 @@ const ENV_KEYS = [
 ] as const;
 
 const originalEnv: Record<string, unknown> = {};
+// Every provider API key that feeds `configuredProviders()` (registry.ts
+// keyByProvider). Cleared before/after each test so health and status behavior
+// depends only on what the specific test sets — never on keys leaked from
+// another test file running in the same worker (nemotron/google/mistral are on
+// the Phase 1 production allow-list and must not be reported as configured by
+// accident).
+const PROVIDER_KEYS = [
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'MISTRAL_API_KEY',
+  'GROK_API_KEY', 'DEEPSEEK_API_KEY', 'KIMI_API_KEY', 'NVIDIA_API_KEY',
+  'COHERE_API_KEY', 'QWEN_API_KEY', 'DEVIN_API_KEY', 'OX_ALPHA_API_KEY',
+  'MANUS_API_KEY', 'Z_AI_API_KEY',
+] as const;
 beforeEach(() => {
   db.state.calls = [];
   db.state.rows = [];
@@ -126,12 +138,17 @@ beforeEach(() => {
   cacheMock.health.mockResolvedValue(true);
   resetMetrics();
   for (const key of ENV_KEYS) originalEnv[key] = env[key as keyof typeof env];
+  for (const key of PROVIDER_KEYS) (env as Record<string, unknown>)[key] = undefined;
 });
 
 afterEach(() => {
   revokeGrants('u1');
   revokeGrants('victim');
   for (const key of ENV_KEYS) {
+    if ((PROVIDER_KEYS as readonly string[]).includes(key)) {
+      (env as Record<string, unknown>)[key] = undefined;
+      continue;
+    }
     (env as Record<string, unknown>)[key] = originalEnv[key];
   }
 });
@@ -141,7 +158,7 @@ function fakeReq(ip: string, extra: Record<string, unknown> = {}): Request {
     ip,
     headers: { 'user-agent': 'foundation/1.0', ...(extra.headers ?? {}) },
     cookies: (extra.cookies as Record<string, string> | undefined) ?? {},
-    ctx: { traceId: 'trace-1', ip, userAgent: 'foundation/1.0', user: null, sessionId: null, startedAt: Date.now() },
+    ctx: { correlationId: 'trace-1', ip, userAgent: 'foundation/1.0', user: null, sessionId: null, startedAt: Date.now() },
     ...extra,
   } as unknown as Request;
 }
@@ -316,12 +333,12 @@ describe('SESSION ROTATION — MFA privilege changes revoke other sessions', () 
 });
 
 describe('REQUEST CONTEXT — correlation IDs and security headers', () => {
-  it('requestContext echoes the trace id as X-Request-Id', () => {
+  it('requestContext echoes the correlation id as X-Request-Id', () => {
     const req = fakeReq('10.0.0.1');
     const res = fakeRes();
     const next = vi.fn();
     requestContext(req, res, next);
-    expect(res.getHeader('X-Request-Id')).toBe(req.ctx!.traceId);
+    expect(res.getHeader('X-Request-Id')).toBe(req.ctx!.correlationId);
     expect(next).toHaveBeenCalledWith();
   });
 
@@ -489,13 +506,13 @@ describe('HEALTH — honest rollup with NOT_CONFIGURED never healthy', () => {
   });
 
   it('a configured AI provider that is DOWN fails the report', async () => {
-    env.AI_PROVIDERS_ENABLED = 'anthropic';
-    env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    env.AI_PROVIDERS_ENABLED = 'google';
+    env.GEMINI_API_KEY = 'sk-gemini-test';
     env.REDIS_URL = undefined;
     env.QUEUE_PROVIDER = 'memory';
     env.SENTRY_DSN = undefined;
     db.state.resolve = (text) => {
-      if (text.includes('provider_health')) return [{ provider_id: 'anthropic', state: 'DOWN' }];
+      if (text.includes('provider_health')) return [{ provider_id: 'google', state: 'DOWN' }];
       if (text.includes('plugin_connections')) return [];
       return null;
     };
@@ -505,13 +522,13 @@ describe('HEALTH — honest rollup with NOT_CONFIGURED never healthy', () => {
   });
 
   it('a healthy configured AI provider yields a HEALTHY ai check', async () => {
-    env.AI_PROVIDERS_ENABLED = 'anthropic';
-    env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    env.AI_PROVIDERS_ENABLED = 'google';
+    env.GEMINI_API_KEY = 'sk-gemini-test';
     env.REDIS_URL = undefined;
     env.QUEUE_PROVIDER = 'memory';
     env.SENTRY_DSN = undefined;
     db.state.resolve = (text) => {
-      if (text.includes('provider_health')) return [{ provider_id: 'anthropic', state: 'UP' }];
+      if (text.includes('provider_health')) return [{ provider_id: 'google', state: 'UP' }];
       if (text.includes('plugin_connections')) return [];
       return null;
     };
@@ -520,19 +537,19 @@ describe('HEALTH — honest rollup with NOT_CONFIGURED never healthy', () => {
   });
 
   it('health never exposes secrets or connection strings', async () => {
-    env.AI_PROVIDERS_ENABLED = 'anthropic';
-    env.ANTHROPIC_API_KEY = 'sk-ant-super-secret-value';
+    env.AI_PROVIDERS_ENABLED = 'google';
+    env.GEMINI_API_KEY = 'sk-gemini-super-secret-value';
     env.REDIS_URL = 'redis://:hunter2@redis.internal:6379';
     env.QUEUE_PROVIDER = 'redis';
     env.SENTRY_DSN = 'https://dns@o123.ingest.sentry.io/123';
     db.state.resolve = (text) => {
-      if (text.includes('provider_health')) return [{ provider_id: 'anthropic', state: 'UP' }];
+      if (text.includes('provider_health')) return [{ provider_id: 'google', state: 'UP' }];
       if (text.includes('plugin_connections')) return [];
       return null;
     };
     const report = await computeHealth();
     const body = JSON.stringify(report);
-    expect(body).not.toContain('sk-ant-super-secret-value');
+    expect(body).not.toContain('sk-gemini-super-secret-value');
     expect(body).not.toContain('hunter2');
     expect(body).not.toContain('ingest.sentry.io');
   });

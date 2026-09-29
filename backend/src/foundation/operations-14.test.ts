@@ -43,7 +43,7 @@ import { env } from '../config/env.js';
 import { providerStatus, sanitizeProviderError } from '../modules/operations/service.js';
 
 const ENV_KEYS = [
-  'RAZORPAY_MODE', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET',
+  'RAZORPAY_MODE', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RAZORPAY_WEBHOOK_ENABLED',
   'RESEND_API_KEY', 'RESEND_ENABLED',
   'SENTRY_DSN', 'SENTRY_ENABLED',
   'STORAGE_PROVIDER', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
@@ -101,11 +101,11 @@ describe('payment + email + observability + storage', () => {
     expect(razorpay.reason).toContain('Payment Link enabled');
   });
 
-  it('reports Razorpay AVAILABLE only when API + webhook credentials exist', async () => {
-    env.RAZORPAY_MODE = 'webhook';
+  it('reports Razorpay AVAILABLE only when API credentials exist and the webhook verification rail is enabled', async () => {
     env.RAZORPAY_KEY_ID = 'rzp_live_x';
     env.RAZORPAY_KEY_SECRET = 'rzp_secret_x';
     env.RAZORPAY_WEBHOOK_SECRET = 'whsec_x';
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
     const report = await providerStatus('u1');
     const razorpay = report.providers.find((p) => p.id === 'razorpay')!;
     expect(razorpay.status).toBe('AVAILABLE');

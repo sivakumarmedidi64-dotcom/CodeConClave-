@@ -62,7 +62,7 @@ export function DataPage() {
   return (
     <div className="cc-page">
       <h1>Data Centre</h1>
-      {error && <div className="cc-card" style={{ color: '#b3261e' }}>{error}</div>}
+      {error && <div className="cc-card" style={{ color: '#dc2626' }}>{error}</div>}
       {report ? (
         <div className="cc-grid cc-grid-2">
           <div className="cc-card">
@@ -83,7 +83,7 @@ export function DataPage() {
                 style={{
                   height: 8,
                   width: `${Math.min(report.quota.percent, 100)}%`,
-                  background: report.quota.overLimit ? '#b3261e' : '#2f6fdb',
+                  background: report.quota.overLimit ? '#dc2626' : '#2563eb',
                   borderRadius: 4,
                 }}
               />

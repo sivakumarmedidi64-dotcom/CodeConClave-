@@ -8,7 +8,7 @@
  * (task creation, agent run start, schedule creation, automation creation).
  * It stops NEW work — running work is not force-killed (honest semantics).
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, NotificationType, KillSwitchScope } from '@codeconclave/shared';
@@ -30,9 +30,13 @@ export interface KillSwitchRow {
 
 /** Is work suspended for this scope (or globally)? */
 export async function killSwitchActive(userId: string, scope: string): Promise<boolean> {
-  const rows = await queryMany<KillSwitchRow>(
-    'SELECT * FROM kill_switch WHERE owner_id = $1 AND scope IN ($2,$3)',
-    [userId, KillSwitchScope.GLOBAL, scope],
+  const rows = await withTenant<KillSwitchRow[]>(userId, (q) =>
+    q
+      .query<KillSwitchRow>(
+        'SELECT * FROM kill_switch WHERE owner_id = $1 AND scope IN ($2,$3)',
+        [userId, KillSwitchScope.GLOBAL, scope],
+      )
+      .then((r) => r.rows),
   );
   return rows.some((r) => r.active);
 }
@@ -60,10 +64,9 @@ export async function setKillSwitch(
   if (!KILL_SWITCH_SCOPES.includes(scope)) {
     throw AppError.badRequest('invalid_kill_switch_scope', `Unknown scope ${scope}`);
   }
-  const existing = await queryMany<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1 AND scope = $2', [
-    userId,
-    scope,
-  ]);
+  const existing = await withTenant<KillSwitchRow[]>(userId, (q) =>
+    q.query<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1 AND scope = $2', [userId, scope]).then((r) => r.rows),
+  );
   const id = existing[0]?.id ?? newId(PREFIX.KILL_SWITCH);
   await dbUpsert(userId, scope, active, reason ?? null, id, existing[0]?.active ?? false);
   await recordAudit({
@@ -83,7 +86,9 @@ export async function setKillSwitch(
       metadata: { scope },
     }).catch(() => undefined);
   }
-  return (await queryMany<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1 AND scope = $2', [userId, scope]))[0]!;
+  return (await withTenant<KillSwitchRow[]>(userId, (q) =>
+    q.query<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1 AND scope = $2', [userId, scope]).then((r) => r.rows),
+  ))[0]!;
 }
 
 async function dbUpsert(
@@ -94,20 +99,23 @@ async function dbUpsert(
   id: string,
   prevActive: boolean,
 ): Promise<void> {
-  const { pool } = await import('../../shared/db.js');
-  await pool.query(
-    `INSERT INTO kill_switch (id, owner_id, scope, active, reason, triggered_by)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (owner_id, scope)
-     DO UPDATE SET active = EXCLUDED.active, reason = EXCLUDED.reason, updated_at = now()`,
-    [id, userId, scope, active, reason, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO kill_switch (id, owner_id, scope, active, reason, triggered_by)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (owner_id, scope)
+       DO UPDATE SET active = EXCLUDED.active, reason = EXCLUDED.reason, updated_at = now()`,
+      [id, userId, scope, active, reason, userId],
+    ),
   );
   void prevActive;
 }
 
 /** Status of every scope for the user (always returns all scopes). */
 export async function killSwitchStatus(userId: string): Promise<Array<KillSwitchRow & { suspended: boolean }>> {
-  const rows = await queryMany<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1', [userId]);
+  const rows = await withTenant<KillSwitchRow[]>(userId, (q) =>
+    q.query<KillSwitchRow>('SELECT * FROM kill_switch WHERE owner_id = $1', [userId]).then((r) => r.rows),
+  );
   const globalActive = rows.some((r) => r.scope === KillSwitchScope.GLOBAL && r.active);
   return KILL_SWITCH_SCOPES.map((scope) => {
     const row = rows.find((r) => r.scope === scope);

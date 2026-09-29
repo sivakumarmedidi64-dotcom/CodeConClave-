@@ -190,6 +190,7 @@ export function MemoryPage() {
           <input
             className="cc-input"
             placeholder="Search…"
+            aria-label="Search memories"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
@@ -256,7 +257,11 @@ export function MemoryPage() {
             </div>
             <p style={{ margin: '8px 0 0', whiteSpace: 'pre-wrap' }}>{m.content}</p>
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-              <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void toggleDetails(m.id)}>
+              <button
+                className="cc-btn cc-btn--ghost cc-btn--sm"
+                onClick={() => void toggleDetails(m.id)}
+                aria-expanded={Boolean(open[m.id])}
+              >
                 {open[m.id] ? 'Hide details' : 'Details'}
               </button>
               <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void verify(m.id, 'VERIFIED')}>

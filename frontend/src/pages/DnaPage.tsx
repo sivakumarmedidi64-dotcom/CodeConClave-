@@ -2,12 +2,31 @@
  * CodeConClave — DNA Load: blocks, save (MAIN/BRANCH), versions, compare,
  * restore-version, branch, export. Explicit loading / error states.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { api } from '../lib/api';
 import type { DnaBlock, DnaCompare, DnaKind, DnaScope, DnaVersion } from '../lib/types';
 import { useToast } from '../components/Toast';
 
 const KINDS: DnaKind[] = ['DECISION', 'UNRESOLVED_WORK', 'NEXT_ACTIONS', 'DISCOVERY', 'BLOCKER', 'PROJECT_CONTEXT', 'RELEVANT_FILES', 'ENVIRONMENT_STATE', 'VERIFICATION_RESULT'];
+
+function DnaLoader({ label = 'Loading DNA…' }: { label?: string }) {
+  return (
+    <div className="cc-card cc-empty" data-testid="dna-loader">
+      <div className="cc-dna-loader">
+        <div className="cc-dna-loader__helix" aria-hidden="true">
+          {Array.from({ length: 9 }, (_, i) => (
+            <span
+              key={i}
+              className="cc-dna-loader__rung"
+              style={{ top: `${i * 10}%`, '--cc-dna-delay': `${i * 120}ms` } as CSSProperties}
+            />
+          ))}
+        </div>
+        <div className="cc-dna-loader__label">{label}</div>
+      </div>
+    </div>
+  );
+}
 
 export function DnaPage() {
   const { toast } = useToast();
@@ -165,7 +184,7 @@ export function DnaPage() {
           />
         </div>
       )}
-      {state === 'loading' && <div className="cc-card cc-empty">Loading DNA…</div>}
+      {state === 'loading' && <DnaLoader />}
       {state === 'error' && (
         <div className="cc-card cc-error-state">
           <p className="cc-hint">Could not load DNA blocks.</p>

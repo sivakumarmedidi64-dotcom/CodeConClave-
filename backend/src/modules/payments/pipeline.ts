@@ -6,14 +6,14 @@
  * pipeline as signals to be scored, never as facts. A screenshot/OCR text can
  * raise confidence but can never, by itself, activate a plan.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError, errorCodeOf } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { recordAudit } from '../audit/service.js';
 import { getIntent, type PaymentIntentRow } from './intents.js';
 import { evidenceSource26H, signalSha256, type EvidenceSignals } from './evidence.js';
-import { checkFraud } from './fraud.js';
-import { scoreEvidence } from './matcher.js';
+import { checkFraud, type FraudCheck } from './fraud.js';
+import { scoreEvidence, type MatcherResult } from './matcher.js';
 import { applyDecision } from './activation.js';
 import { getUserEmail } from './service.js';
 
@@ -45,6 +45,53 @@ export interface IngestResult {
     flags: string[];
     intentStatus: string;
   } | null;
+}
+
+/**
+ * Trust boundary: only genuinely server/rail-authoritative sources may drive
+ * an intent to ACTIVE. User-asserted sources (manual entry, uploaded OCR
+ * screenshots) are evidence for review but can NEVER grant a paid entitlement.
+ */
+const TRUSTED_EVIDENCE_SOURCES = new Set(['gmail', 'gmail_imap', 'razorpay_api', 'razorpay_webhook', 'razorpay_callback', 'razorpay_autopilot']);
+
+export function isTrustedEvidenceSource(sourceId: string): boolean {
+  return TRUSTED_EVIDENCE_SOURCES.has(sourceId);
+}
+
+/**
+ * Sources a user may submit through POST /intents/:id/evidence.
+ * Server-driven sources (gmail / gmail_imap / razorpay_api / razorpay_webhook
+ * / razorpay_callback / razorpay_autopilot) anchor the intent's own reference
+ * or query provider systems — accepting them with a user-supplied payload
+ * would let anyone self-assert a paid entitlement (the collect() functions
+ * cannot distinguish a provider event from user JSON). Those sources are
+ * ingested ONLY via their internal callers (webhook handler, pool callback,
+ * autopilot sweep, IMAP poller, refresh). User-asserted sources can never
+ * reach ACTIVE: effectiveMatch() forces them to REVIEW.
+ */
+const USER_ASSERTABLE_EVIDENCE_SOURCES = new Set(['ocr', 'manual']);
+
+export function isUserAssertableEvidenceSource(sourceId: string): boolean {
+  return USER_ASSERTABLE_EVIDENCE_SOURCES.has(sourceId);
+}
+
+/**
+ * Ingestion decision gate: untrusted (user-asserted) sources are forced to
+ * REVIEW regardless of confidence, so a fabricated manual assertion can never
+ * become ACTIVE. Trusted sources may activate as normal.
+ */
+function effectiveMatch(
+  match: MatcherResult,
+  sourceId: string,
+  fraud: FraudCheck,
+): { match: MatcherResult; fraud: FraudCheck } {
+  if (isTrustedEvidenceSource(sourceId)) return { match, fraud };
+  const flags = [...fraud.flags];
+  if (!flags.includes('manual_assertion_cannot_activate')) flags.push('manual_assertion_cannot_activate');
+  return {
+    match: { ...match, decision: 'REVIEW' },
+    fraud: { flags, blocked: fraud.blocked },
+  };
 }
 
 /**
@@ -82,9 +129,8 @@ export async function ingestEvidence(
     seenShas.add(sha);
 
     // Replay guard: identical evidence already stored for another intent/owner.
-    const existing = await queryOne<{ id: string }>(
-      `SELECT id FROM payment_evidence WHERE sha256 = $1 AND intent_id IS DISTINCT FROM $2`,
-      [sha, intent.id],
+    const existing = await withTenant(userId, async (q) =>
+      (await q.query<{ id: string }>(`SELECT id FROM payment_evidence WHERE sha256 = $1 AND intent_id IS DISTINCT FROM $2`, [sha, intent.id])).rows[0] ?? null,
     );
     if (existing) {
       replayCount += 1;
@@ -100,46 +146,58 @@ export async function ingestEvidence(
       continue;
     }
 
-    const prior = await queryOne<{ n: number }>(
-      `SELECT count(*)::int AS n FROM payment_evidence WHERE owner_id = $1`,
-      [userId],
+    const prior = await withTenant(userId, async (q) =>
+      (await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM payment_evidence WHERE owner_id = $1`, [userId])).rows[0] ?? null,
     );
     const fraud = await checkFraud(userId, intent, signals, sha, prior?.n ?? 0);
 
     const id = newId(PREFIX.PAYMENT_EVIDENCE);
-    await pool.query(
-      `INSERT INTO payment_evidence (id, intent_id, owner_id, source, provider_payment_id, utr, reference, amount_inr, payer_email, paid_at, sha256, signals, matched, fraud_flags, tenant_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14::jsonb,$15)`,
-      [
-        id,
-        intent.id,
-        userId,
-        sourceId,
-        signals.paymentId ?? null,
-        signals.utr ?? null,
-        signals.reference ?? null,
-        signals.amountInr ?? null,
-        signals.payerEmail ?? null,
-        signals.paidAt ? new Date(signals.paidAt) : null,
-        sha,
-        JSON.stringify(signals),
-        false,
-        JSON.stringify(fraud.flags),
-        userId,
-      ],
+    const insertResult = await withTenant(userId, async (q) =>
+      q.query(
+        `INSERT INTO payment_evidence (id, intent_id, owner_id, source, provider_payment_id, utr, reference, amount_inr, payer_email, paid_at, sha256, signals, matched, fraud_flags, tenant_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14::jsonb,$15)
+         ON CONFLICT (sha256) DO NOTHING`,
+        [
+          id,
+          intent.id,
+          userId,
+          sourceId,
+          signals.paymentId ?? null,
+          signals.utr ?? null,
+          signals.reference ?? null,
+          signals.amountInr ?? null,
+          signals.payerEmail ?? null,
+          signals.paidAt ? new Date(signals.paidAt) : null,
+          sha,
+          JSON.stringify(signals),
+          false,
+          JSON.stringify(fraud.flags),
+          userId,
+        ],
+      ),
     );
 
+    // ON CONFLICT (sha256) DO NOTHING: PostgreSQL returns rowCount 0 when
+    // the INSERT was deduplicated by the unique constraint. If so, skip
+    // activation — a concurrent request already processed this evidence.
+    // rowCount >= 1 means this request won the race and may proceed.
+    if ((insertResult.rowCount ?? 0) === 0) {
+      replayCount += 1;
+      continue;
+    }
+
     const match = scoreEvidence(intent, signals, userEmail);
-    const applied = await applyDecision(userId, intent, match, fraud);
+    const { match: effective, fraud: effectiveFraud } = effectiveMatch(match, sourceId, fraud);
+    const applied = await applyDecision(userId, intent, effective, effectiveFraud);
     matchedCount += 1;
     lastResult = {
-      confidence: match.confidence,
-      decision: match.decision,
-      flags: [...fraud.flags, ...(applied.intent.fraud_flags ?? [])],
+      confidence: effective.confidence,
+      decision: effective.decision,
+      flags: [...effectiveFraud.flags, ...(applied.intent.fraud_flags ?? [])],
       intentStatus: applied.intent.status,
     };
 
-    stored.push(await evidenceById(id));
+    stored.push(await evidenceById(userId, id));
   }
 
   if (stored.length === 0 && replayCount > 0) {
@@ -178,17 +236,21 @@ export async function refreshIntentEvidence(userId: string, intentId: string): P
   return last;
 }
 
-async function evidenceById(id: string): Promise<EvidenceRecord> {
-  const row = await queryOne<EvidenceRecord>('SELECT * FROM payment_evidence WHERE id = $1', [id]);
+async function evidenceById(userId: string, id: string): Promise<EvidenceRecord> {
+  const row = await withTenant(userId, async (q) =>
+    (await q.query<EvidenceRecord>('SELECT * FROM payment_evidence WHERE id = $1', [id])).rows[0] ?? null,
+  );
   if (!row) throw AppError.notFound('Evidence');
   return row;
 }
 
 export function listEvidenceForIntent(userId: string, intentId: string): Promise<EvidenceRecord[]> {
-  return queryMany<EvidenceRecord>(
-    `SELECT e.* FROM payment_evidence e JOIN payment_intents i ON i.id = e.intent_id
-      WHERE i.id = $1 AND i.owner_id = $2 ORDER BY e.created_at DESC`,
-    [intentId, userId],
+  return withTenant(userId, async (q) =>
+    (await q.query<EvidenceRecord>(
+      `SELECT e.* FROM payment_evidence e JOIN payment_intents i ON i.id = e.intent_id
+        WHERE i.id = $1 AND i.owner_id = $2 ORDER BY e.created_at DESC`,
+      [intentId, userId],
+    )).rows,
   );
 }
 

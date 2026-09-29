@@ -7,12 +7,13 @@
  * pipeline. Invalid or missing model output falls back to a deterministic
  * default plan — nothing arbitrary is ever executed.
  */
-import { pool, queryOne, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { completeWithFallback } from '../ai/gateway.js';
 import { recordAudit } from '../audit/service.js';
 import { AuditAction } from './policy-shared.js';
 import { logger } from '../../shared/logger.js';
+import { retrieveAgentContext } from '../memorycoding/agentContext.js';
 
 export interface PlanEntryInput {
   coworker: string;
@@ -53,6 +54,7 @@ const VALID_COWORKER_TYPES = new Set([
   'DOCS',
   'REVIEWER',
   'PLANNER',
+  'NOVA',
 ]);
 
 const VALID_RISK = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
@@ -169,52 +171,55 @@ export async function persistPlan(input: {
   acceptanceCriteria?: string[];
   expectedArtifacts?: string[];
 }): Promise<PersistedPlan> {
-  const existing = await queryOne<{ id: string }>('SELECT id FROM plans WHERE task_id = $1', [input.taskId]);
-  const planId = existing?.id ?? newId(PREFIX.PLAN);
-  await pool.query(
-    `INSERT INTO plans (id, task_id, goal, status, risk_level, estimated_work, acceptance_criteria, expected_artifacts)
-     VALUES ($1,$2,$3,'ACTIVE',$4,$5,$6::jsonb,$7::jsonb)
-     ON CONFLICT (task_id) DO UPDATE SET goal = EXCLUDED.goal, status = 'ACTIVE', updated_at = now()`,
-    [
-      planId,
-      input.taskId,
-      input.goal,
-      input.riskLevel ?? null,
-      input.estimatedWork ?? null,
-      JSON.stringify(input.acceptanceCriteria ?? []),
-      JSON.stringify(input.expectedArtifacts ?? []),
-    ],
-  );
-  await pool.query('DELETE FROM plan_entries WHERE plan_id = $1', [planId]);
-  for (const [i, e] of input.entries.entries()) {
-    await pool.query(
-      `INSERT INTO plan_entries (
-         id, plan_id, order_index, coworker_type, input, parallel_group,
-         depends_on, required_tools, risk, acceptance_criteria, expected_artifacts
-       ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9,$10,$11::jsonb)`,
+  const planId = await withSystem(async (q) => {
+    const existing = (await q.query<{ id: string }>('SELECT id FROM plans WHERE task_id = $1', [input.taskId])).rows[0];
+    const id = existing?.id ?? newId(PREFIX.PLAN);
+    await q.query(
+      `INSERT INTO plans (id, task_id, goal, status, risk_level, estimated_work, acceptance_criteria, expected_artifacts)
+       VALUES ($1,$2,$3,'ACTIVE',$4,$5,$6::jsonb,$7::jsonb)
+       ON CONFLICT (task_id) DO UPDATE SET goal = EXCLUDED.goal, status = 'ACTIVE', updated_at = now()`,
       [
-        newId(PREFIX.PLAN_ENTRY),
-        planId,
-        i,
-        e.coworker,
-        JSON.stringify(e.input ?? {}),
-        e.parallelGroup ?? null,
-        JSON.stringify([]),
-        JSON.stringify(e.requiredTools ?? []),
-        e.risk ?? null,
-        e.acceptanceCriteria ?? null,
-        JSON.stringify(e.expectedArtifacts ?? []),
+        id,
+        input.taskId,
+        input.goal,
+        input.riskLevel ?? null,
+        input.estimatedWork ?? null,
+        JSON.stringify(input.acceptanceCriteria ?? []),
+        JSON.stringify(input.expectedArtifacts ?? []),
       ],
     );
-  }
+    await q.query('DELETE FROM plan_entries WHERE plan_id = $1', [id]);
+    for (const [i, e] of input.entries.entries()) {
+      await q.query(
+        `INSERT INTO plan_entries (
+           id, plan_id, order_index, coworker_type, input, parallel_group,
+           depends_on, required_tools, risk, acceptance_criteria, expected_artifacts
+         ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9,$10,$11::jsonb)`,
+        [
+          newId(PREFIX.PLAN_ENTRY),
+          id,
+          i,
+          e.coworker,
+          JSON.stringify(e.input ?? {}),
+          e.parallelGroup ?? null,
+          JSON.stringify([]),
+          JSON.stringify(e.requiredTools ?? []),
+          e.risk ?? null,
+          e.acceptanceCriteria ?? null,
+          JSON.stringify(e.expectedArtifacts ?? []),
+        ],
+      );
+    }
+    return id;
+  });
   return getPlan(input.taskId) as Promise<PersistedPlan>;
 }
 
 /** Load the persisted plan for a task, or null. */
 export async function getPlan(taskId: string): Promise<PersistedPlan | null> {
-  const plan = await queryOne<PlanRow>('SELECT * FROM plans WHERE task_id = $1', [taskId]);
+  const plan = await withSystem(async (q) => (await q.query<PlanRow>('SELECT * FROM plans WHERE task_id = $1', [taskId])).rows[0] ?? null);
   if (!plan) return null;
-  const rows = await queryMany<PlanEntryRow>('SELECT * FROM plan_entries WHERE plan_id = $1 ORDER BY order_index', [plan.id]);
+  const rows = await withSystem(async (q) => (await q.query<PlanEntryRow>('SELECT * FROM plan_entries WHERE plan_id = $1 ORDER BY order_index', [plan.id])).rows);
   return {
     id: plan.id,
     task_id: plan.task_id,
@@ -247,10 +252,14 @@ export async function generatePlan(input: {
   taskId: string;
   title: string;
   description?: string | null;
+  projectId?: string | null;
 }): Promise<PersistedPlan> {
   let entries: PlanEntryInput[] | null = null;
   try {
-    const planRow = await queryOne<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [input.userId]);
+    const planRow = await withTenant(input.userId, async (q) => (await q.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [input.userId])).rows[0] ?? null);
+    const memoryContext = input.projectId
+      ? await retrieveAgentContext(input.userId, { projectId: input.projectId })
+      : 'Memory context: (project not provided)\n';
     const summary = await completeWithFallback({
       ctx: {
         userId: input.userId,
@@ -264,7 +273,7 @@ export async function generatePlan(input: {
         { role: 'system', content: PLANNER_SYSTEM_PROMPT },
         {
           role: 'user',
-          content: `Goal: ${input.title}\nDescription: ${input.description ?? 'none'}`,
+          content: `Goal: ${input.title}\nDescription: ${input.description ?? 'none'}\n\n${memoryContext}`,
         },
       ],
       maxTokens: 1500,

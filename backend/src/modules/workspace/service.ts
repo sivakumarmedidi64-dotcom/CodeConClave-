@@ -4,7 +4,7 @@
  * usage counters (server-authoritative free limits), feature flags, context
  * indicator. Return-to-work summaries live in the returnToWork module.
  */
-import { pool, withTenant, queryMany } from '../../shared/db.js';
+import { withSystem, pool, withTenant, queryMany } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { env } from '../../config/env.js';
@@ -42,18 +42,23 @@ export async function setWorkspaceState(
   baseVersion?: number,
 ): Promise<WorkspaceStateEntry> {
   if (baseVersion !== undefined) {
-    const result = await pool.query(
+    const result = await withTenant(userId, (q) => q.query(
       `UPDATE workspace_state SET value = $3::jsonb, version = version + 1, updated_at = now()
        WHERE owner_id = $1 AND key = $2 AND version = $4
        RETURNING key, value, version, updated_at`,
       [userId, key, JSON.stringify(value), baseVersion],
-    );
+    ));
     const row = result.rows[0] as WorkspaceStateRow | undefined;
     if (!row) {
-      const current = await queryMany<WorkspaceStateRow>(
-        'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 AND key = $2',
-        [userId, key],
-      );
+      // P0-2: the conflict re-read is owner-scoped and runs inside a tenant
+      // transaction, so the tenant context is established for the read itself
+      // rather than relying on the failed UPDATE to have implied it.
+      const current = await withTenant(userId, (q) =>
+        q.query<WorkspaceStateRow>(
+          'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 AND key = $2',
+          [userId, key],
+        ),
+      ).then((r) => r.rows);
       throw AppError.conflict('workspace_conflict', 'Workspace state changed on another device', {
         current: current[0]
           ? { key: current[0].key, value: current[0].value, version: current[0].version, updatedAt: current[0].updated_at }
@@ -62,14 +67,14 @@ export async function setWorkspaceState(
     }
     return { key: row.key, value: row.value, version: row.version, updatedAt: row.updated_at };
   }
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `INSERT INTO workspace_state (id, owner_id, key, value, version)
      VALUES ($1,$2,$3,$4::jsonb, 1)
      ON CONFLICT (owner_id, key) DO UPDATE
        SET value = EXCLUDED.value, version = workspace_state.version + 1, updated_at = now()
      RETURNING key, value, version, updated_at`,
     [newId(PREFIX.WORKSPACE), userId, key, JSON.stringify(value)],
-  );
+  ));
   const row = result.rows[0] as WorkspaceStateRow | undefined;
   return row
     ? { key: row.key, value: row.value, version: row.version, updatedAt: row.updated_at }
@@ -77,27 +82,33 @@ export async function setWorkspaceState(
 }
 
 export async function getWorkspaceState(userId: string, key: string): Promise<Record<string, unknown> | null> {
-  const rows = await queryMany<{ value: Record<string, unknown> }>(
-    'SELECT value FROM workspace_state WHERE owner_id = $1 AND key = $2',
-    [userId, key],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<{ value: Record<string, unknown> }>(
+      'SELECT value FROM workspace_state WHERE owner_id = $1 AND key = $2',
+      [userId, key],
+    ),
+  ).then((r) => r.rows);
   return rows[0]?.value ?? null;
 }
 
 export async function getWorkspaceStateDetailed(userId: string, key: string): Promise<WorkspaceStateEntry | null> {
-  const rows = await queryMany<WorkspaceStateRow>(
-    'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 AND key = $2',
-    [userId, key],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<WorkspaceStateRow>(
+      'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 AND key = $2',
+      [userId, key],
+    ),
+  ).then((r) => r.rows);
   if (!rows[0]) return null;
   return { key: rows[0].key, value: rows[0].value, version: rows[0].version, updatedAt: rows[0].updated_at };
 }
 
 export async function listWorkspaceState(userId: string): Promise<WorkspaceStateEntry[]> {
-  const rows = await queryMany<WorkspaceStateRow>(
-    'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 ORDER BY updated_at DESC',
-    [userId],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<WorkspaceStateRow>(
+      'SELECT key, value, version, updated_at FROM workspace_state WHERE owner_id = $1 ORDER BY updated_at DESC',
+      [userId],
+    ),
+  ).then((r) => r.rows);
   return rows.map((r) => ({ key: r.key, value: r.value, version: r.version, updatedAt: r.updated_at }));
 }
 
@@ -192,18 +203,19 @@ export async function restoreWorkspaceState(
 // ---------------------------------------------------------------- preferences
 
 export async function getPreferences(userId: string): Promise<Record<string, unknown>> {
-  const rows = await queryMany<{ prefs: Record<string, unknown> }>(
-    'SELECT prefs FROM user_preferences WHERE owner_id = $1',
-    [userId],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<{ prefs: Record<string, unknown> }>('SELECT prefs FROM user_preferences WHERE owner_id = $1', [userId]),
+  ).then((r) => r.rows);
   return rows[0]?.prefs ?? {};
 }
 
 export async function getPreferencesDetailed(userId: string): Promise<{ prefs: Record<string, unknown>; version: number; updatedAt: Date } | null> {
-  const rows = await queryMany<{ prefs: Record<string, unknown>; version: number; updated_at: Date }>(
-    'SELECT prefs, version, updated_at FROM user_preferences WHERE owner_id = $1',
-    [userId],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<{ prefs: Record<string, unknown>; version: number; updated_at: Date }>(
+      'SELECT prefs, version, updated_at FROM user_preferences WHERE owner_id = $1',
+      [userId],
+    ),
+  ).then((r) => r.rows);
   if (!rows[0]) return null;
   return { prefs: rows[0].prefs, version: rows[0].version, updatedAt: rows[0].updated_at };
 }
@@ -222,12 +234,12 @@ export async function updatePreferences(
       });
     }
   }
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO user_preferences (id, owner_id, prefs, version) VALUES ($1,$2,$3::jsonb, 1)
      ON CONFLICT (owner_id) DO UPDATE
        SET prefs = EXCLUDED.prefs, version = user_preferences.version + 1, updated_at = now()`,
     [newId(PREFIX.PREFERENCE), userId, JSON.stringify(merged)],
-  );
+  ));
   return merged;
 }
 
@@ -253,19 +265,19 @@ export async function recordUsage(
   const measured = options.measured ?? true;
   const unit = options.unit ?? 'count';
   const day = new Date().toISOString().slice(0, 10);
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO usage_events (id, owner_id, name, bucket, measured, quantity, unit, meta)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
     [newId(PREFIX.USAGE_EVENT), userId, name, day, measured, quantity, unit, JSON.stringify(options.meta ?? {})],
-  );
+  ));
   if (measured) {
-    await pool.query(
+    await withTenant(userId, (q) => q.query(
       `INSERT INTO usage_counters (id, owner_id, name, bucket, value)
        VALUES ($1,$2,$3,$4,$5)
        ON CONFLICT (owner_id, name, bucket) DO UPDATE
          SET value = usage_counters.value + EXCLUDED.value, updated_at = now()`,
       [newId(PREFIX.USAGE_COUNTER), userId, name, day, Math.round(quantity)],
-    );
+    ));
   }
 }
 
@@ -288,6 +300,14 @@ export interface UsageOverview {
     storageGb: number;
   };
   resetDate: string;
+  rolling: {
+    used: number;
+    limit: number;
+    windowHours: number;
+    windowStart: string | null;
+    resetsAt: string | null;
+    remaining: number;
+  };
 }
 
 /**
@@ -297,18 +317,26 @@ export interface UsageOverview {
  */
 export async function getUsageOverview(userId: string): Promise<UsageOverview> {
   const today = new Date().toISOString().slice(0, 10);
-  const [planRows, eventRows, counterRows] = await Promise.all([
-    pool.query('SELECT plan_id FROM users WHERE id = $1', [userId]),
-    queryMany<{ name: string; measured: boolean; unit: string; quantity: string; meta: Record<string, unknown> }>(
-      `SELECT name, measured, unit, quantity, meta FROM usage_events
-       WHERE owner_id = $1 AND bucket = $2`,
-      [userId, today],
-    ),
-    queryMany<{ name: string; value: string | number }>(
-      `SELECT name, value FROM usage_counters WHERE owner_id = $1 AND bucket = $2`,
-      [userId, today],
-    ),
-  ]);
+  // P0-2: the three reads share ONE tenant transaction so the plan, event and
+  // counter snapshots cannot be taken under different tenant contexts.
+  const { planRows, eventRows, counterRows } = await withTenant(
+    userId,
+    async (q) => {
+      const [plan, events, counters] = await Promise.all([
+        q.query('SELECT plan_id FROM users WHERE id = $1', [userId]),
+        q.query<{ name: string; measured: boolean; unit: string; quantity: string; meta: Record<string, unknown> }>(
+          `SELECT name, measured, unit, quantity, meta FROM usage_events
+           WHERE owner_id = $1 AND bucket = $2`,
+          [userId, today],
+        ),
+        q.query<{ name: string; value: string | number }>(
+          `SELECT name, value FROM usage_counters WHERE owner_id = $1 AND bucket = $2`,
+          [userId, today],
+        ),
+      ]);
+      return { planRows: plan, eventRows: events.rows, counterRows: counters.rows };
+    },
+  );
   const plan: PlanId = (planRows.rows[0]?.plan_id as PlanId | undefined) ?? 'free';
 
   const measured = { messagesToday: 0, storageBytes: 0, aiInputTokens: 0, aiOutputTokens: 0, tasksToday: 0 };
@@ -334,6 +362,7 @@ export async function getUsageOverview(userId: string): Promise<UsageOverview> {
 
   const storage = await getStorageUsage(userId);
   measured.storageBytes = storage;
+  const rolling = await getRollingFreeUsage(userId);
 
   return {
     plan,
@@ -345,28 +374,38 @@ export async function getUsageOverview(userId: string): Promise<UsageOverview> {
       storageGb: env.FREE_STORAGE_GB,
     },
     resetDate: `${today}T00:00:00.000Z`,
+    rolling: {
+      used: rolling.used,
+      limit: rolling.limit,
+      windowHours: rolling.windowHours,
+      windowStart: rolling.windowStart,
+      resetsAt: rolling.resetsAt,
+      remaining: rolling.remaining,
+    },
   };
 }
 
 export async function incrementUsage(userId: string, name: string, amount = 1, bucket?: string): Promise<number> {
   const day = bucket ?? new Date().toISOString().slice(0, 10);
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `INSERT INTO usage_counters (id, owner_id, name, bucket, value)
      VALUES ($1,$2,$3,$4,$5)
      ON CONFLICT (owner_id, name, bucket) DO UPDATE
        SET value = usage_counters.value + EXCLUDED.value, updated_at = now()
      RETURNING value`,
     [newId(PREFIX.USAGE_COUNTER), userId, name, day, amount],
-  );
+  ));
   return Number(result.rows[0]?.value ?? 0);
 }
 
 export async function getUsage(userId: string): Promise<Record<string, number>> {
   const today = new Date().toISOString().slice(0, 10);
-  const rows = await queryMany<{ name: string; value: string | number }>(
-    `SELECT name, value FROM usage_counters WHERE owner_id = $1 AND bucket = $2`,
-    [userId, today],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<{ name: string; value: string | number }>(
+      `SELECT name, value FROM usage_counters WHERE owner_id = $1 AND bucket = $2`,
+      [userId, today],
+    ),
+  ).then((r) => r.rows);
   const out: Record<string, number> = {};
   for (const row of rows) out[row.name] = Number(row.value);
   if (!('date' in out)) Object.assign(out, { date: 0 });
@@ -374,12 +413,92 @@ export async function getUsage(userId: string): Promise<Record<string, number>> 
 }
 
 export async function getStorageUsage(userId: string): Promise<number> {
-  const rows = await queryMany<{ value: string | number }>(
-    `SELECT COALESCE(SUM(value), 0) AS value FROM usage_counters
-     WHERE owner_id = $1 AND name = 'storage_bytes_used'`,
-    [userId],
-  );
+  const rows = await withTenant(userId, (q) =>
+    q.query<{ value: string | number }>(
+      `SELECT COALESCE(SUM(value), 0) AS value FROM usage_counters
+       WHERE owner_id = $1 AND name = 'storage_bytes_used'`,
+      [userId],
+    ),
+  ).then((r) => r.rows);
   return Number(rows[0]?.value ?? 0);
+}
+
+// ---------------------------------------------------------------- rolling usage window
+
+export interface RollingUsageInfo {
+  used: number;
+  limit: number;
+  windowHours: number;
+  windowStart: string | null;
+  resetsAt: string | null;
+  remaining: number;
+}
+
+function surfaceRolling(row: { used: number | string | null; window_start: Date | string | null } | null): RollingUsageInfo {
+  const limit = env.FREE_DAILY_MESSAGES;
+  const windowHours = env.FREE_USAGE_WINDOW_HOURS;
+  if (!row) {
+    return { used: 0, limit, windowHours, windowStart: null, resetsAt: null, remaining: limit };
+  }
+  const windowStart = row.window_start == null ? null : new Date(row.window_start).toISOString();
+  const used = Number(row.used ?? 0);
+  let remaining = Math.max(0, limit - used);
+  let resetsAt: string | null = null;
+  if (row.window_start != null) {
+    const start = new Date(row.window_start);
+    const resets = new Date(start.getTime() + windowHours * 3600_000);
+    resetsAt = resets.toISOString();
+    if (resets.getTime() <= Date.now()) remaining = Math.max(0, limit - used);
+  }
+  return { used, limit, windowHours, windowStart, resetsAt, remaining };
+}
+
+export async function getRollingFreeUsage(userId: string): Promise<RollingUsageInfo> {
+  const result = await withTenant(userId, (q) =>
+    q.query<{ used: number; window_start: Date | string | null }>(
+      `SELECT used, window_start FROM free_usage_windows WHERE owner_id = $1`,
+      [userId],
+    ),
+  );
+  return surfaceRolling(result.rows[0] ?? null);
+}
+
+export interface ConsumeFreeMessageResult {
+  accepted: boolean;
+  usage: RollingUsageInfo;
+}
+
+/**
+ * Atomically consumes one message from the free rolling window. A single
+ * UPSERT resets an expired window (used -> 1, window_start -> now()) and only
+ * increments when used < limit, so concurrent requests cannot overshoot.
+ */
+export async function consumeFreeMessage(userId: string): Promise<ConsumeFreeMessageResult> {
+  const windowHours = env.FREE_USAGE_WINDOW_HOURS;
+  const limit = env.FREE_DAILY_MESSAGES;
+  const result = await pool.query<{ used: number; window_start: Date | string | null }>(
+    `INSERT INTO free_usage_windows (owner_id, window_start, used, updated_at)
+     VALUES ($1, now(), 1, now())
+     ON CONFLICT (owner_id) DO UPDATE
+       SET used = CASE WHEN free_usage_windows.window_start IS NULL
+                            OR now() - free_usage_windows.window_start >= make_interval(hours => $2)
+                        THEN 1
+                        ELSE free_usage_windows.used + 1 END,
+           window_start = CASE WHEN free_usage_windows.window_start IS NULL
+                                    OR now() - free_usage_windows.window_start >= make_interval(hours => $2)
+                                THEN now()
+                                ELSE free_usage_windows.window_start END,
+           updated_at = now()
+       WHERE free_usage_windows.window_start IS NULL
+          OR now() - free_usage_windows.window_start >= make_interval(hours => $2)
+          OR free_usage_windows.used < $3
+     RETURNING used, window_start`,
+    [userId, windowHours, limit],
+  );
+  if (!result.rows[0]) {
+    return { accepted: false, usage: await getRollingFreeUsage(userId) };
+  }
+  return { accepted: true, usage: surfaceRolling(result.rows[0]) };
 }
 
 // ---------------------------------------------------------------- free limit checks
@@ -393,7 +512,7 @@ export interface FreeLimitCheck {
 }
 
 export async function checkFreeLimits(userId: string, kind: 'message' | 'project' | 'storage'): Promise<FreeLimitCheck> {
-  const user = await pool.query('SELECT plan_id FROM users WHERE id = $1', [userId]);
+  const user = await withTenant(userId, (q) => q.query('SELECT plan_id FROM users WHERE id = $1', [userId]));
   const plan: PlanId = (user.rows[0]?.plan_id as PlanId | undefined) ?? 'free';
   const usage = await getUsage(userId);
   const limits = {
@@ -403,13 +522,18 @@ export async function checkFreeLimits(userId: string, kind: 'message' | 'project
   };
 
   if (plan === 'pro' || plan === 'team' || plan === 'enterprise') return { ok: true, reason: null, usage, limits, plan };
-  if (kind === 'message' && (usage.daily_messages ?? 0) >= limits.dailyMessages) {
-    return { ok: false, reason: 'daily_message_limit', usage, limits, plan };
+  if (kind === 'message') {
+    const rolling = await getRollingFreeUsage(userId);
+    if (rolling.remaining <= 0) {
+      return { ok: false, reason: 'daily_message_limit', usage, limits, plan };
+    }
   }
   if (kind === 'project') {
-    const count = await pool.query(
-      'SELECT count(*)::int AS n FROM projects WHERE owner_id = $1 AND deleted_at IS NULL',
-      [userId],
+    const count = await withTenant(userId, (q) =>
+      q.query(
+        'SELECT count(*)::int AS n FROM projects WHERE owner_id = $1 AND deleted_at IS NULL',
+        [userId],
+      ),
     );
     if ((count.rows[0]?.n ?? 0) >= limits.maxProjects) {
       return { ok: false, reason: 'project_limit', usage, limits, plan };
@@ -424,9 +548,11 @@ export async function checkFreeLimits(userId: string, kind: 'message' | 'project
   return { ok: true, reason: null, usage, limits, plan };
 }
 
-/** Records the free-limit transition so the Moon moment shows exactly once. */
+/** Records the free-limit transition so the Moon moment shows once per rolling window. */
 export async function shouldShowFreeLimitMoon(userId: string): Promise<boolean> {
-  const key = `moon:${userId}:${new Date().toISOString().slice(0, 10)}`;
+  const rolling = await getRollingFreeUsage(userId);
+  const windowId = rolling.windowStart ?? 'none';
+  const key = `moon:${userId}:${windowId}`;
   const seen = await cache.get(key);
   if (seen) return false;
   await cache.set(key, '1', 24 * 60 * 60 * 1000);
@@ -436,7 +562,9 @@ export async function shouldShowFreeLimitMoon(userId: string): Promise<boolean> 
 // ---------------------------------------------------------------- feature flags (server-side only)
 
 export async function getFeatureFlags(): Promise<Record<string, boolean>> {
-  const rows = await queryMany<{ name: string; value: Record<string, unknown> }>('SELECT name, value FROM feature_flags');
+  const rows = await withSystem<{ name: string; value: Record<string, unknown> }[]>(async (q) =>
+    (await q.query<{ name: string; value: Record<string, unknown> }>('SELECT name, value FROM feature_flags')).rows,
+  );
   const out: Record<string, boolean> = {};
   for (const row of rows) out[row.name] = Boolean(row.value?.value ?? true);
   return out;
@@ -446,29 +574,37 @@ export async function getFeatureFlags(): Promise<Record<string, boolean>> {
 
 export async function contextIndicator(userId: string): Promise<Record<string, unknown>> {
   const lastProject = await getWorkspaceState(userId, WorkspaceStateKey.LAST_ACTIVE_PROJECT);
-  const memoryCount = await pool.query(
-    'SELECT count(*)::int AS n FROM memories WHERE owner_id = $1 AND deleted_at IS NULL',
-    [userId],
+  // P0-2: all four context counters plus the optional project file count run in
+  // a single tenant transaction, so the indicator can never mix two owners'
+  // counts and the tenant context is set for every statement.
+  const { memoryCount, dnaCount, dnaVersion, memorySourceRefs, lastProjectFileCount } = await withTenant(
+    userId,
+    async (q) => {
+      const [memories, dnaRows, dnaMax, sources, files] = await Promise.all([
+        q.query('SELECT count(*)::int AS n FROM memories WHERE owner_id = $1 AND deleted_at IS NULL', [userId]),
+        q.query('SELECT count(*)::int AS n FROM dna WHERE owner_id = $1 AND deleted_at IS NULL', [userId]),
+        q.query('SELECT max(version)::int AS v FROM dna WHERE owner_id = $1 AND deleted_at IS NULL', [userId]),
+        q.query(
+          `SELECT count(DISTINCT provenance)::int AS n FROM memories
+           WHERE owner_id = $1 AND deleted_at IS NULL AND provenance IS NOT NULL`,
+          [userId],
+        ),
+        lastProject?.projectId
+          ? q.query(
+              'SELECT count(*)::int AS n FROM files WHERE owner_id = $1 AND project_id = $2 AND deleted_at IS NULL',
+              [userId, lastProject.projectId],
+            )
+          : Promise.resolve(null),
+      ]);
+      return {
+        memoryCount: memories,
+        dnaCount: dnaRows,
+        dnaVersion: dnaMax,
+        memorySourceRefs: sources,
+        lastProjectFileCount: files,
+      };
+    },
   );
-  const dnaCount = await pool.query(
-    'SELECT count(*)::int AS n FROM dna WHERE owner_id = $1 AND deleted_at IS NULL',
-    [userId],
-  );
-  const dnaVersion = await pool.query(
-    'SELECT max(version)::int AS v FROM dna WHERE owner_id = $1 AND deleted_at IS NULL',
-    [userId],
-  );
-  const memorySourceRefs = await pool.query(
-    `SELECT count(DISTINCT provenance)::int AS n FROM memories
-     WHERE owner_id = $1 AND deleted_at IS NULL AND provenance IS NOT NULL`,
-    [userId],
-  );
-  const lastProjectFileCount = lastProject?.projectId
-    ? await pool.query(
-        'SELECT count(*)::int AS n FROM files WHERE owner_id = $1 AND project_id = $2 AND deleted_at IS NULL',
-        [userId, lastProject.projectId],
-      )
-    : null;
   return {
     memoryLoaded: (memoryCount.rows[0]?.n ?? 0) > 0,
     memoryCount: memoryCount.rows[0]?.n ?? 0,

@@ -12,6 +12,12 @@ import { ToastProvider } from '../components/Toast';
 import { RemotePage } from './RemotePage';
 import type { DeviceInfo, RemoteSessionInfo } from '../lib/types';
 
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: async (text: string) => `data:image/png;base64,${btoa(text)}`,
+  },
+}));
+
 const ONLINE_DEVICE: DeviceInfo = {
   id: 'dev_online',
   name: 'laptop',
@@ -76,6 +82,28 @@ beforeEach(() => {
 });
 
 describe('RemotePage — devices, sessions, screenshot privacy', () => {
+  it('shows a scannable QR code with the pair command while keeping the text steps', async () => {
+    const pairResponse = {
+      deviceId: 'la_test',
+      pairingCode: '123456',
+      expiresInSeconds: 60,
+    };
+    renderPage(async (url, init) => {
+      if (url.includes('/auth/devices') && init?.method === 'POST') {
+        return jsonResponse({ data: pairResponse }, 201);
+      }
+      if (url.includes('/remote/devices')) return jsonResponse({ data: { devices: [] } });
+      if (url.includes('/remote/sessions')) return jsonResponse({ data: { sessions: [] } });
+      return jsonResponse({ data: {} });
+    });
+    expect(screen.getByRole('button', { name: 'Begin pairing' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Begin pairing' }));
+    await waitFor(() => expect(screen.getByText('123456')).toBeInTheDocument());
+    expect(screen.getByText(/npx codeconclave-agent pair la_test 123456/)).toBeInTheDocument();
+    expect(screen.getByTestId('pair-qr')).toBeInTheDocument();
+    expect(screen.getByText('Scan to get the pair command')).toBeInTheDocument();
+  });
+
   it('renders honest presence (ONLINE vs STALE) and capability tags', async () => {
     renderPage(async (url) => {
       if (url.includes('/remote/devices')) return jsonResponse({ data: { devices: [ONLINE_DEVICE, STALE_DEVICE] } });

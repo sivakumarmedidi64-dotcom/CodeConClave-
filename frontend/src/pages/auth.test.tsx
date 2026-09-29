@@ -95,6 +95,7 @@ describe('route protection', () => {
   it('redirects anonymous users away from protected routes to /login', async () => {
     renderAuthApp(['/home'], async (url) => (await anonMe(url)) ?? jsonResponse({ data: {} }));
     await waitFor(() => expect(screen.queryByText('HOME-CONTENT')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
   });
 
@@ -239,7 +240,12 @@ describe('registration UI', () => {
     const { fetchFn } = renderAuthApp(['/register'], async (url, init) => {
       if (url.includes('/auth/me')) return jsonResponse({ data: { user: USER } });
       if (url.includes('/auth/register')) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'alice@example.com', displayName: 'Alice' });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          email: 'alice@example.com',
+          displayName: 'Alice',
+          role: 'Developer',
+          primaryUseCase: 'Build software',
+        });
         return jsonResponse({ data: { user: USER } }, 201);
       }
       if (url.includes('/verify-email/send')) return jsonResponse({ data: { sent: true, alreadyVerified: false } });
@@ -248,9 +254,14 @@ describe('registration UI', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Display name'), 'Alice');
+    await user.selectOptions(screen.getByLabelText('Your role'), 'Developer');
+    await user.selectOptions(screen.getByLabelText('Primary use case'), 'Build software');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/register', expect.objectContaining({ method: 'POST' })),
+    );
     await waitFor(() =>
       expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/verify-email/send', expect.objectContaining({ method: 'POST' })),
     );

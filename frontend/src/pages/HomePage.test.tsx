@@ -57,6 +57,18 @@ beforeEach(() => {
 });
 
 describe('HomePage', () => {
+  it('keeps no free-plan billing strip — CodeConClave has no free tier', async () => {
+    stubFetch(async (url) => {
+      if (url.includes('/api/v1/workspace/return-to-work')) return jsonResponse({ data: rtwResponse(null) });
+      return jsonResponse({ data: {} });
+    });
+    renderHome();
+    await waitFor(() => expect(screen.getByText('New Chat')).toBeInTheDocument());
+    expect(screen.queryByTestId('billing-strip')).toBeNull();
+    expect(screen.queryByText("You're on the free plan")).toBeNull();
+    expect(screen.queryByText('Upgrade to PRO')).toBeNull();
+  });
+
   it('shows quick actions that point at real workspaces', async () => {
     stubFetch(async (url) => {
       if (url.includes('/api/v1/workspace/return-to-work')) return jsonResponse({ data: rtwResponse(null) });

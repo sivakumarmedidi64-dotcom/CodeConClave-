@@ -1,0 +1,107 @@
+{
+  "auditName": "CODECONCLAVE_FINAL_RELEASE_READINESS_AUDIT",
+  "generated": "2026-09-08",
+  "gate": "FINAL PRE-DEPLOYMENT SYSTEM GATE",
+  "finalReleaseReadiness": "CONDITIONAL_PASS",
+  "deploymentAllowed": "NO",
+  "features": { "denominator": 336, "removed": 0, "unmapped": 0, "unknown": 0 },
+  "systems": {
+    "AUTHENTICATION": "PASS",
+    "GOOGLE_SIGNIN": "PASS",
+    "ONBOARDING": "PARTIAL",
+    "AI_CHAT": "PASS",
+    "MODEL_ROUTING": "PASS",
+    "MULTIMODAL": "PASS",
+    "IMAGE_GENERATION": "ENVIRONMENT_BLOCKED",
+    "COWORKERS": "PASS",
+    "AUTONOMOUS_COWORK": "PASS",
+    "EXTERNAL_AGENTS": "PASS",
+    "CONTROL_PLANE": "PASS",
+    "CODE_WORKSPACE": "PASS",
+    "TERMINAL": "PASS",
+    "MEMORY": "PASS",
+    "INTEGRATIONS": "PASS",
+    "FREE_USAGE": "PASS",
+    "PAYMENT_REGRESSION": "PASS",
+    "DATABASE": "PASS",
+    "SECURITY": "PASS",
+    "ACCESSIBILITY": "PASS",
+    "PERFORMANCE": "PASS",
+    "WEB_APP": "PASS",
+    "DESKTOP_APP": "PASS",
+    "WEB_DESKTOP_PARITY": "PASS",
+    "DESKTOP_SECURITY": "PASS"
+  },
+  "imageGeneration": {
+    "status": "ENVIRONMENT_BLOCKED",
+    "reason": "google gemini-3-pro-image 429 RESOURCE_EXHAUSTED (billing quota on key)",
+    "realCallDetail": { "provider": "google", "model": "gemini-3-pro-image", "statusCode": 429, "latencyMs": 763, "imageProduced": false }
+  },
+  "providers": {
+    "openai": "QUOTA_EXHAUSTED",
+    "anthropic": "REQUIRES_AUTH",
+    "xai_grok": "REQUIRES_REAUTH",
+    "gemini_google": "VERIFIED",
+    "qwen": "VERIFIED",
+    "gemma": "DEGRADED",
+    "devin": "UNVERIFIED",
+    "manus": "ENVIRONMENT_BLOCKED",
+    "ox_alpha": "KEY_INVALID",
+    "z_code_glm_5_3": "KEY_INVALID",
+    "big_pickle": "NOT_INTEGRATED"
+  },
+  "environmentBlocked": ["image_generation_google_quota", "manus", "big_pickle", "always_on_autonomy_daemon"],
+  "unverified": ["devin"],
+  "keyInvalid": ["ox_alpha", "z_code_5_3"],
+  "realProviderCalls": [
+    { "provider": "nemotron", "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "category": "GENERAL_CHAT_SSE", "result": "SUCCESS", "status": 200, "latencyMs": 149, "bytes": 413, "persisted": true },
+    { "provider": "google", "model": "gemini-3-pro-image", "category": "IMAGE_GENERATION", "result": "FAIL_QUOTA", "status": 429, "latencyMs": 763 },
+    { "provider": "registry", "model": "n/a", "category": "HEALTH_COMPUTE", "result": "SUCCESS", "status": 200, "models": 29 }
+  ],
+  "tests": {
+    "backend": { "files": 155, "passed": 2834, "skipped": 8 },
+    "frontend": { "files": 73, "passed": 402 },
+    "desktop": { "files": 5, "passed": 58 },
+    "payment": { "files": 10, "passed": 207 },
+    "providerRoutingTransparency": { "suites": 11, "passed": 203 },
+    "securityAuthCsp": { "suites": 9, "passed": 189 },
+    "subsystemModules": { "passed": 325 },
+    "routeE2eFlows": { "passed": 94 }
+  },
+  "typechecks": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS" },
+  "builds": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS", "installer": "PASS" },
+  "installer": { "path": "desktop/release/CodeConClave Setup 0.1.0.exe", "appId": "com.codeconclave.desktop", "version": "0.1.0" },
+  "secretScan": { "files": 849, "findings": 0, "desktopBundleMatches": 0, "desktopBundleScanned": 59 },
+  "database": { "migrationsApplied": 74, "migrationsPending": 0, "migrationsFailed": 0, "rlsPoliciesCurrentUserId": 24, "rlsPoliciesWrongGuc": 0 },
+  "hardeningItems": {
+    "rls": "FIXED_VERIFIED",
+    "taskIdor": "FIXED_VERIFIED",
+    "rollingWindowCopy": "FIXED_VERIFIED",
+    "skipLink": "FIXED_VERIFIED",
+    "redirectUriDefault": "FIXED_VERIFIED",
+    "autonomyStatus500": "FIXED_VERIFIED"
+  },
+  "residuals": {
+    "medium": [
+      "google image-gen billing quota (ENVIRONMENT_BLOCKED, quota-bound, not a code defect)",
+      "autonomy /proof global operation when feature-gated ON (gate currently OFF)",
+      "escalations POST lacks ownership check on referenced goal/schedule (audit-integrity)",
+      "memory createMemory redaction is caller-side"
+    ],
+    "low": [
+      "onboarding collects display-name only (role/use-case intentionally absent per 'no duplicate info')",
+      "Settings/Chat toggle aria semantics partial",
+      "no list virtualization for long chat/memory/file-tree lists",
+      "duplicate offline subscription (ConnectivityIndicator + OfflineBanner)",
+      "Topbar double 30s notification polling"
+    ]
+  },
+  "counts": { "critical": 0, "high": 0, "medium": 4, "low": 5, "environmentBlocked": 5, "unverified": 2 },
+  "manuallyRequiredHumanAcceptance": [
+    "founder sign-off on CODECONCLAVE_MANUAL_ACCEPTANCE_CHECKLIST.md (25 items)",
+    "google OAuth end-to-end browser check",
+    "desktop packaged-app launch check",
+    "visual/UX sign-off"
+  ],
+  "finalLine": "FINAL RELEASE READINESS GATE: CONDITIONAL_PASS"
+}

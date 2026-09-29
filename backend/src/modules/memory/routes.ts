@@ -10,6 +10,7 @@ import {
   memorySearchSchema,
   MemoryType,
   MemorySource,
+  decisionStatusSchema,
 } from '@codeconclave/shared';
 import { jsonResult } from '../auth/schemas.js';
 import {
@@ -53,10 +54,13 @@ import {
   detectConflict,
   getDecision,
   listConflicts,
+  listDecisionSources,
   listDecisions,
   recordDecision,
   replayDecision,
   resolveConflict,
+  setDecisionStatus,
+  softDeleteDecision,
 } from './decisions.js';
 
 export const memoryRoutes = (): Router => {
@@ -268,7 +272,9 @@ export const memoryRoutes = (): Router => {
     '/decisions',
     asyncRoute(async (req, res) => {
       const projectId = req.query.projectId ? String(req.query.projectId) : undefined;
-      res.json(jsonResult({ decisions: await listDecisions(req.ctx.user!.id, projectId) }));
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const decisions = status ? await listDecisions(req.ctx.user!.id, projectId, status as never) : await listDecisions(req.ctx.user!.id, projectId);
+      res.json(jsonResult({ decisions }));
     }),
   );
 
@@ -350,6 +356,29 @@ export const memoryRoutes = (): Router => {
   router.get(
     '/decisions/:id',
     asyncRoute(async (req, res) => res.json(jsonResult({ decision: await getDecision(req.ctx.user!.id, req.params.id!) }))),
+  );
+
+  router.get(
+    '/decisions/:id/sources',
+    asyncRoute(async (req, res) =>
+      res.json(jsonResult({ sources: await listDecisionSources(req.ctx.user!.id, req.params.id!) })),
+    ),
+  );
+
+  router.patch(
+    '/decisions/:id/status',
+    asyncRoute(async (req, res) => {
+      const input = decisionStatusSchema.parse(req.body ?? {});
+      res.json(jsonResult({ decision: await setDecisionStatus(req.ctx.user!.id, req.params.id!, input.status) }));
+    }),
+  );
+
+  router.delete(
+    '/decisions/:id',
+    asyncRoute(async (req, res) => {
+      await softDeleteDecision(req.ctx.user!.id, req.params.id!);
+      res.json(jsonResult({ ok: true }));
+    }),
   );
 
   // --------------------------------------------------- cross-project (Stage 26B)

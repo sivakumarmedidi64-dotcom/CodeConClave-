@@ -7,7 +7,7 @@
  * at rest. Replays are rejected via the event_log UNIQUE(source, event_id).
  */
 import * as crypto from 'node:crypto';
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, withSystem } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -68,10 +68,12 @@ export async function createWebhookSecret(
   const plaintext = randomToken(32);
   const id = newId(PREFIX.WEBHOOK_SECRET);
   const hmacKey = input.source === 'github' || input.source === 'sentry' ? encryptAtRest(plaintext) : null;
-  await pool.query(
-    `INSERT INTO webhook_secrets (id, owner_id, name, source, repo, secret_hash, hmac_key)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [id, userId, input.name.trim(), input.source, input.repo ?? null, sha256Hex(plaintext), hmacKey],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO webhook_secrets (id, owner_id, name, source, repo, secret_hash, hmac_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [id, userId, input.name.trim(), input.source, input.repo ?? null, sha256Hex(plaintext), hmacKey],
+    ),
   );
   const row = await getSecretInternal(id);
   await recordAudit({
@@ -87,24 +89,35 @@ export async function createWebhookSecret(
 }
 
 export async function getSecretInternal(id: string): Promise<WebhookSecretRow> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM webhook_secrets WHERE id = $1', [id]);
+  const rows = await withSystem<Array<Record<string, unknown>>>((q) =>
+    q
+      .query<Record<string, unknown>>('SELECT * FROM webhook_secrets WHERE id = $1', [id])
+      .then((r) => r.rows),
+  );
   if (!rows[0]) throw AppError.notFound('Webhook secret');
   return mapSecret(rows[0]);
 }
 
 export async function listWebhookSecrets(userId: string): Promise<Array<Omit<WebhookSecretRow, 'secret_hash' | 'hmac_key'>>> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM webhook_secrets WHERE owner_id = $1 ORDER BY created_at DESC', [userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>(
+        'SELECT * FROM webhook_secrets WHERE owner_id = $1 ORDER BY created_at DESC',
+        [userId],
+      )
+      .then((r) => r.rows),
   );
   return rows.map(mapSecret).map(publicSecret);
 }
 
 export async function deleteWebhookSecret(userId: string, id: string): Promise<void> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM webhook_secrets WHERE id = $1 AND owner_id = $2', [id, userId],
+  const rows = await withTenant<Array<Record<string, unknown>>>(userId, (q) =>
+    q
+      .query<Record<string, unknown>>('SELECT * FROM webhook_secrets WHERE id = $1 AND owner_id = $2', [id, userId])
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('Webhook secret');
-  await pool.query('DELETE FROM webhook_secrets WHERE id = $1', [id]);
+  await withTenant(userId, (q) => q.query('DELETE FROM webhook_secrets WHERE id = $1 AND owner_id = $2', [id, userId]));
   await recordAudit({
     action: AuditAction.WEBHOOK_SECRET_DELETED,
     actorUserId: userId,
@@ -117,8 +130,8 @@ export async function deleteWebhookSecret(userId: string, id: string): Promise<v
 }
 
 export async function setWebhookSecretEnabled(userId: string, id: string, enabled: boolean): Promise<void> {
-  const res = await pool.query(
-    'UPDATE webhook_secrets SET enabled = $3 WHERE id = $1 AND owner_id = $2', [id, userId, enabled],
+  const res = await withTenant<{ rowCount: number | null }>(userId, (q) =>
+    q.query('UPDATE webhook_secrets SET enabled = $3 WHERE id = $1 AND owner_id = $2', [id, userId, enabled]),
   );
   if (res.rowCount === 0) throw AppError.notFound('Webhook secret');
 }
@@ -163,9 +176,13 @@ async function authenticateGithub(
   if (!signature || !eventId) throw AppError.unauthorized('webhook_auth_required', 'Missing GitHub signature or delivery id');
   const repoName = (body as { repository?: { full_name?: string } }).repository?.full_name;
   if (!repoName) throw AppError.badRequest('missing_repo', 'Payload is missing repository.full_name');
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM webhook_secrets WHERE source = 'github' AND repo = $1 AND enabled = true LIMIT 10`,
-    [repoName],
+  const rows = await withSystem<Array<Record<string, unknown>>>((q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT * FROM webhook_secrets WHERE source = 'github' AND repo = $1 AND enabled = true LIMIT 10`,
+        [repoName],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) return null;
   const secret = mapSecret(rows[0]);
@@ -201,9 +218,13 @@ async function authenticateSentry(
 ): Promise<WebhookDelivery> {
   const signature = headers['x-sentry-signature'];
   if (!signature) throw AppError.unauthorized('webhook_auth_required', 'Missing Sentry signature');
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM webhook_secrets WHERE source = 'sentry' AND enabled = true LIMIT 20`,
-    [],
+  const rows = await withSystem<Array<Record<string, unknown>>>((q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT * FROM webhook_secrets WHERE source = 'sentry' AND enabled = true LIMIT 20`,
+        [],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.notFound('sentry_secret_missing', 'No Sentry webhook secret configured');
   let matched: WebhookSecretRow | null = null;
@@ -248,9 +269,13 @@ async function authenticateBearer(
   if (!auth?.startsWith('Bearer ')) throw AppError.unauthorized('webhook_auth_required', 'Missing bearer token');
   const token = auth.slice(7).trim();
   const tokenHash = sha256Hex(token);
-  const rows = await queryMany<Record<string, unknown>>(
-    `SELECT * FROM webhook_secrets WHERE source = $1 AND secret_hash = $2 AND enabled = true LIMIT 5`,
-    [source, tokenHash],
+  const rows = await withSystem<Array<Record<string, unknown>>>((q) =>
+    q
+      .query<Record<string, unknown>>(
+        `SELECT * FROM webhook_secrets WHERE source = $1 AND secret_hash = $2 AND enabled = true LIMIT 5`,
+        [source, tokenHash],
+      )
+      .then((r) => r.rows),
   );
   if (!rows[0]) throw AppError.unauthorized('invalid_token', 'Invalid webhook token');
   const secret = mapSecret(rows[0]);

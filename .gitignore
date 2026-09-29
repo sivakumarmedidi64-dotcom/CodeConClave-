@@ -9,6 +9,10 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Desktop packaging output (very large)
+desktop/release*/
+desktop/out/
+
 # Environment — NEVER commit real secrets
 .env
 .env.*
@@ -45,3 +49,13 @@ Thumbs.db
 # Local agent runtime state (private to each machine)
 local-agent/.agent/
 agent-state.json
+
+# Backup / duplicate copies
+CodeConClave-Complete/
+CodeConClave-Complete.zip
+
+# Scratch notes / stray text files at root
+*.txt
+GitHub URL*.md
+Kimi*.md
+```.txt

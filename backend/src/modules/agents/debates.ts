@@ -19,7 +19,7 @@
  *  - judge output must be parseable; an unparseable judge verdict is an
  *    honest FAILED debate — never an invented winner.
  */
-import { pool, queryMany, queryOne } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { recordAudit } from '../audit/service.js';
@@ -149,19 +149,25 @@ function parseDebateJson(text: string): { ok: boolean; value?: Record<string, un
 }
 
 export async function listDebates(userId: string): Promise<DebateRow[]> {
-  const rows = await queryMany<Record<string, unknown>>(
-    'SELECT * FROM agent_debates WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 50',
-    [userId],
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      'SELECT * FROM agent_debates WHERE owner_id = $1 ORDER BY created_at DESC LIMIT 50',
+      [userId],
+    )).rows,
   );
   return rows.map(mapDebate);
 }
 
 export async function getDebate(userId: string, debateId: string): Promise<{ debate: DebateRow; proposals: ProposalRow[] }> {
-  const rows = await queryMany<Record<string, unknown>>('SELECT * FROM agent_debates WHERE id = $1 AND owner_id = $2', [debateId, userId]);
+  const rows = await withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>('SELECT * FROM agent_debates WHERE id = $1 AND owner_id = $2', [debateId, userId])).rows,
+  );
   if (!rows[0]) throw AppError.notFound('Debate');
-  const proposals = await queryMany<ProposalRow>(
-    'SELECT * FROM agent_debate_proposals WHERE debate_id = $1 AND owner_id = $2 ORDER BY created_at ASC',
-    [debateId, userId],
+  const proposals = await withTenant<ProposalRow[]>(userId, async (q) =>
+    (await q.query<ProposalRow>(
+      'SELECT * FROM agent_debate_proposals WHERE debate_id = $1 AND owner_id = $2 ORDER BY created_at ASC',
+      [debateId, userId],
+    )).rows,
   );
   return { debate: mapDebate(rows[0]), proposals };
 }
@@ -213,10 +219,12 @@ export async function createAndRunDebate(userId: string, input: CreateDebateInpu
   }
 
   const id = newId(PREFIX.AGENT_DEBATE);
-  await pool.query(
-    `INSERT INTO agent_debates (id, owner_id, prompt, status, proposer_agent_ids, judge_agent_id, max_rounds, budget_usd, deadline_at, require_approval)
-     VALUES ($1,$2,$3,'PENDING',$4::jsonb,$5,$6,$7,$8,$9)`,
-    [id, userId, prompt, JSON.stringify(agentIds), judge.id, maxRounds, budget, deadlineAt.toISOString(), input.requireApproval === true],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO agent_debates (id, owner_id, prompt, status, proposer_agent_ids, judge_agent_id, max_rounds, budget_usd, deadline_at, require_approval)
+       VALUES ($1,$2,$3,'PENDING',$4::jsonb,$5,$6,$7,$8,$9)`,
+      [id, userId, prompt, JSON.stringify(agentIds), judge.id, maxRounds, budget, deadlineAt.toISOString(), input.requireApproval === true],
+    ),
   );
   await recordAudit({
     action: AuditAction.DEBATE_CREATED,
@@ -268,7 +276,7 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
   const current = await getDebate(userId, debateId);
   assertPending(current.debate);
   if (new Date() > current.debate.deadline_at) {
-    await markFailed(debateId, 'deadline_exceeded', 'Debate deadline passed before it could run');
+    await markFailed(userId, debateId, 'deadline_exceeded', 'Debate deadline passed before it could run');
     const after = await getDebate(userId, debateId);
     return { debate: after.debate, proposals: after.proposals };
   }
@@ -276,7 +284,9 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
   const agentIds = debate.proposer_agent_ids;
   const judge = await getAgent(userId, debate.judge_agent_id);
 
-  await pool.query(`UPDATE agent_debates SET status = 'IN_DEBATE', round_count = round_count + 1, updated_at = now() WHERE id = $1`, [debateId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE agent_debates SET status = 'IN_DEBATE', round_count = round_count + 1, updated_at = now() WHERE id = $1`, [debateId]),
+  );
   const round = debate.round_count + 1;
   const proposers: AgentRow[] = [];
   for (const agentId of agentIds) {
@@ -304,21 +314,23 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
       const parsed = parseDebateJson(summary.text);
       const proposalText = parsed.ok ? String(parsed.value?.proposal ?? '') : '';
       const noProposal = String(parsed.value?.reason ?? '');
-      await pool.query(
-        `INSERT INTO agent_debate_proposals (id, debate_id, owner_id, agent_id, agent_name, role, model_id, provider_id, round, proposal, evidence, risks, tradeoffs, status, error, cost_usd, duration_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-        [
-          proposalId, debateId, userId, agent.id, agent.name, agent.role,
-          summary.modelId, summary.providerId, round,
-          proposalText || null,
-          parsed.ok ? (parsed.value?.evidence ? String(parsed.value.evidence).slice(0, 2000) : null) : null,
-          parsed.ok ? (parsed.value?.risks ? String(parsed.value.risks).slice(0, 2000) : null) : null,
-          parsed.ok ? (parsed.value?.tradeoffs ? String(parsed.value.tradeoffs).slice(0, 2000) : null) : null,
-          proposalText ? 'PROPOSED' : 'FAILED',
-          proposalText ? null : `no_proposal: ${noProposal || 'unparseable output'}`,
-          summary.estimatedCostUsd,
-          summary.durationMs,
-        ],
+      await withTenant(userId, (q) =>
+        q.query(
+          `INSERT INTO agent_debate_proposals (id, debate_id, owner_id, agent_id, agent_name, role, model_id, provider_id, round, proposal, evidence, risks, tradeoffs, status, error, cost_usd, duration_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+          [
+            proposalId, debateId, userId, agent.id, agent.name, agent.role,
+            summary.modelId, summary.providerId, round,
+            proposalText || null,
+            parsed.ok ? (parsed.value?.evidence ? String(parsed.value.evidence).slice(0, 2000) : null) : null,
+            parsed.ok ? (parsed.value?.risks ? String(parsed.value.risks).slice(0, 2000) : null) : null,
+            parsed.ok ? (parsed.value?.tradeoffs ? String(parsed.value.tradeoffs).slice(0, 2000) : null) : null,
+            proposalText ? 'PROPOSED' : 'FAILED',
+            proposalText ? null : `no_proposal: ${noProposal || 'unparseable output'}`,
+            summary.estimatedCostUsd,
+            summary.durationMs,
+          ],
+        ),
       );
       spent += summary.estimatedCostUsd;
       proposals.push({
@@ -334,10 +346,12 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
       });
     } catch (err) {
       const message = err instanceof Error ? err.message.slice(0, 300) : String(err);
-      await pool.query(
-        `INSERT INTO agent_debate_proposals (id, debate_id, owner_id, agent_id, agent_name, role, round, status, error, cost_usd, duration_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'FAILED',$8,0,$9)`,
-        [proposalId, debateId, userId, agent.id, agent.name, agent.role, round, message, Date.now() - attemptStart],
+      await withTenant(userId, (q) =>
+        q.query(
+          `INSERT INTO agent_debate_proposals (id, debate_id, owner_id, agent_id, agent_name, role, round, status, error, cost_usd, duration_ms)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'FAILED',$8,0,$9)`,
+          [proposalId, debateId, userId, agent.id, agent.name, agent.role, round, message, Date.now() - attemptStart],
+        ),
       );
       proposals.push({
         id: proposalId, debate_id: debateId, owner_id: userId, agent_id: agent.id, agent_name: agent.name,
@@ -348,7 +362,9 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
     }
   }
 
-  await pool.query(`UPDATE agent_debates SET spent_usd = $1, updated_at = now() WHERE id = $2`, [spent, debateId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE agent_debates SET spent_usd = $1, updated_at = now() WHERE id = $2`, [spent, debateId]),
+  );
 
   // Budget stop: if spending already exceeded the budget, judge still sees
   // everything generated so far; the debate is honest about the stop.
@@ -357,7 +373,7 @@ export async function runDebate(userId: string, debateId: string): Promise<{ deb
     return judgeDebate(userId, debateId, budgetExceeded ? 'debate_budget_hit' : null);
   }
   // No proposal at all: honest failure (with per-agent FAILED rows for audit).
-  await markFailed(debateId, budgetExceeded ? 'debate_budget_hit' : 'all_agents_failed', 'No agent produced a proposal');
+  await markFailed(userId, debateId, budgetExceeded ? 'debate_budget_hit' : 'all_agents_failed', 'No agent produced a proposal');
   const after = await getDebate(userId, debateId);
   return { debate: after.debate, proposals: after.proposals };
 }
@@ -366,7 +382,9 @@ async function judgeDebate(userId: string, debateId: string, budgetNote: string 
   const current = await getDebate(userId, debateId);
   const debate = current.debate;
   const judge = await getAgent(userId, debate.judge_agent_id);
-  await pool.query(`UPDATE agent_debates SET status = 'JUDGING', updated_at = now() WHERE id = $1`, [debateId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE agent_debates SET status = 'JUDGING', updated_at = now() WHERE id = $1`, [debateId]),
+  );
 
   const proposalsText = current.proposals
     .map((p) => `- agent ${p.agent_id} (${p.agent_name}, ${p.role}) [${p.status}${p.error ? `: ${p.error}` : ''}]\n  proposal: ${p.proposal ?? '—'}`)
@@ -381,7 +399,7 @@ async function judgeDebate(userId: string, debateId: string, budgetNote: string 
 
   const parsed = parseDebateJson(judgeResult.text);
   if (!parsed.ok) {
-    await markFailed(debateId, 'judge_output_invalid', 'The judge did not return a parseable verdict');
+    await markFailed(userId, debateId, 'judge_output_invalid', 'The judge did not return a parseable verdict');
     const after = await getDebate(userId, debateId);
     return { debate: after.debate, proposals: after.proposals };
   }
@@ -390,17 +408,19 @@ async function judgeDebate(userId: string, debateId: string, budgetNote: string 
 
   if (winnerId !== null && !current.proposals.some((p) => p.agent_id === winnerId && p.status === 'PROPOSED')) {
     // The judge may not pick a hidden/failed/unknown agent.
-    await markFailed(debateId, 'judge_invalid_winner', 'The judge selected an agent with no valid proposal');
+    await markFailed(userId, debateId, 'judge_invalid_winner', 'The judge selected an agent with no valid proposal');
     const after = await getDebate(userId, debateId);
     return { debate: after.debate, proposals: after.proposals };
   }
 
   const nextStatus = winnerId === null ? 'COMPLETED' : debate.require_approval ? 'WAITING_FOR_APPROVAL' : 'COMPLETED';
-  await pool.query(
-    `UPDATE agent_debates SET status = $1, winner_agent_id = $2, rationale = $3, spent_usd = spent_usd + $4,
-       completed_at = CASE WHEN $1 = 'COMPLETED' THEN now() ELSE completed_at END, updated_at = now()
-     WHERE id = $5`,
-    [nextStatus, winnerId, rationale, judgeResult.estimatedCostUsd, debateId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE agent_debates SET status = $1, winner_agent_id = $2, rationale = $3, spent_usd = spent_usd + $4,
+         completed_at = CASE WHEN $1 = 'COMPLETED' THEN now() ELSE completed_at END, updated_at = now()
+       WHERE id = $5`,
+      [nextStatus, winnerId, rationale, judgeResult.estimatedCostUsd, debateId],
+    ),
   );
   await recordAudit({
     action: AuditAction.DEBATE_COMPLETED,
@@ -412,22 +432,26 @@ async function judgeDebate(userId: string, debateId: string, budgetNote: string 
     detail: { winner: winnerId, rationale, budgetNote, requireApproval: debate.require_approval },
   });
   if (budgetNote) {
-    await pool.query(`UPDATE agent_debates SET status = 'BLOCKED', error = $1, updated_at = now() WHERE id = $2 AND status = 'COMPLETED'`, [budgetNote, debateId]);
+    await withTenant(userId, (q) =>
+      q.query(`UPDATE agent_debates SET status = 'BLOCKED', error = $1, updated_at = now() WHERE id = $2 AND status = 'COMPLETED'`, [budgetNote, debateId]),
+    );
   }
   const after = await getDebate(userId, debateId);
   return { debate: after.debate, proposals: after.proposals };
 }
 
-async function markFailed(debateId: string, errorCode: string, message: string): Promise<void> {
-  await pool.query(
-    `UPDATE agent_debates SET status = 'FAILED', error = $1, completed_at = now(), updated_at = now() WHERE id = $2 AND status NOT IN ('COMPLETED','APPROVED','REJECTED','CANCELLED')`,
-    [`${errorCode}: ${message}`.slice(0, 500), debateId],
+async function markFailed(userId: string, debateId: string, errorCode: string, message: string): Promise<void> {
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE agent_debates SET status = 'FAILED', error = $1, completed_at = now(), updated_at = now() WHERE id = $2 AND status NOT IN ('COMPLETED','APPROVED','REJECTED','CANCELLED')`,
+      [`${errorCode}: ${message}`.slice(0, 500), debateId],
+    ),
   );
   await recordAudit({
     action: AuditAction.DEBATE_FAILED,
-    actorUserId: null,
+    actorUserId: userId,
     scope: 'USER',
-    tenantId: null,
+    tenantId: userId,
     resourceType: 'agent_debate',
     resourceId: debateId,
     detail: { errorCode, message },
@@ -439,7 +463,9 @@ export async function cancelDebate(userId: string, debateId: string): Promise<De
   if (!['PENDING', 'IN_DEBATE', 'JUDGING'].includes(debate.status)) {
     throw AppError.conflict('debate_not_cancellable', `Debate is ${debate.status} and cannot be cancelled`);
   }
-  await pool.query(`UPDATE agent_debates SET status = 'CANCELLED', completed_at = now(), updated_at = now() WHERE id = $1`, [debateId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE agent_debates SET status = 'CANCELLED', completed_at = now(), updated_at = now() WHERE id = $1`, [debateId]),
+  );
   await recordAudit({
     action: AuditAction.DEBATE_CANCELLED,
     actorUserId: userId,
@@ -461,9 +487,11 @@ export async function decideDebate(userId: string, debateId: string, decision: '
     throw AppError.conflict('debate_decision_invalid', `Debate is ${debate.status}; only WAITING_FOR_APPROVAL debates can be decided`);
   }
   if (decision === 'REJECTED') {
-    await pool.query(
-      `UPDATE agent_debates SET status = 'REJECTED', user_decision = 'REJECTED', completed_at = now(), updated_at = now() WHERE id = $1`,
-      [debateId],
+    await withTenant(userId, (q) =>
+      q.query(
+        `UPDATE agent_debates SET status = 'REJECTED', user_decision = 'REJECTED', completed_at = now(), updated_at = now() WHERE id = $1`,
+        [debateId],
+      ),
     );
     await recordAudit({ action: AuditAction.DEBATE_REJECTED, actorUserId: userId, scope: 'USER', tenantId: userId, resourceType: 'agent_debate', resourceId: debateId, detail: {} });
     return (await getDebate(userId, debateId)).debate;
@@ -478,7 +506,9 @@ export async function decideDebate(userId: string, debateId: string, decision: '
     deadlineMinutes: 120,
     requireApproval: true,
   });
-  await pool.query(`UPDATE agent_debates SET status = 'APPROVED', user_decision = 'APPROVED', run_id = $1, completed_at = now(), updated_at = now() WHERE id = $2`, [run.id, debateId]);
+  await withTenant(userId, (q) =>
+    q.query(`UPDATE agent_debates SET status = 'APPROVED', user_decision = 'APPROVED', run_id = $1, completed_at = now(), updated_at = now() WHERE id = $2`, [run.id, debateId]),
+  );
   await recordAudit({ action: AuditAction.DEBATE_APPROVED, actorUserId: userId, scope: 'USER', tenantId: userId, resourceType: 'agent_debate', resourceId: debateId, detail: { runId: run.id, agentId: winner.id } });
   return (await getDebate(userId, debateId)).debate;
 }

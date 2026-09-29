@@ -66,6 +66,17 @@ describe('MemoryPage', () => {
     expect(screen.getByText('verified')).toBeInTheDocument();
   });
 
+  it('announces details disclosure state and labels the search field', async () => {
+    stubFetch(memoryHandler());
+    renderMemory();
+    await waitFor(() => expect(screen.getByText('The build takes 90 seconds')).toBeInTheDocument());
+    expect(screen.getByLabelText('Search memories')).toBeInTheDocument();
+    const details = screen.getByRole('button', { name: 'Details' });
+    expect(details).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(details);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Hide details' })).toHaveAttribute('aria-expanded', 'true'));
+  });
+
   it('posts the verification state when a memory is verified', async () => {
     const fetchFn = stubFetch(memoryHandler());
     renderMemory();

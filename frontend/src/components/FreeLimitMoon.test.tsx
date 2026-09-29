@@ -30,7 +30,7 @@ describe('FreeLimitMoon', () => {
     stubFetch(async () => jsonResponse({ data: {} }));
     renderMoon();
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByText(/today.s free usage limit/)).toBeInTheDocument();
+    expect(screen.getByText(/usage limit/)).toBeInTheDocument();
     expect(screen.getByTestId('free-limit-moon').querySelector('.cc-moon--free-limit')).not.toBeNull();
     expect(screen.getByText(/work is safe/)).toBeInTheDocument();
   });

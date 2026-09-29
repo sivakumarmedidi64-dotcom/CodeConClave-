@@ -12,8 +12,29 @@ import { logger } from './logger.js';
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => Number(v));
 
+// Neon exposes both a pooled (ep-…-pooler…) and a direct/unpooled host. The
+// pooled endpoint does not accept arbitrary startup parameters (e.g.
+// `statement_timeout` via `options`) and rejects them with `08P01`. This app
+// is a persistent Node process running its own in-process pg.Pool (max 10), so
+// it does not need the Neon transaction/session pooler. Derive the direct
+// (unpooled) host from the env-supplied DATABASE_URL when it points at the
+// pooled host, keeping DATABASE_URL as the single secret-free source of
+// connection truth (no hostname/password hardcoded).
+function resolveConnectionString(url: string): string {
+  try {
+    const u = new URL(url);
+    if (/-pooler\./.test(u.hostname)) {
+      u.hostname = u.hostname.replace('-pooler.', '.');
+      return u.toString();
+    }
+  } catch {
+    /* non-URL connection string: leave untouched */
+  }
+  return url;
+}
+
 export const pool = new pg.Pool({
-  connectionString: env.DATABASE_URL,
+  connectionString: resolveConnectionString(env.DATABASE_URL),
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
@@ -50,6 +71,10 @@ export async function withTenant<T>(
   source: pg.Pool = pool,
 ): Promise<T> {
   const client = await source.connect();
+  // Defensive: never let a dropped socket turn into an unhandled 'error' event
+  // that crashes the process (observed with Neon direct-host connection drops).
+  // The failing query still rejects and surfaces as a clean 5xx to the caller.
+  client.on('error', () => undefined);
   try {
     await client.query('BEGIN');
     if (userId) {

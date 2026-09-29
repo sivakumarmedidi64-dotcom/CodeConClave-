@@ -1,0 +1,61 @@
+{
+  "audit": "CODECONCLAVE_PROMPT4",
+  "title": "Prompt 4 Audit — External AI Agents + Multimodal/Image Capability + Provider Experience",
+  "verdict": "CONDITIONAL_PASS",
+  "gateStatement": "External-agent canonical abstraction, multimodal image input, the image-generation foundation and user-facing workflow, and the honest provider-experience contract are implemented, migration-applied (0073) and regression-proven across Web + Desktop. Real image-generation endpoint call and real external-agent runs were NOT executed in this gate; that is stated honestly, no fabricated availability claim is made.",
+  "denominator": 336,
+  "featuresRemoved": 0,
+  "featuresUnmapped": 0,
+  "scopeAssertions": [
+    "No new AI engine; no parallel router; external agents and image generation ride the existing adapter/gateway abstraction.",
+    "External agents are EXTERNAL_AGENT registry rows (devin-session, manus-1.6) with session/task lifecycle wrappers; explicit intent only; pinned-but-unavailable agent is an error, never a silent normal-model substitution.",
+    "VISION (supportsVision), IMAGE_GENERATION/IMAGE_EDITING (registry markers) and EXTERNAL_AGENT (category) are distinct, non-overlapping classes.",
+    "Image generation is an explicit composer opt-in (imageRequest) flowing through generateImageCompletion; the image is persisted as a project file attached to the assistant message; clients hold only {fileId,mimeType}.",
+    "Six-state provider key machine; KEY_INVALID is never auto-upgraded to ENVIRONMENT_BLOCKED; big_pickle is permanently ENVIRONMENT_BLOCKED.",
+    "Keys live only in the gitignored root .env; no key material in docs, audit artifacts, or desktop shell.",
+    "Web and Desktop are the same backend + same renderer; desktop needs zero additional code for new surfaces.",
+    "No feature removal; no payment change; payment regression green."
+  ],
+  "codeChanges": [
+    "shared/src/contracts.ts: imageRequest",
+    "shared/src/domain/models.ts: Message imageFileId/imageMime + CapabilityClass",
+    "database/migrations/0073_external_agents_images.sql: messages image columns, model_usage_logs capability/external_run_id, conversations.mode CHECK widened (applied)",
+    "backend/src/modules/ai/capabilities.ts: capabilityClassOf",
+    "backend/src/modules/ai/providers.ts: ExternalRunInfo, ChatChunk.image, devin/manus externalRun chunks",
+    "backend/src/modules/ai/gateway.ts: RouteOptions image/capability, eligibility filters, logUsage columns, CompletionSummary.externalRun, generateImageCompletion",
+    "backend/src/modules/ai/providerKeySpec.ts: providerKeyState machine",
+    "backend/src/modules/ai/routes.ts: /models capabilityClass, /providers keyState",
+    "backend/src/modules/files/service.ts: persistGeneratedImage",
+    "backend/src/modules/conversations/service.ts + chat.ts: image columns, vision parts, image path, external-agent path + audits, mode IMAGE",
+    "backend/src/modules/conversations/routes.ts: SSE image + external_agent events",
+    "frontend/src/lib/sse.ts + lib/types.ts, pages/ChatPage.tsx, components/ModelPicker.tsx: image mode/render/download, agent status, capability chips",
+    "backend/src/foundation/provider-experience-54.test.ts (new, 9 tests)"
+  ],
+  "verification": {
+    "capabilityClassOf": "PKG-54.1 — truthful class derivation, no provider-id heuristics",
+    "providerKeyState": "PKG-54.2 — big_pickle ENVIRONMENT_BLOCKED, unknown MISSING_KEY, canonical 6-state, KEY_INVALID distinct from ENVIRONMENT_BLOCKED",
+    "backendTests": { "files": 153, "passed": 2823, "skipped": 8 },
+    "paymentRegression": { "files": 7, "passed": 166 },
+    "frontendTests": { "files": 73, "passed": 401 },
+    "desktopTests": { "files": 5, "passed": 58 },
+    "typecheck": ["shared", "backend", "frontend"],
+    "secretScan": { "files": 847, "findings": 0 },
+    "migrations": ["0071 applied", "0072 applied", "0073 applied"]
+  },
+  "realCallStatus": [
+    { "provider": "google", "capability": "text + real multimodal input + models.list", "realCallExecutedInGate": true, "state": "VERIFIED" },
+    { "provider": "qwen", "capability": "text", "realCallExecutedInGate": true, "state": "VERIFIED" },
+    { "provider": "gemma", "capability": "text via GEMINI key", "realCallExecutedInGate": true, "state": "VERIFIED" },
+    { "provider": "google", "capability": "image GENERATION op", "realCallExecutedInGate": false, "state": "implemented+tests; real call pending" },
+    { "provider": "devin", "capability": "external-agent run", "realCallExecutedInGate": false, "state": "adapter tested; real run UNVERIFIED" },
+    { "provider": "manus", "capability": "external-agent run", "realCallExecutedInGate": false, "state": "ENVIRONMENT_BLOCKED" },
+    { "provider": "ox_alpha", "capability": "chat", "realCallExecutedInGate": false, "state": "KEY_INVALID" },
+    { "provider": "z_code_5_3", "capability": "chat", "realCallExecutedInGate": false, "state": "KEY_INVALID" }
+  ],
+  "gateExitConditions": [
+    "Optionally run a real image-generation call to move image capability to VERIFIED.",
+    "Provide valid Devin (and/or Manus) keys only when real external-agent runs are intended.",
+    "Re-run secret:scan and db:migrate:status after any key change.",
+    "PROMPT 5 MUST NOT BE STARTED from this session (STOP)."
+  ]
+}

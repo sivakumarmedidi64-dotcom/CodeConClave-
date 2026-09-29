@@ -22,6 +22,7 @@ import { sweepDigests } from './modules/digests/service.js';
 import { initializeSentry } from './observability/sentry.js';
 import { env } from './config/env.js';
 import { logger } from './shared/logger.js';
+import { cache } from './shared/cache.js';
 
 async function main(): Promise<void> {
   initializeSentry();
@@ -53,12 +54,25 @@ async function main(): Promise<void> {
     logger.warn('recipe seeding failed', { error: (err as Error).message });
   }
 
+  // Provision the payment-link pool catalogue from deployment config
+  // (PAYMENT_POOL_LINKS). Idempotent; preserves live RESERVED links; INR-only.
+  // Fail-loud: explicit config that cannot yield a usable pool means every
+  // checkout would 503 (ALL_LINKS_BUSY_TRY_AGAIN) — we refuse to boot that way.
+  try {
+    const { seedPaymentPool, assertPoolUsable } = await import('./modules/payments/pool/seeder.js');
+    await assertPoolUsable(await seedPaymentPool());
+  } catch (err) {
+    logger.error('payment-link pool provisioning failed — refusing to start', { error: (err as Error).message });
+    process.exit(1);
+  }
+
   const app = createApp();
   const server = createServer(app);
   attachAgentHub(server);
 
   const stopWorker = startWorker();
   const stopWatchdog = startWatchdog();
+  const stopAutoApprovalSweep = await import('./modules/payments/autoapproval/service.js').then((m) => m.startAutoApprovalSweep(1000));
 
   // Session-expiry retention sweep (every 6 hours; never blocks shutdown).
   const sessionSweep = setInterval(() => {
@@ -81,6 +95,11 @@ async function main(): Promise<void> {
   }, 5 * 60 * 1000);
   digestSweep.unref();
 
+  // IMAP payment auto-unlock sweep (no-API / no-webhook rail). Idle unless
+  // PAYMENT_IMAP_UNLOCK_ENABLED=true with mailbox credentials configured.
+  const { startImapUnlockLoop, stopImapUnlockLoop } = await import('./modules/payments/imap-unlock/service.js');
+  startImapUnlockLoop();
+
   server.listen(env.PORT, () => {
     logger.info('CodeConClave server listening', {
       port: env.PORT,
@@ -91,21 +110,25 @@ async function main(): Promise<void> {
 
 const shutdown = (signal: string) => {
     logger.info('shutting down', { signal });
-    // Abort in-flight SSE chat streams (they send a terminal frame or drop
-    // cleanly), then close WebSocket resources, then drain in-flight worker
-    // executions (bounded inside the worker) before the pool is ended �?" ending
-    // the pool mid-drain would fail live queries.
+    stopImapUnlockLoop();
+    stopAutoApprovalSweep();
     abortActiveStreams();
     agentWs().close();
     browserRelay().close();
     stopWatchdog();
-    server.close(() => undefined);
+    server.close(() => {
+      logger.info('HTTP server closed');
+    });
     void stopWorker().then(async () => {
+      await cache.health(); // close Redis connection
       await pool.end();
+      logger.info('Database pool closed');
       process.exit(0);
     });
-    // Bounded backstop for orchestrators that expect a prompt exit.
-    setTimeout(() => process.exit(0), 15_000).unref();
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 5000);
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));

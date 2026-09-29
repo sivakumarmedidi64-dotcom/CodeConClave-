@@ -1,0 +1,331 @@
+F	database\migrate.ts	A=0 B=0 C=2 D=0 R=0
+F	foundation\memory-25.test.ts	A=0 B=0 C=0 D=1 R=0
+F	foundation\p0-2-cross-tenant-real.test.ts	A=0 B=0 C=0 D=17 R=0
+F	foundation\p0-2-cross-tenant.test.ts	A=0 B=0 C=0 D=12 R=0
+F	foundation\p0-2-files-real.test.ts	A=0 B=0 C=0 D=9 R=0
+F	foundation\p0-2-reviews-real.test.ts	A=0 B=0 C=0 D=18 R=0
+F	foundation\p0-2-teams-real.test.ts	A=0 B=0 C=0 D=19 R=0
+F	foundation\p0-2-tenant-baseline.test.ts	A=0 B=0 C=0 D=1 R=0
+F	foundation\payments-autopilot-route.test.ts	A=0 B=0 C=0 D=2 R=0
+F	foundation\payments-claims-route.test.ts	A=0 B=0 C=0 D=2 R=0
+F	foundation\payments-evidence-route.test.ts	A=0 B=0 C=0 D=5 R=0
+F	middleware\api-key-auth.test.ts	A=0 B=0 C=0 D=1 R=0
+F	middleware\api-key-auth.ts	A=0 B=1 C=0 D=0 R=0
+F	middleware\auth.ts	A=0 B=1 C=0 D=0 R=0
+F	modules\admin\service.ts	A=0 B=9 C=0 D=0 R=0
+F	modules\agent\browser.ts	A=1 B=0 C=0 D=0 R=0
+F	modules\agent\routes.ts	A=1 B=0 C=0 D=0 R=0
+F	modules\agent\ws.ts	A=3 B=0 C=0 D=0 R=0
+F	modules\ai\gateway.ts	A=0 B=0 C=3 D=0 R=0
+F	modules\ai\status.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\audit\service.ts	A=1 B=0 C=0 D=0 R=0
+F	modules\auth\google.ts	A=0 B=2 C=0 D=0 R=0
+F	modules\auth\identity.ts	A=0 B=26 C=0 D=0 R=0
+F	modules\auth\otp.ts	A=0 B=8 C=0 D=0 R=0
+F	modules\auth\rbac.ts	A=0 B=1 C=0 D=0 R=0
+F	modules\auth\service.ts	A=0 B=36 C=0 D=0 R=0
+F	modules\auth\verification.ts	A=0 B=5 C=0 D=0 R=0
+F	modules\autonomy\service.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\autonomy\truth.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\deploymentDiscovery.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\deploymentPlan.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\deploymentReadiness.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\deploymentReport.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\deploymentStrategy.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\humanApproval.ts	A=0 B=0 C=6 D=0 R=0
+F	modules\deployment-wizard\postDeployVerify.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\preDeployCheck.ts	A=0 B=0 C=4 D=0 R=0
+F	modules\deployment-wizard\rollbackPlanner.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\deployment-wizard\secretHandling.ts	A=0 B=0 C=2 D=0 R=0
+F	modules\developer-productivity\flowDiagram.ts	A=0 B=0 C=3 D=0 R=0
+F	modules\developer-productivity\workspaceContext.ts	A=1 B=0 C=0 D=0 R=0
+F	modules\engineering-intelligence\contextFlowAnalyzer.ts	A=0 B=0 C=1 D=0 R=0
+F	modules\engineering-intelligence\debtSlayer.ts	A=0 B=0 C=3 D=0 R=0
+F	modules\idempotency\service.ts	A=0 B=0 C=3 D=0 R=0
+F	modules\integration-hub\integration-hub.security.test.ts	A=0 B=0 C=0 D=1 R=0
+F	modules\memorycoding\lifecycle.ts	A=0 B=0 C=4 D=0 R=0
+F	modules\optimization-intelligence\optimization-intelligence.test.ts	A=0 B=0 C=0 D=1 R=0
+F	modules\payments\autopilot\autopilot.test.ts	A=0 B=0 C=0 D=2 R=0
+F	modules\payments\imap-unlock\service.ts	A=1 B=0 C=0 D=0 R=0
+F	modules\payments\pool\seeder.test.ts	A=0 B=0 C=0 D=2 R=0
+F	modules\runtime\executions.ts	A=0 B=0 C=7 D=0 R=0
+F	modules\runtime\smoke.ts	A=0 B=0 C=2 D=0 R=0
+F	modules\security-intelligence\securityPosture.ts	A=0 B=0 C=10 D=0 R=0
+F	modules\security-operations-intelligence\compliance.ts	A=0 B=0 C=2 D=0 R=0
+F	modules\security-operations-intelligence\security-operations-intelligence.test.ts	A=0 B=0 C=0 D=1 R=0
+F	modules\workspace\service.ts	A=0 B=0 C=1 D=0 R=0
+F	scripts\acceptance-preflight.ts	A=0 B=0 C=0 D=1 R=0
+F	scripts\prove-payment.test.ts	A=0 B=0 C=0 D=2 R=0
+F	scripts\provision-founder.ts	A=0 B=0 C=0 D=5 R=0
+F	shared\db.ts	A=0 B=0 C=3 D=0 R=0
+F	shared\queue.ts	A=0 B=5 C=0 D=0 R=0
+S	database\migrate.ts	212	C	string	SELECT name FROM schema_migrations
+S	database\migrate.ts	233	C	logged	SELECT name, sha256 FROM schema_migrations
+S	foundation\memory-25.test.ts	82	D	fetchMock	
+S	foundation\p0-2-cross-tenant-real.test.ts	75	D	TENANT_A	INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-cross-tenant-real.test.ts	82	D	id	INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 real project') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-cross-tenant-real.test.ts	88	D	PROJECT_A	INSERT INTO workspaces (id, user_id, project_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-cross-tenant-real.test.ts	94	D	TENANT_A	INSERT INTO entitlements (id, user_id, plan_id, state) VALUES ($1, $2, $3, 'PRO_VERIFIED') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-cross-tenant-real.test.ts	104	D	Pool	DELETE FROM workspace_shares WHERE owner_id = ANY($1)
+S	foundation\p0-2-cross-tenant-real.test.ts	105	D	TENANT_A	DELETE FROM workspaces WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	106	D	TENANT_A	DELETE FROM entitlements WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	107	D	TENANT_A	DELETE FROM projects WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	108	D	TENANT_A	DELETE FROM workspace_state WHERE owner_id = ANY($1)
+S	foundation\p0-2-cross-tenant-real.test.ts	109	D	TENANT_A	DELETE FROM audit_logs WHERE actor_user_id = ANY($1)
+S	foundation\p0-2-cross-tenant-real.test.ts	110	D	createdApiKeyIds	DELETE FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	111	D	createdApiKeyIds	DELETE FROM users WHERE id = ANY($1)
+S	foundation\p0-2-cross-tenant-real.test.ts	124	D	createdShares	DELETE FROM workspace_shares WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	130	D	pool	SELECT id FROM users WHERE id = ANY($1)
+S	foundation\p0-2-cross-tenant-real.test.ts	159	D	id	SELECT revoked_at FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	196	D	id	SELECT revoked_at FROM workspace_shares WHERE id = $1
+S	foundation\p0-2-cross-tenant-real.test.ts	201	D	only	SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = ANY($1)
+S	foundation\p0-2-cross-tenant.test.ts	69	D	TENANT_A	INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-cross-tenant.test.ts	76	D	id	INSERT INTO projects (id, user_id, name) VALUES ($1, $2, 'p02 project') ON CONFLICT (id) DO NOTHING RETURNING id
+S	foundation\p0-2-cross-tenant.test.ts	84	D	0	INSERT INTO workspaces (id, user_id, project_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING id
+S	foundation\p0-2-cross-tenant.test.ts	95	D	Pool	DELETE FROM workspaces WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	96	D	Pool	DELETE FROM projects WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	98	D	createdApiKeyIds	DELETE FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	100	D	createdApiKeyIds	DELETE FROM users WHERE id = ANY($1)
+S	foundation\p0-2-cross-tenant.test.ts	149	D	id	SELECT revoked_at FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	163	D	only	SELECT owner_id FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	172	D	id	SELECT owner_id FROM user_api_keys WHERE id = $1
+S	foundation\p0-2-cross-tenant.test.ts	190	D	pool	SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = ANY($1)
+S	foundation\p0-2-cross-tenant.test.ts	205	D	false	SELECT count(*)::int AS n FROM workspaces WHERE user_id = $1
+S	foundation\p0-2-files-real.test.ts	72	D	TENANT_A	INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-files-real.test.ts	79	D	id	INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 files project') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-files-real.test.ts	86	D	64	INSERT INTO files (id, project_id, owner_id, path, size_bytes, sha256, storage_key, is_directory) VALUES ($1, $2, $3, 'src/main.ts', 100, $4, NULL, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-files-real.test.ts	96	D	Pool	DELETE FROM files WHERE id = $1
+S	foundation\p0-2-files-real.test.ts	97	D	Pool	DELETE FROM projects WHERE id = $1
+S	foundation\p0-2-files-real.test.ts	98	D	Pool	DELETE FROM audit_logs WHERE actor_user_id = ANY($1)
+S	foundation\p0-2-files-real.test.ts	99	D	TENANT_A	DELETE FROM users WHERE id = ANY($1)
+S	foundation\p0-2-files-real.test.ts	115	D	rows	SELECT id FROM users WHERE id = ANY($1)
+S	foundation\p0-2-files-real.test.ts	117	D	TENANT_A	SELECT owner_id, project_id FROM files WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	81	D	TENANT_A	INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	88	D	id	INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 reviews project') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	94	D	PROJECT_A	INSERT INTO tasks (id, project_id, owner_id, title, status, execution_mode) VALUES ($1, $2, $3, 'p02 reviews task', 'COMPLETED', 'CLOUD') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	101	D	64	INSERT INTO cowork_reviews (id, task_id, project_id, owner_id, title, status, test_status, commit_status, diff_text, files_changed, additions, deletions) VALUES ($1, $2, $3, $4, 'real review', 'READY_FOR_REVIEW', 'NOT_RUN', 'NOT_COMMITTED', 'diff --git a/x.ts b/x.ts', 1, 1, 1) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	110	D	PROJECT_A	INSERT INTO cowork_review_files (id, review_id, path, base_sha256, base_content, proposed_sha256, proposed_content, status, file_order) VALUES ($1, $2, 'x.ts', $3, 'old', $4, 'old\nnew', 'PENDING', 0) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	117	D	sha	INSERT INTO cowork_review_hunks (id, review_id, file_id, hunk_order, status, old_start, old_lines, new_start, new_lines, original_sha, proposed_sha, additions, deletions, context_lines, ins_lines, diff_text) VALUES ($1, $2, $3, 0, 'PENDING', 1, 1, 1, 2, $4, $5, 1, 1, '[]', '["new"]', '@@ -1 +1,2 @@') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-reviews-real.test.ts	129	D	Pool	DELETE FROM cowork_reviews WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	130	D	Pool	DELETE FROM tasks WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	131	D	Pool	DELETE FROM projects WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	132	D	Pool	DELETE FROM audit_logs WHERE actor_user_id = ANY($1)
+S	foundation\p0-2-reviews-real.test.ts	133	D	TENANT_A	DELETE FROM users WHERE id = ANY($1)
+S	foundation\p0-2-reviews-real.test.ts	149	D	rows	SELECT id FROM users WHERE id = ANY($1)
+S	foundation\p0-2-reviews-real.test.ts	151	D	TENANT_A	SELECT owner_id, status FROM cowork_reviews WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	181	D	HUNK_A	SELECT status FROM cowork_review_hunks WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	187	D	status	SELECT status FROM cowork_review_hunks WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	189	D	status	SELECT status FROM cowork_reviews WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	197	D	status	SELECT status FROM cowork_reviews WHERE id = $1
+S	foundation\p0-2-reviews-real.test.ts	205	D	status	SELECT status FROM cowork_reviews WHERE id = $1
+S	foundation\p0-2-teams-real.test.ts	80	D	TENANT_A	INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-teams-real.test.ts	87	D	id	INSERT INTO teams (id, owner_id, name) VALUES ($1, $2, 'p02 teams') ON CONFLICT (id) DO NOTHING
+S	foundation\p0-2-teams-real.test.ts	93	D	TEAM_A	INSERT INTO team_members (id, team_id, user_id, role, status, invited_by, joined_at) VALUES ($1, $2, $3, 'owner', 'ACTIVE', $3, now()) ON CONFLICT (team_id, user_id) DO NOTHING
+S	foundation\p0-2-teams-real.test.ts	103	D	Pool	DELETE FROM team_activity WHERE team_id = $1
+S	foundation\p0-2-teams-real.test.ts	104	D	Pool	DELETE FROM team_invitations WHERE team_id = $1
+S	foundation\p0-2-teams-real.test.ts	105	D	Pool	DELETE FROM team_members WHERE team_id = $1
+S	foundation\p0-2-teams-real.test.ts	106	D	Pool	DELETE FROM teams WHERE id = $1
+S	foundation\p0-2-teams-real.test.ts	107	D	Pool	DELETE FROM notifications WHERE recipient_id = ANY($1)
+S	foundation\p0-2-teams-real.test.ts	108	D	TENANT_A	DELETE FROM audit_logs WHERE actor_user_id = ANY($1)
+S	foundation\p0-2-teams-real.test.ts	109	D	TENANT_A	DELETE FROM users WHERE id = ANY($1)
+S	foundation\p0-2-teams-real.test.ts	125	D	rows	SELECT id FROM users WHERE id = ANY($1)
+S	foundation\p0-2-teams-real.test.ts	127	D	TENANT_A	SELECT role, status FROM team_members WHERE team_id = $1
+S	foundation\p0-2-teams-real.test.ts	158	D	PENDING	SELECT state, invitee_user_id, role FROM team_invitations WHERE id = $1
+S	foundation\p0-2-teams-real.test.ts	167	D	TENANT_B	SELECT expires_at > now() AS future FROM team_invitations WHERE id = $1
+S	foundation\p0-2-teams-real.test.ts	179	D	TEAM_A	SELECT id FROM team_invitations WHERE team_id = $1 AND state = $2 ORDER BY created_at LIMIT 1
+S	foundation\p0-2-teams-real.test.ts	188	D	ACCEPTED	SELECT role, status FROM team_members WHERE team_id = $1 AND user_id = $2
+S	foundation\p0-2-teams-real.test.ts	193	D	TENANT_B	SELECT state FROM team_invitations WHERE id = $1
+S	foundation\p0-2-teams-real.test.ts	202	D	TEAM_A	SELECT id FROM team_members WHERE team_id = $1 AND user_id = $2
+S	foundation\p0-2-teams-real.test.ts	205	D	TENANT_B	SELECT status FROM team_members WHERE id = $1
+S	foundation\p0-2-tenant-baseline.test.ts	10	D	withSystem	
+S	foundation\payments-autopilot-route.test.ts	434	D	unknown	
+S	foundation\payments-autopilot-route.test.ts	436	D	unknown	
+S	foundation\payments-claims-route.test.ts	198	D	unknown	
+S	foundation\payments-claims-route.test.ts	200	D	unknown	
+S	foundation\payments-evidence-route.test.ts	72	D	pool	
+S	foundation\payments-evidence-route.test.ts	75	D	null	
+S	foundation\payments-evidence-route.test.ts	75	D	null	
+S	foundation\payments-evidence-route.test.ts	76	D	null	
+S	foundation\payments-evidence-route.test.ts	76	D	null	
+S	middleware\api-key-auth.test.ts	216	D	resolve	
+S	middleware\api-key-auth.ts	50	B	string	SELECT id, email, email_verified, display_name, avatar_url, google_sub, role, primary_use_case, mfa_enabled, rbac_role, plan_id, entitlement_state FROM users WHERE id = $1
+S	middleware\auth.ts	38	B	token	SELECT s.id, s.state, s.expires_at, u.id AS user_id, u.email, u.email_verified, u.display_name, u.avatar_url, u.google_sub, u.role, u.primary_use_case, u.mfa_enabled, u.rbac_role, u.plan_id, u.entitlement_state FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1
+S	modules\admin\service.ts	36	B	revenue	SELECT COUNT(*) as count FROM users
+S	modules\admin\service.ts	37	B	revenue	SELECT COUNT(*) as count FROM projects
+S	modules\admin\service.ts	38	B	revenue	SELECT COUNT(*) as count FROM messages WHERE created_at >= CURRENT_DATE
+S	modules\admin\service.ts	39	B	revenue	SELECT COUNT(DISTINCT user_id) as count FROM messages WHERE created_at >= CURRENT_DATE
+S	modules\admin\service.ts	40	B	user_id	SELECT COALESCE(SUM(amount_usd), 0) as total FROM payments WHERE created_at >= CURRENT_DATE AND state = 'VERIFIED'
+S	modules\admin\service.ts	41	B	0	SELECT provider, COUNT(*) as requests, COALESCE(SUM(cost_usd), 0) as cost FROM ai_usage WHERE created_at >= CURRENT_DATE GROUP BY provider
+S	modules\admin\service.ts	80	B	totalResult	SELECT COUNT(*) as count FROM users ${whereClause}
+S	modules\admin\service.ts	84	B	params	SELECT id, email, display_name, rbac_role, created_at, (SELECT MAX(created_at) FROM messages WHERE user_id = users.id) as last_active, (SELECT COUNT(*) FROM projects WHERE owner_id = users.id) as project_count FROM users ${whereClause} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+S	modules\admin\service.ts	114	B	30	SELECT provider, DATE(created_at) as date, COUNT(*) as requests, COALESCE(SUM(cost_usd), 0) as cost FROM ai_usage WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days' GROUP BY provider, DATE(created_at) ORDER BY date DESC, provider
+S	modules\agent\browser.ts	236	A	raw	SELECT s.user_id FROM sessions s WHERE s.token_hash = $1 AND s.state = 'ACTIVE' AND s.expires_at > now()
+S	modules\agent\routes.ts	59	A	string	SELECT user_id FROM devices WHERE id = $1
+S	modules\agent\ws.ts	128	A	type	UPDATE devices SET last_seen_at = now() WHERE id = $1
+S	modules\agent\ws.ts	205	A	false	UPDATE tool_calls SET output = $2::jsonb, status = $3, completed_at = now() WHERE id = $1 AND status = 'PROPOSED'
+S	modules\agent\ws.ts	409	A	string	SELECT id, user_id, token_hash, state, capabilities FROM devices WHERE id = $1
+S	modules\ai\gateway.ts	191	C	AI_PREMIUM_BUDGET_USD_PER_DAY	SELECT class, description, max_tier, premium_budget_usd_per_day, enabled FROM compute_policy WHERE class = $1
+S	modules\ai\gateway.ts	388	C	string	SELECT state FROM provider_health WHERE provider_id = $1
+S	modules\ai\gateway.ts	546	C	undefined	UPDATE provider_health SET state = 'QUOTA_EXHAUSTED', last_check_at = now(), last_error = $1 WHERE provider_id = $2 AND state NOT IN ('QUOTA_EXHAUSTED', 'BLOCKED')
+S	modules\ai\status.ts	60	C	configured	SELECT provider_id, state, last_check_at, last_error, success_count, failure_count, consecutive_failures, avg_latency_ms FROM provider_health
+S	modules\audit\service.ts	77	A	0	SELECT id, actor_user_id, tenant_scope, tenant_id, action, resource_type, resource_id, detail, ip, correlation_id, created_at FROM audit_logs ${whereSql} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}
+S	modules\auth\google.ts	182	B	email	SELECT id FROM users WHERE google_sub = $1
+S	modules\auth\google.ts	190	B	32	INSERT INTO sessions (id, user_id, token_hash, ip, user_agent, expires_at) VALUES ($1,$2,$3,$4,$5, now() + interval '30 days')
+S	modules\auth\identity.ts	117	B	string	SELECT user_id, handle, keyword_hash, security_key_hash, security_key_enabled, preferred_mfa FROM user_auth_identities WHERE user_id = $1 AND deleted_at IS NULL
+S	modules\auth\identity.ts	146	B	keyword	SELECT 1 FROM user_auth_identities WHERE lower(handle) = $1 AND deleted_at IS NULL AND user_id <> $2
+S	modules\auth\identity.ts	153	B	keyword	INSERT INTO user_auth_identities (id, user_id, handle, keyword_hash, preferred_mfa, keyword_changed_at) VALUES ($1,$2,$3,$4,'none', now()) ON CONFLICT (user_id) DO UPDATE SET handle = EXCLUDED.handle, keyword_hash = EXCLUDED.keyword_hash, keyword_changed_at = now(), updated_at = now()
+S	modules\auth\identity.ts	215	B	20	SELECT i.user_id, i.keyword_hash, i.security_key_enabled, i.security_key_hash, i.preferred_mfa, u.mfa_enabled FROM user_auth_identities i JOIN users u ON u.id = i.user_id AND u.deleted_at IS NULL WHERE lower(i.handle) = $1 AND i.deleted_at IS NULL
+S	modules\auth\identity.ts	372	B	string	SELECT id FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	375	B	string	UPDATE user_auth_identities SET security_key_hash = $1, security_key_enabled = false, security_key_created_at = now(), preferred_mfa = $2, updated_at = now() WHERE user_id = $3
+S	modules\auth\identity.ts	391	B	normalized	SELECT security_key_hash FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	396	B	normalized	UPDATE user_auth_identities SET security_key_enabled = true, security_key_revoked_at = NULL, updated_at = now() WHERE user_id = $1
+S	modules\auth\identity.ts	414	B	string	SELECT mfa_enabled FROM users WHERE id = $1
+S	modules\auth\identity.ts	416	B	string	UPDATE user_auth_identities SET security_key_enabled = false, security_key_hash = NULL, security_key_revoked_at = now(), preferred_mfa = CASE WHEN $2 THEN 'totp' ELSE 'none' END, updated_at = now() WHERE user_id = $1
+S	modules\auth\identity.ts	459	B	10	SELECT id, email, mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND deleted_at IS NULL
+S	modules\auth\identity.ts	472	B	recoveryCode	SELECT id, code_hash FROM recovery_codes WHERE user_id = $1 AND used_at IS NULL
+S	modules\auth\identity.ts	480	B	normalized	UPDATE recovery_codes SET used_at = now() WHERE id = $1
+S	modules\auth\identity.ts	535	B	10	SELECT security_key_hash, security_key_enabled FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	578	B	8	SELECT user_id, security_key_hash, security_key_enabled FROM user_auth_identities WHERE lower(handle) = $1 AND deleted_at IS NULL
+S	modules\auth\identity.ts	639	B	statement	UPDATE auth_recovery_tokens SET attempts = attempts + 1, status = 'USED', used_at = now() WHERE token_hash = $1 AND status = 'PENDING' AND expires_at > now() AND attempts < 5 RETURNING id, user_id
+S	modules\auth\identity.ts	649	B	token	UPDATE auth_recovery_tokens SET status = 'REVOKED', used_at = now() WHERE token_hash = $1 AND status = 'PENDING' AND attempts >= 5
+S	modules\auth\identity.ts	659	B	keyword	UPDATE user_auth_identities SET keyword_hash = $1, keyword_changed_at = now(), updated_at = now() WHERE user_id = $2
+S	modules\auth\identity.ts	689	B	newKeyword	SELECT keyword_hash FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	697	B	currentKeyword	UPDATE user_auth_identities SET keyword_hash = $1, keyword_changed_at = now(), updated_at = now() WHERE user_id = $2
+S	modules\auth\identity.ts	722	B	string	SELECT security_key_hash, security_key_enabled FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	731	B	stored	UPDATE user_auth_identities SET security_key_hash = $1, security_key_enabled = false, security_key_created_at = now(), preferred_mfa = $2, updated_at = now() WHERE user_id = $3
+S	modules\auth\identity.ts	757	B	Request	SELECT keyword_hash FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	763	B	userId	SELECT security_key_enabled FROM user_auth_identities WHERE user_id = $1
+S	modules\auth\identity.ts	767	B	userId	UPDATE user_auth_identities SET security_key_enabled = false, security_key_hash = NULL, security_key_revoked_at = now(), updated_at = now() WHERE user_id = $1
+S	modules\auth\identity.ts	789	B	string	UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE user_id = $1 AND state = 'ACTIVE'
+S	modules\auth\otp.ts	110	B	string	SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL
+S	modules\auth\otp.ts	140	B	email	UPDATE email_otps SET status = 'REVOKED', used_at = now() WHERE lower(email) = $1 AND status = 'PENDING'
+S	modules\auth\otp.ts	146	B	email	INSERT INTO email_otps (id, email, code_hash, expires_at) VALUES ($1,$2,$3, now() + ($4 || ' milliseconds')::interval)
+S	modules\auth\otp.ts	178	B	string	UPDATE email_otps SET status = 'REVOKED', used_at = now() WHERE id = $1 AND status = 'PENDING'
+S	modules\auth\otp.ts	197	B	email	SELECT * FROM email_otps WHERE lower(email) = $1 AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1
+S	modules\auth\otp.ts	214	B	id	UPDATE email_otps SET attempts = $2 WHERE id = $1
+S	modules\auth\otp.ts	219	B	safe	UPDATE email_otps SET status = 'USED', used_at = now() WHERE id = $1 AND status = 'PENDING' RETURNING id
+S	modules\auth\otp.ts	241	B	PREFERENCE	UPDATE users SET email_verified = true WHERE id = $1
+S	modules\auth\rbac.ts	19	B	string	SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2) AS is_owner, (SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2) AS member_role
+S	modules\auth\service.ts	49	B	needsRehash	SELECT ${column} AS hash FROM ${table} WHERE id = $1
+S	modules\auth\service.ts	56	B	1	UPDATE ${table} SET ${column} = $1 WHERE id = $2
+S	modules\auth\service.ts	139	B	token	SELECT id FROM devices WHERE user_id = $1 AND state = 'PAIRED' AND token_hash = $2
+S	modules\auth\service.ts	154	B	SESSION	INSERT INTO sessions (id, user_id, token_hash, ip, user_agent, device_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6, now() + ($7 || ' days')::interval)
+S	modules\auth\service.ts	169	B	ip	SELECT ip FROM ( SELECT DISTINCT ON (ip) ip, last_seen_at FROM sessions WHERE user_id = $1 AND ip IS NOT NULL AND id <> $2 AND created_at > now() - interval '90 days' ORDER BY ip, last_seen_at DESC ) recent_ips ORDER BY last_seen_at DESC LIMIT 10
+S	modules\auth\service.ts	182	B	ip	UPDATE sessions SET risk_flags = risk_flags || $2::jsonb WHERE id = $1
+S	modules\auth\service.ts	200	B	null	UPDATE sessions SET state = 'EXPIRED', revoked_at = now() WHERE state = 'ACTIVE' AND expires_at <= now()
+S	modules\auth\service.ts	218	B	Request	UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE user_id = $1 AND state = 'ACTIVE' AND id <> $2
+S	modules\auth\service.ts	294	B	string	SELECT id FROM users WHERE lower(email) = $1
+S	modules\auth\service.ts	298	B	identity	SELECT 1 FROM user_auth_identities WHERE lower(handle) = $1
+S	modules\auth\service.ts	387	B	Request	SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL
+S	modules\auth\service.ts	442	B	Request	SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL
+S	modules\auth\service.ts	496	B	MFA_MAX_ATTEMPTS	SELECT * FROM users WHERE id = $1
+S	modules\auth\service.ts	507	B	recoveryCode	SELECT id, code_hash FROM recovery_codes WHERE user_id = $1 AND used_at IS NULL
+S	modules\auth\service.ts	515	B	normalized	UPDATE recovery_codes SET used_at = now() WHERE id = $1
+S	modules\auth\service.ts	551	B	Request	UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE id = $1 AND user_id = $2
+S	modules\auth\service.ts	567	B	string	SELECT * FROM users WHERE id = $1
+S	modules\auth\service.ts	602	B	userId	UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length}
+S	modules\auth\service.ts	608	B	string	SELECT id, ip, user_agent, state, created_at, last_seen_at, expires_at FROM sessions WHERE user_id = $1 ORDER BY last_seen_at DESC
+S	modules\auth\service.ts	617	B	Request	UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE id = $1 AND user_id = $2 RETURNING id
+S	modules\auth\service.ts	639	B	string	SELECT email FROM users WHERE id = $1
+S	modules\auth\service.ts	641	B	string	UPDATE users SET mfa_secret_encrypted = $1 WHERE id = $2
+S	modules\auth\service.ts	652	B	Request	SELECT mfa_secret_encrypted FROM users WHERE id = $1
+S	modules\auth\service.ts	660	B	16	UPDATE users SET mfa_enabled = true, recovery_codes_hash = $1 WHERE id = $2
+S	modules\auth\service.ts	685	B	Request	SELECT mfa_secret_encrypted FROM users WHERE id = $1
+S	modules\auth\service.ts	690	B	code	UPDATE users SET mfa_enabled = false, mfa_secret_encrypted = NULL, recovery_codes_hash = NULL WHERE id = $1
+S	modules\auth\service.ts	713	B	Request	SELECT mfa_secret_encrypted FROM users WHERE id = $1
+S	modules\auth\service.ts	730	B	16	UPDATE users SET recovery_codes_hash = $1 WHERE id = $2
+S	modules\auth\service.ts	751	B	string	SELECT count(*)::int AS n FROM devices WHERE user_id = $1 AND state = 'PAIRED'
+S	modules\auth\service.ts	761	B	DEVICE	INSERT INTO devices (id, user_id, name, pairing_code_hash, state) VALUES ($1,$2,$3,$4,'PENDING_PAIRING')
+S	modules\auth\service.ts	774	B	string	SELECT pairing_code_hash, state, failed_pairing_attempts FROM devices WHERE id = $1 AND user_id = $2
+S	modules\auth\service.ts	791	B	code	UPDATE devices SET failed_pairing_attempts = failed_pairing_attempts + 1 WHERE id = $1
+S	modules\auth\service.ts	795	B	32	UPDATE devices SET state = 'PAIRED', paired_at = now(), pairing_code_hash = NULL, failed_pairing_attempts = 0, last_seen_at = now(), token_hash = $2 WHERE id = $1
+S	modules\auth\service.ts	813	B	string	SELECT id, name, state, paired_at, last_seen_at, created_at, capabilities FROM devices WHERE user_id = $1 ORDER BY created_at DESC
+S	modules\auth\service.ts	822	B	Request	UPDATE devices SET state = 'REVOKED', revoked_at = now(), pairing_code_hash = NULL, token_hash = NULL WHERE id = $1 AND user_id = $2 RETURNING id
+S	modules\auth\service.ts	829	B	deviceId	UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE device_id = $1 AND state = 'ACTIVE'
+S	modules\auth\verification.ts	35	B	Request	SELECT email, email_verified FROM users WHERE id = $1
+S	modules\auth\verification.ts	58	B	32	INSERT INTO email_verifications (id, user_id, token_hash, expires_at) VALUES ($1,$2,$3, now() + ($4 || ' milliseconds')::interval)
+S	modules\auth\verification.ts	114	B	Request	SELECT id, user_id, status, expires_at FROM email_verifications WHERE token_hash = $1
+S	modules\auth\verification.ts	167	B	user	SELECT email_verified FROM users WHERE id = $1
+S	modules\auth\verification.ts	168	B	user	SELECT created_at, expires_at FROM email_verifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+S	modules\autonomy\service.ts	75	C	ok	SELECT 1
+S	modules\autonomy\truth.ts	59	C	TRUTH_KEYS	SELECT 1
+S	modules\deployment-wizard\deploymentDiscovery.ts	723	C	packageJson	INSERT INTO deployment_profiles (id, project_id, repository_url, branch, package_manager, runtime, language, components, env_analysis, docker_analysis, deployment_configs, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+S	modules\deployment-wizard\deploymentPlan.ts	412	C	previousCommit	INSERT INTO deployment_plans (id, profile_id, readiness_id, project_id, strategy, steps, estimated_duration_sec, required_approvals, rollback_plan, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+S	modules\deployment-wizard\deploymentReadiness.ts	459	C	estimatedDeployTime	INSERT INTO deployment_readiness (id, profile_id, project_id, overall_status, score, items, summary, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+S	modules\deployment-wizard\deploymentReport.ts	246	C	markdown	INSERT INTO deployment_reports (id, project_id, markdown, created_at) VALUES ($1, $2, $3, now())
+S	modules\deployment-wizard\deploymentStrategy.ts	186	C	canaryConfig	INSERT INTO deployment_strategies (id, project_id, strategy, config, target_provider, previous_deployment_id, canary_config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+S	modules\deployment-wizard\humanApproval.ts	107	C	expiresAt	INSERT INTO deployment_approvals (id, project_id, type, status, requested_by, message, details, risk_level, requested_at, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+S	modules\deployment-wizard\humanApproval.ts	139	C	projectId	SELECT * FROM deployment_approvals WHERE id = $1 AND project_id = $2
+S	modules\deployment-wizard\humanApproval.ts	152	C	expires_at	UPDATE deployment_approvals SET status = 'EXPIRED', resolved_at = now() WHERE id = $1
+S	modules\deployment-wizard\humanApproval.ts	162	C	expires_at	UPDATE deployment_approvals SET status = $1, resolved_at = $2, ${newStatus === 'APPROVED' ? 'approved_by' : 'rejected_by'} = $3 WHERE id = $4
+S	modules\deployment-wizard\humanApproval.ts	201	C	string	SELECT * FROM deployment_approvals WHERE id = $1 AND project_id = $2
+S	modules\deployment-wizard\humanApproval.ts	230	C	string	SELECT * FROM deployment_approvals WHERE project_id = $1 AND status = 'PENDING' ORDER BY requested_at DESC
+S	modules\deployment-wizard\postDeployVerify.ts	286	C	summary	INSERT INTO post_deploy_verifications (id, project_id, deployment_id, checks, overall_status, summary, created_at) VALUES ($1, $2, $3, $4, $5, $6, now())
+S	modules\deployment-wizard\preDeployCheck.ts	240	C	error	SELECT name, sha256 FROM schema_migrations
+S	modules\deployment-wizard\preDeployCheck.ts	262	C	string	SELECT count(*)::int as count FROM tracked_files WHERE path LIKE '%.env%' AND path NOT LIKE '%.env.example'
+S	modules\deployment-wizard\preDeployCheck.ts	274	C	string	SELECT * FROM deployment_profiles WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1
+S	modules\deployment-wizard\preDeployCheck.ts	329	C	criticalFailures	INSERT INTO pre_deploy_checks (id, project_id, checks, passed, summary, critical_failures, created_at) VALUES ($1, $2, $3, $4, $5, $6, now())
+S	modules\deployment-wizard\rollbackPlanner.ts	144	C	manualSteps	INSERT INTO rollback_plans (id, project_id, plan_id, available, reason, steps, estimated_time_sec, database_backup_required, manual_intervention_required, manual_steps, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+S	modules\deployment-wizard\secretHandling.ts	171	C	totalOptional	INSERT INTO secret_inventories (id, project_id, secrets, summary, created_at) VALUES ($1, $2, $3, $4, now())
+S	modules\deployment-wizard\secretHandling.ts	239	C	projectId	INSERT INTO secret_entries (id, project_id, variable_name, target_service, entered_by, created_at) VALUES ($1, $2, $3, $4, $5, now())
+S	modules\developer-productivity\flowDiagram.ts	456	C	DiagramOptions	SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name
+S	modules\developer-productivity\flowDiagram.ts	467	C	30	SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position
+S	modules\developer-productivity\flowDiagram.ts	483	C	rows	SELECT kcu.column_name, ccu.table_name AS foreign_table, ccu.column_name AS foreign_column FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1
+S	modules\developer-productivity\workspaceContext.ts	181	A	retentionDays	DELETE FROM workspace_state WHERE key = $1 AND updated_at < $2
+S	modules\engineering-intelligence\contextFlowAnalyzer.ts	487	C	string	
+S	modules\engineering-intelligence\debtSlayer.ts	378	C	projectId	SELECT date_trunc('day', created_at)::date AS day, count(*)::int AS count FROM technical_debt_log WHERE project_id = $1 AND created_at > now() - interval '${days} days' GROUP BY day ORDER BY day
+S	modules\engineering-intelligence\debtSlayer.ts	399	C	5	SELECT count(*)::int AS n FROM technical_debt_log WHERE project_id = $1 AND created_at > now() - interval '${days} days'
+S	modules\engineering-intelligence\debtSlayer.ts	405	C	5	SELECT count(*)::int AS n FROM technical_debt_log WHERE project_id = $1 AND resolved_at IS NOT NULL AND resolved_at > now() - interval '${days} days'
+S	modules\idempotency\service.ts	92	C	unknown	UPDATE idempotency_keys SET status = 'COMPLETED', response = $3::jsonb, completed_at = now() WHERE user_id = $1 AND key = $2
+S	modules\idempotency\service.ts	102	C	string	UPDATE idempotency_keys SET status = 'FAILED', completed_at = now() WHERE user_id = $1 AND key = $2
+S	modules\idempotency\service.ts	111	C	growth	DELETE FROM idempotency_keys WHERE created_at < now() - ($1 || ' milliseconds')::interval
+S	modules\integration-hub\integration-hub.security.test.ts	331	D	event_id	
+S	modules\memorycoding\lifecycle.ts	26	C	bug	SELECT count(*)::int AS n FROM dev_preferences WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}
+S	modules\memorycoding\lifecycle.ts	30	C	userId	SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'ACTIVE')::int AS active FROM dev_patterns WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}
+S	modules\memorycoding\lifecycle.ts	35	C	userId	SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'OPEN')::int AS open FROM dev_bug_incidents WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}
+S	modules\memorycoding\lifecycle.ts	40	C	userId	SELECT count(*)::int AS n FROM memorycoding_links WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}
+S	modules\optimization-intelligence\optimization-intelligence.test.ts	159	D	posts	SELECT * FROM authors WHERE id=$1
+S	modules\payments\autopilot\autopilot.test.ts	106	D	unknown	
+S	modules\payments\autopilot\autopilot.test.ts	108	D	unknown	
+S	modules\payments\imap-unlock\service.ts	115	A	null	SELECT i.id, i.owner_id, i.plan_id, i.amount_inr, i.reference, i.status, i.created_at, u.email AS owner_email FROM payment_intents i LEFT JOIN users u ON u.id = i.owner_id WHERE i.amount_inr = $1 AND i.status IN ('PENDING','REVIEW') AND i.created_at <= $2 AND i.expires_at >= $2 ORDER BY i.created_at DESC LIMIT 50
+S	modules\payments\pool\seeder.test.ts	185	D	unknown	
+S	modules\payments\pool\seeder.test.ts	186	D	unknown	
+S	modules\runtime\executions.ts	95	C	allowed	INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)
+S	modules\runtime\executions.ts	109	C	usable	INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)
+S	modules\runtime\executions.ts	121	C	firstToken	INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)
+S	modules\runtime\executions.ts	131	C	projectId	INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, started_at, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,now(),$7,$8)
+S	modules\runtime\executions.ts	137	C	projectId	UPDATE runtime_executions SET status = 'RUNNING' WHERE id = $1
+S	modules\runtime\executions.ts	161	C	200_000	UPDATE runtime_executions SET status = $2, exit_code = $3, timed_out = $4, cancelled = $5, output = $6, ended_at = now(), duration_ms = $7, error = $8 WHERE id = $1
+S	modules\runtime\executions.ts	168	C	Error	UPDATE runtime_executions SET status = 'FAILED', ended_at = now(), error = $2, output = $3 WHERE id = $1
+S	modules\runtime\smoke.ts	84	C	SmokeStatus	INSERT INTO runtime_smoke_results (id, owner_id, project_id, run_id, name, method, url, expected_status, status, duration_ms, evidence, failure_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+S	modules\runtime\smoke.ts	116	C	r	INSERT INTO runtime_smoke_runs (id, owner_id, project_id, name, status, total, passed, failed, unavailable, started_at, ended_at) VALUES ($1,$2,$3,'smoke',$4,$5,$6,$7,$8,$9,now())
+S	modules\security-intelligence\securityPosture.ts	374	C	q	SELECT count(*)::int AS total, count(*) FILTER (WHERE severity IN ('CRITICAL','HIGH') AND status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS'))::int AS criticalHigh FROM vulnerability_findings WHERE project_id = $1
+S	modules\security-intelligence\securityPosture.ts	378	C	total	SELECT count(*)::int AS total FROM secret_exposures WHERE project_id = $1 AND resolved = false
+S	modules\security-intelligence\securityPosture.ts	380	C	q	SELECT count(*)::int AS total FROM supply_chain_scans WHERE project_id = $1
+S	modules\security-intelligence\securityPosture.ts	381	C	q	SELECT count(*)::int AS total FROM api_security_scans WHERE project_id = $1
+S	modules\security-intelligence\securityPosture.ts	382	C	q	SELECT count(*)::int AS total FROM security_scans WHERE project_id = $1
+S	modules\security-intelligence\securityPosture.ts	383	C	q	SELECT count(*)::int AS total FROM secret_rotations WHERE rotated_by = $1
+S	modules\security-intelligence\securityPosture.ts	384	C	q	SELECT count(*)::int AS total FROM secret_rotation_policies
+S	modules\security-intelligence\securityPosture.ts	646	C	false	SELECT * FROM security_posture_cache WHERE project_id = $1 AND expires_at > now()
+S	modules\security-intelligence\securityPosture.ts	776	C	SecurityPosture	INSERT INTO security_posture_history (id, project_id, overall_score, overall_level, categories, assessed_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (project_id, assessed_at) DO UPDATE SET overall_score = EXCLUDED.overall_score, overall_level = EXCLUDED.overall_level, categories = EXCLUDED.categories
+S	modules\security-intelligence\securityPosture.ts	794	C	lastAssessed	INSERT INTO security_posture_cache (project_id, overall_score, overall_level, categories, expires_at) VALUES ($1,$2,$3,$4,now() + interval '1 hour') ON CONFLICT (project_id) DO UPDATE SET overall_score = EXCLUDED.overall_score, overall_level = EXCLUDED.overall_level, categories = EXCLUDED.categories, expires_at = EXCLUDED.expires_at
+S	modules\security-operations-intelligence\compliance.ts	44	C	string	INSERT INTO secops_compliance_reports (id, project_id, overall_score, overall_status, posture_score, posture_level, categories, items, created_by, generated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+S	modules\security-operations-intelligence\compliance.ts	63	C	generatedAt	DELETE FROM secops_compliance_reports WHERE project_id = $1 AND id NOT IN ( SELECT id FROM secops_compliance_reports WHERE project_id = $1 ORDER BY generated_at DESC LIMIT $2 )
+S	modules\security-operations-intelligence\security-operations-intelligence.test.ts	78	D	queryMany	
+S	modules\workspace\service.ts	479	C	string	INSERT INTO free_usage_windows (owner_id, window_start, used, updated_at) VALUES ($1, now(), 1, now()) ON CONFLICT (owner_id) DO UPDATE SET used = CASE WHEN free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) THEN 1 ELSE free_usage_windows.used + 1 END, window_start = CASE WHEN free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) THEN now() ELSE free_usage_windows.window_start END, updated_at = now() WHERE free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) OR free_usage_windows.used < $3 RETURNING used, window_start
+S	scripts\acceptance-preflight.ts	145	D	payment	SELECT COUNT(*)::int AS n FROM payment_link_reservations WHERE status = 'RESERVED'
+S	scripts\prove-payment.test.ts	279	D	unknown	
+S	scripts\prove-payment.test.ts	280	D	unknown	
+S	scripts\provision-founder.ts	75	D	keyword	SELECT id, is_founder, email_verified, password_hash FROM users WHERE lower(email) = $1
+S	scripts\provision-founder.ts	107	D	markVerified	INSERT INTO entitlements (id, user_id, plan_id, state, verified_at) VALUES ($1,$2,'team','PRO_VERIFIED', now()) ON CONFLICT (user_id, plan_id) DO UPDATE SET state = 'PRO_VERIFIED', verified_at = now(), expires_at = NULL, updated_at = now()
+S	scripts\provision-founder.ts	117	D	12	UPDATE entitlements SET state = 'FREE', verified_at = NULL, updated_at = now() WHERE user_id = $1 AND plan_id = 'team' AND state = 'PRO_VERIFIED'
+S	scripts\provision-founder.ts	126	D	12	INSERT INTO users (id, email, password_hash, display_name, email_verified, is_founder, plan_id, entitlement_state) VALUES ($1,$2,$3,'Founder',$4,true,$5,$6)
+S	scripts\provision-founder.ts	137	D	squat	UPDATE users SET password_hash = $1, is_founder = true, email_verified = $2, plan_id = $3, entitlement_state = $4 WHERE id = $5
+S	shared\db.ts	113	C	string	
+S	shared\db.ts	121	C	string	
+S	shared\db.ts	127	C	params	SELECT 1
+S	shared\queue.ts	34	B	1	UPDATE tasks SET status = 'RUNNING', last_heartbeat_at = now(), updated_at = now(), -- Stamp started_at at claim time so the timeout sweep -- (failTimedOutTasks, gated on started_at IS NOT NULL) can bound a -- task even if the worker crashes before beginAttempt runs. started_at = COALESCE(started_at, now()) WHERE id IN ( SELECT id FROM tasks WHERE status IN ('CREATED','PLANNED','CHANGED') AND paused_at IS NULL AND (required_approval = false OR approval_id IS NOT NULL) AND execution_mode IN ('CLOUD','HYBRID') AND attempt_count < max_attempts AND (next_attempt_at IS NULL OR next_attempt_at <= now()) AND NOT EXISTS ( SELECT 1 FROM task_dependencies td JOIN tasks dep ON dep.id = td.depends_on_task_id WHERE td.task_id = tasks.id AND dep.status <> 'COMPLETED' ) ORDER BY priority DESC, created_at LIMIT $1 FOR UPDATE SKIP LOCKED ) RETURNING id, project_id, owner_id, title, risk_level, execution_mode, created_at
+S	shared\queue.ts	72	B	number	UPDATE tasks SET status = 'CREATED', error_code = 'recovered_heartbeat_timeout', updated_at = now() WHERE status = 'RUNNING' AND last_heartbeat_at < now() - ($1 || ' milliseconds')::interval RETURNING id
+S	shared\queue.ts	85	B	number	UPDATE tasks SET status = 'TIMED_OUT', error_code = 'task_timeout', failed_at = now(), updated_at = now() WHERE status IN ('CREATED','PLANNED','RUNNING','TESTING','VERIFIED','REQUIRES_REVIEW','BLOCKED') AND started_at IS NOT NULL AND started_at + (timeout_ms || ' milliseconds')::interval < now() RETURNING id
+S	shared\queue.ts	98	B	2h	UPDATE tasks SET status = 'CANCELLED', error_code = 'approval_not_answered', updated_at = now() WHERE status = 'WAITING_APPROVAL' AND created_at < now() - interval '2 hours' RETURNING id
+S	shared\queue.ts	108	B	2h	SELECT COUNT(*)::int AS n FROM tasks WHERE status IN ('CREATED','PLANNED','CHANGED') AND paused_at IS NULL AND (required_approval = false OR approval_id IS NOT NULL) AND execution_mode IN ('CLOUD','HYBRID') AND attempt_count < max_attempts AND (next_attempt_at IS NULL OR next_attempt_at <= now())

@@ -9,12 +9,15 @@
 import { logger } from '../shared/logger.js';
 import { recoverStaleTasks, failTimedOutTasks, expireWaitingApprovals } from '../shared/queue.js';
 import { expireStaleApprovals } from '../modules/execution/approvals.js';
-import { heartbeatRunningTasks, recoverTimedOutTasks, blockBlockedDependencies } from '../modules/execution/tasks.js';
+import { recoverTimedOutTasks, blockBlockedDependencies } from '../modules/execution/tasks.js';
 import { flushOutbox } from '../modules/outbox/service.js';
 import { sweepPluginHealth } from '../modules/plugins/health.js';
 import { sweepAgentRuns } from '../modules/agents/service.js';
-import { sweepPaymentExpiry } from '../modules/payments/service.js';
+import { sweepPaymentExpiry, sweepPendingIntentEvidence } from '../modules/payments/service.js';
 import { sweepIntentExpiry } from '../modules/payments/intents.js';
+import { sweepAutoApprovals } from '../modules/payments/autoapproval/service.js';
+import { reconcilePaymentSweep } from '../modules/payments/reconcile/service.js';
+import { expireStaleReservations } from '../modules/payments/pool/service.js';
 import { purgeExpiredTrash } from '../modules/files/service.js';
 import { expireInvitations } from '../modules/teams/service.js';
 import { expireIdempotencyKeys } from '../modules/idempotency/service.js';
@@ -51,7 +54,11 @@ async function sweep(name: string, out: Record<string, number>, fn: () => Promis
 
 export async function sweepOnce(): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
-  await sweep('heartbeats', out, () => heartbeatRunningTasks());
+  // NOTE: there is deliberately NO blanket heartbeat-refresh sweep here.
+  // Refreshing every RUNNING heartbeat from the sweeper made recoverStaleTasks
+  // dead code (nothing could ever go stale) and kept crashed workers' tasks
+  // RUNNING forever. Liveness comes only from the worker itself via touchTask
+  // during execution; the sweeper only reclaims tasks whose heartbeat aged out.
   await sweep('recovered', out, () => recoverStaleTasks(HEARTBEAT_TTL_MS));
   await sweep('timedOut', out, () => failTimedOutTasks());
   await sweep('retried', out, () => recoverTimedOutTasks());
@@ -65,6 +72,10 @@ export async function sweepOnce(): Promise<Record<string, number>> {
   await sweep('agentRuns', out, () => sweepAgentRuns());
   await sweep('payments', out, () => sweepPaymentExpiry());
   await sweep('paymentIntents', out, () => sweepIntentExpiry());
+  await sweep('poolReservations', out, () => expireStaleReservations());
+  await sweep('mailboxReceipts', out, () => sweepPendingIntentEvidence());
+  await sweep('autoApprovals', out, () => sweepAutoApprovals({ limit: 100 }));
+  await sweep('reconcile', out, () => reconcilePaymentSweep());
   await sweep('trash', out, () => purgeExpiredTrash());
   await sweep('invitationsExpired', out, () => expireInvitations());
   await sweep('idempotencyExpired', out, () => expireIdempotencyKeys());

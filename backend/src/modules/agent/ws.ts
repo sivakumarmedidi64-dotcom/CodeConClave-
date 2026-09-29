@@ -27,6 +27,11 @@ export class AgentHub {
   private clients = new Map<string, WebSocket>();
   /** corrId → browser WebSocket waiting for the agent's response stream. */
   private pending = new Map<string, WebSocket>();
+  /** corrId → server-side resolver (chat agent loop; not streamed to any browser). */
+  private serverPending = new Map<
+    string,
+    { resolve: (result: CommandExecResult) => void; output: string[] }
+  >();
   /** connectionKey → last keepalive round observed a pong (heartbeat liveness). */
   private alive = new Map<string, boolean>();
 
@@ -146,6 +151,13 @@ export class AgentHub {
         if (browser) {
           this.send(browser, { type: 'cmd_stream', corrId, channel, text });
         }
+        const server = this.serverPending.get(corrId);
+        if (server) {
+          if (text) {
+            server.output.push(text);
+            if (server.output.length > 4096) server.output = server.output.slice(server.output.length - 4096);
+          }
+        }
         // Persist the REAL agent stream: status transitions update the session
         // (RUNNING only with the agent-reported pid); output lines append to
         // the searchable history. Never fabricated — mirrored verbatim.
@@ -172,6 +184,16 @@ export class AgentHub {
         if (browser) {
           this.send(browser, { type: 'cmd_result', corrId, ok: Boolean(msg.ok), payload: msg.payload ?? null, error: msg.error ?? null });
         }
+        const server = this.serverPending.get(corrId);
+        if (server) {
+          this.serverPending.delete(corrId);
+          server.resolve({
+            ok: Boolean(msg.ok),
+            output: server.output.join(''),
+            payload: (msg.payload as Record<string, unknown> | null) ?? null,
+            error: msg.error ? String(msg.error) : null,
+          });
+        }
         return;
       }
       default:
@@ -196,6 +218,18 @@ export class AgentHub {
       if (key.startsWith(`${userId}:`) && ws.readyState === WebSocket.OPEN) return { connectionKey: key, ws };
     }
     return null;
+  }
+
+  /** Connected device ids of a user (chat agent loop targets, never identities). */
+  onlineDeviceIds(userId: string): string[] {
+    const ids: string[] = [];
+    for (const [key, ws] of this.clients) {
+      if (key.startsWith(`${userId}:`) && ws.readyState === WebSocket.OPEN) {
+        const deviceId = key.slice(userId.length + 1);
+        if (deviceId) ids.push(deviceId);
+      }
+    }
+    return ids;
   }
 
   /** Immediate revocation: drop the live agent socket so nothing keeps executing. */
@@ -271,6 +305,37 @@ export class AgentHub {
   }
 
   /**
+   * Server-side awaitable command execution (chat agent loop). Sends a cmd to
+   * the device, collects cmd_stream output into a bounded buffer, and resolves
+   * on the agent's cmd_result. No browser socket involved. Fails honestly when
+   * the agent is offline or the agent never replies within the timeout.
+   */
+  executeCommandResult(
+    userId: string,
+    deviceId: string,
+    cmd: Record<string, unknown>,
+    timeoutMs = 120_000,
+  ): Promise<CommandExecResult> {
+    const ws = this.clients.get(`${userId}:${deviceId}`);
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(
+        AppError.unavailable('local_agent_offline', 'Local Agent is offline — start it and retry the message.'),
+      );
+    }
+    const corrId = `exec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    return new Promise<CommandExecResult>((resolve) => {
+      this.serverPending.set(corrId, { resolve: (r) => resolve(r), output: [] });
+      const timer = setTimeout(() => {
+        if (this.serverPending.delete(corrId)) {
+          resolve({ ok: false, output: '', payload: null, error: 'command timed out (no agent reply)' });
+        }
+      }, timeoutMs);
+      timer.unref?.();
+      this.send(ws, { type: 'cmd', corrId, cmd });
+    });
+  }
+
+  /**
    * One keepalive round: ping every tracked socket; sockets that missed the
    * previous round are dead — terminate, revoke grants, audit, count the
    * timeout metric. Never kills sockets we did not attach liveness to.
@@ -324,6 +389,14 @@ async function recordAgentAudit(action: 'AGENT_CONNECTED' | 'AGENT_DISCONNECTED'
     resourceType: 'device',
     resourceId: deviceId,
   }).catch(() => undefined);
+}
+
+/** Resolved server-side command result (aggregated from cmd_stream + cmd_result). */
+export interface CommandExecResult {
+  ok: boolean;
+  output: string;
+  payload: Record<string, unknown> | null;
+  error: string | null;
 }
 
 interface AgentDevice {

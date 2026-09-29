@@ -3,7 +3,7 @@
  * (backend module route files + shared/contracts.ts).
  */
 
-export type PlanId = 'free' | 'pro' | 'team' | 'enterprise';
+export type PlanId = 'free' | 'pro' | 'team' | 'api' | 'enterprise';
 export type EntitlementState =
   | 'FREE'
   | 'PRO_PENDING'
@@ -18,6 +18,8 @@ export interface User {
   emailVerified: boolean;
   displayName: string | null;
   avatarUrl: string | null;
+  role?: string | null;
+  primaryUseCase?: string | null;
   mfaEnabled: boolean;
   rbacRole: 'owner' | 'admin' | 'member' | 'viewer';
   planId: PlanId;
@@ -61,7 +63,31 @@ export interface ProjectActivity {
   createdAt: string;
 }
 
-export type ConversationMode = 'CHAT' | 'COWORK';
+export type ConversationMode = 'CHAT' | 'COWORK' | 'AGENT';
+
+/** Cowork share-links: modes + server response shape (backend sharing.ts). */
+export type ShareMode = 'WATCH' | 'COMMENT' | 'CO_CONTROL';
+
+export interface ShareLinkView {
+  conversationId: string;
+  token: string;
+  mode: ShareMode;
+  createdAt: number;
+  expiresAt: number | null;
+  oneTime: boolean;
+  revokedAt?: number;
+  redeemedBy?: string | null;
+  redeemedAt?: number | null;
+  url: string;
+}
+
+/** A file attached to the pending chat message (uploaded into the project). */
+export interface PendingAttachment {
+  fileId: string;
+  name: string;
+  sizeBytes?: number;
+  uploading?: boolean;
+}
 
 export interface Conversation {
   id: string;
@@ -95,6 +121,8 @@ export interface Message {
   editCount: number;
   threadId: string | null;
   createdAt: string;
+  imageFileId: string | null;
+  imageMime: string | null;
 }
 
 export interface Thread {
@@ -518,7 +546,52 @@ export type PluginType =
   | 'vercel'
   | 'render'
   | 'vscode'
-  | 'webhook';
+  | 'webhook'
+  | 'stripe'
+  | 'twilio'
+  | 'pagerduty'
+  | 'asana'
+  | 'gitlab'
+  | 'hubspot'
+  | 'pipedrive'
+  | 'clickup'
+  | 'monday'
+  | 'coda'
+  | 'trello'
+  | 'klaviyo'
+  | 'databricks'
+  | 'zendesk'
+  | 'webex'
+  | 'onedrive'
+  | 'sharepoint'
+  | 'box'
+  | 'dropbox'
+  | 'egnyte'
+  | 'outlook'
+  | 'outlook_calendar'
+  | 'confluence'
+  | 'guru'
+  | 'basecamp'
+  | 'apollo'
+  | 'outreach'
+  | 'bitbucket'
+  | 'snowflake'
+  | 'bigquery'
+  | 'powerbi'
+  | 'amplitude'
+  | 'hex'
+  | 'workday'
+  | 'servicenow'
+  | 'canva'
+  | 'ahrefs'
+  | 'similarweb'
+  | 'sap'
+  | 'docusign'
+  | 'quickbooks'
+  | 'datadog'
+  | 'mailgun'
+  | 'zoom'
+  | 'salesforce';
 
 export type PluginIntegrationStatus = 'LIVE' | 'CONFIGURED' | 'NOT_CONFIGURED' | 'BLOCKED' | 'UNSUPPORTED';
 export type PluginHealthStatus = 'HEALTHY' | 'DEGRADED' | 'REAUTH_REQUIRED' | 'UNAVAILABLE' | 'NOT_CONNECTED' | 'NOT_CONFIGURED';
@@ -609,11 +682,41 @@ export interface PaymentCapability {
   webhook: boolean;
   link: boolean;
   mode: 'PAYMENT_LINK' | 'API' | 'WEBHOOK';
+  unlockMode?: string;
   plans: Record<string, number>;
   evidence: EvidenceProviders;
   razorpayConfigured: boolean;
   razorpayMode: string | null;
   currency: string;
+}
+
+export interface PaymentIntent {
+  id: string;
+  planId: string;
+  amountInr: number;
+  currency: string;
+  reference: string;
+  paymentLink: string;
+  status: string;
+  purchaseType: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface PaymentClaim {
+  id: string;
+  planId: string;
+  purchaseType: string;
+  amountInr: number;
+  currency: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  razorpayPaymentId: string;
+  source: string;
+  rejectionReason: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  intentId: string;
+  reference: string | null;
 }
 
 export interface PaymentSession {
@@ -648,6 +751,17 @@ export interface PaymentStatusView {
   effectivePlan: string;
   accountEmail: string | null;
   plans: PaymentStatusPlan[];
+}
+
+export type WorkspaceReason = 'NO_ENTITLEMENT' | 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'API_ONLY';
+
+/** Mirror of backend GET /api/v1/access — server-authoritative workspace gate. */
+export interface WorkspaceAccess {
+  unlocked: boolean;
+  effectivePlan: 'free' | 'pro' | 'team';
+  planId: string;
+  entitlementState: string;
+  reason: WorkspaceReason;
 }
 
 export interface Notification {
@@ -701,6 +815,14 @@ export interface UsageOverview {
     storageGb: number;
   };
   resetDate: string;
+  rolling: {
+    used: number;
+    limit: number;
+    windowHours: number;
+    windowStart: string | null;
+    resetsAt: string | null;
+    remaining: number;
+  };
 }
 
 export interface AuditEvent {
@@ -738,6 +860,13 @@ export interface AiModel {
   health: ModelHealth;
   locked: boolean;
   available: boolean;
+  /** MODEL = chat/completion; EXTERNAL_AGENT = out-of-band job lifecycle (e.g. Devin). */
+  capabilityCategory?: 'MODEL' | 'EXTERNAL_AGENT';
+  /** Client-side echo of the server class: normal / multimodal / image generator / external agent. */
+  capabilityClass?: 'NORMAL_MODEL' | 'MULTIMODAL_MODEL' | 'IMAGE_GENERATOR' | 'EXTERNAL_AGENT';
+  /** Explicit image-generation / image-editing capability (backend registry). */
+  imageGeneration?: boolean;
+  imageEditing?: boolean;
 }
 
 export interface WorkspaceFlags {
@@ -748,6 +877,24 @@ export interface SessionInfo {
   id: string;
   createdAt: string;
   lastSeenAt: string | null;
+}
+
+export interface UserApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  revokeReason: string | null;
+  key?: string;
+}
+
+export interface ApiKeyAccess {
+  planId: string;
+  entitled: boolean;
+  state: string | null;
 }
 
 export type DevicePresence = 'ONLINE' | 'STALE' | 'OFFLINE';
@@ -1363,15 +1510,28 @@ export interface SecretGuardScanRow {
   owner_id: string;
   target_type: string;
   target_ref: string | null;
-  matched: boolean;
-  findings: SecretGuardFinding[];
-  created_at: string;
+  result: 'FINDINGS' | 'CLEAN';
+  findings: SecretGuardFinding[] | string;
+  scanned_at: string;
 }
 
 export interface UsageFeatureCost {
   feature: string;
-  cost_usd: number;
   calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface RoiRow extends UsageFeatureCost {
+  tasksCompleted: number;
+  valueUsd: number;
+  roi: number;
+}
+
+export interface RoiEstimate {
+  rows: RoiRow[];
+  label: string;
 }
 
 export interface UsageRollupRow {
@@ -1387,13 +1547,17 @@ export interface UsageRollupRow {
 }
 
 export interface TransparencyCall {
-  id: string;
-  feature: string;
-  model_id: string | null;
-  input_tokens: number;
-  output_tokens: number;
-  cost_usd: number;
-  called_at: string;
+  providerId: string;
+  modelId: string;
+  agent: string | null;
+  taskId: string | null;
+  createdAt: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  usedFallback: boolean;
+  fallbackReason: string | null;
+  outcome: string;
 }
 
 export interface HeatmapCell {
@@ -1567,6 +1731,10 @@ export interface InstalledAgentPackageRow {
 
 export type DecisionImpact = 'LOW' | 'MEDIUM' | 'HIGH';
 
+export type DecisionStatus = 'ACTIVE' | 'TENTATIVE' | 'SUPERSEDED' | 'REJECTED' | 'ARCHIVED';
+
+export type DecisionScope = 'PERSONAL' | 'PROJECT' | 'TEAM';
+
 export interface DecisionRow {
   id: string;
   owner_id: string;
@@ -1581,6 +1749,9 @@ export interface DecisionRow {
   source_task_id: string | null;
   evidence_ref: string | null;
   impact: DecisionImpact;
+  status: DecisionStatus;
+  source_message_ids: string[];
+  scope: DecisionScope;
   superseded_by_id: string | null;
   deleted_at: string | null;
   created_at: string;
@@ -1827,4 +1998,146 @@ export interface IrreversibleActionRow {
 export interface BranchResultRow {
   branchTask: Task;
   branchId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Cowork safety review loop (B1) — shared with backend modules/reviews.
+// ---------------------------------------------------------------------------
+
+export type ReviewStatus =
+  | 'DRAFT'
+  | 'READY_FOR_REVIEW'
+  | 'PARTIALLY_REVIEWED'
+  | 'APPLIED'
+  | 'TESTING'
+  | 'TEST_PASSED'
+  | 'TEST_FAILED'
+  | 'COMMITTED'
+  | 'UNDONE'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type HunkStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'APPLIED' | 'FAILED' | 'INVALIDATED';
+export type ReviewTestStatus = 'NOT_RUN' | 'RUNNING' | 'PASSED' | 'FAILED' | 'BLOCKED';
+export type ReviewCommitStatus = 'NOT_COMMITTED' | 'COMMITTED' | 'FAILED';
+
+export interface ReviewHunkView {
+  id: string;
+  reviewId: string;
+  fileId: string;
+  path: string;
+  hunkOrder: number;
+  status: HunkStatus;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  originalSha: string;
+  proposedSha: string;
+  additions: number;
+  deletions: number;
+  context: { before: string[]; after: string[] };
+  diffText: string;
+  decidedAt: string | null;
+}
+
+export interface ReviewFileView {
+  id: string;
+  reviewId: string;
+  path: string;
+  baseSha256: string;
+  proposedSha256: string;
+  appliedSha256: string | null;
+  status: string;
+  fileOrder: number;
+  appliedAt: string | null;
+}
+
+export interface ReviewView {
+  id: string;
+  taskId: string;
+  runId: string | null;
+  projectId: string;
+  ownerId: string;
+  title: string | null;
+  status: ReviewStatus;
+  testStatus: ReviewTestStatus;
+  commitStatus: ReviewCommitStatus;
+  diffText: string | null;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  testCommand: string | null;
+  testExitCode: number | null;
+  testDurationMs: number | null;
+  testOutput: string | null;
+  testCorrelationId: string | null;
+  commitMessage: string | null;
+  commitHash: string | null;
+  branch: string | null;
+  applyError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  files: ReviewFileView[];
+  hunks: ReviewHunkView[];
+}
+
+export interface ReviewListEntry {
+  review: ReviewView;
+  totalHunks: number;
+  acceptedHunks: number;
+  rejectedHunks: number;
+}
+
+export function mapHunkView(row: Record<string, unknown>): ReviewHunkView {
+  return {
+    id: String(row.id ?? row.hunk_id ?? ''),
+    reviewId: String(row.review_id ?? row.reviewId ?? ''),
+    fileId: String(row.file_id ?? row.fileId ?? ''),
+    path: String(row.path ?? ''),
+    hunkOrder: Number(row.hunk_order ?? row.hunkOrder ?? 0),
+    status: (row.status as HunkStatus) ?? 'PENDING',
+    oldStart: Number(row.old_start ?? row.oldStart ?? 0),
+    oldLines: Number(row.old_lines ?? row.oldLines ?? 0),
+    newStart: Number(row.new_start ?? row.newStart ?? 0),
+    newLines: Number(row.new_lines ?? row.newLines ?? 0),
+    originalSha: String(row.original_sha ?? row.originalSha ?? ''),
+    proposedSha: String(row.proposed_sha ?? row.proposedSha ?? ''),
+    additions: Number(row.additions ?? 0),
+    deletions: Number(row.deletions ?? 0),
+    context: (row.context_lines ?? row.context ?? {}) as { before: string[]; after: string[] },
+    diffText: String(row.diff_text ?? row.diffText ?? ''),
+    decidedAt: row.decided_at ?? row.decidedAt ? String(row.decided_at ?? row.decidedAt) : null,
+  };
+}
+
+export function mapReview(row: Record<string, unknown>): ReviewView {
+  return {
+    id: String(row.review_id ?? row.id ?? ''),
+    taskId: String(row.task_id ?? ''),
+    runId: row.run_id ? String(row.run_id) : null,
+    projectId: String(row.project_id ?? ''),
+    ownerId: String(row.owner_id ?? ''),
+    title: row.title ? String(row.title) : null,
+    status: (row.status as ReviewStatus) ?? 'DRAFT',
+    testStatus: (row.test_status as ReviewTestStatus) ?? 'NOT_RUN',
+    commitStatus: (row.commit_status as ReviewCommitStatus) ?? 'NOT_COMMITTED',
+    diffText: row.diff_text ? String(row.diff_text) : null,
+    filesChanged: Number(row.files_changed ?? 0),
+    additions: Number(row.additions ?? 0),
+    deletions: Number(row.deletions ?? 0),
+    testCommand: row.test_command ? String(row.test_command) : null,
+    testExitCode: row.test_exit_code === null || row.test_exit_code === undefined ? null : Number(row.test_exit_code),
+    testDurationMs: row.test_duration_ms === null || row.test_duration_ms === undefined ? null : Number(row.test_duration_ms),
+    testOutput: row.test_output ? String(row.test_output) : null,
+    testCorrelationId: row.test_correlation_id ? String(row.test_correlation_id) : null,
+    commitMessage: row.commit_message ? String(row.commit_message) : null,
+    commitHash: row.commit_hash ? String(row.commit_hash) : null,
+    branch: row.branch ? String(row.branch) : null,
+    applyError: row.apply_error ? String(row.apply_error) : null,
+    createdAt: String(row.created_at ?? ''),
+    updatedAt: String(row.updated_at ?? ''),
+    files: Array.isArray(row.files) ? (row.files as ReviewFileView[]) : [],
+    hunks: Array.isArray(row.hunks) ? row.hunks.map((h) => mapHunkView(h as Record<string, unknown>)) : [],
+  };
 }

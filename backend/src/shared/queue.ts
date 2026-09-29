@@ -33,7 +33,11 @@ export interface QueuedTask {
 export async function claimNextTask(workerId: string, limit = 1): Promise<QueuedTask[]> {
   const result = await pool.query(
     `UPDATE tasks
-        SET status = 'RUNNING', last_heartbeat_at = now(), updated_at = now()
+        SET status = 'RUNNING', last_heartbeat_at = now(), updated_at = now(),
+            -- Stamp started_at at claim time so the timeout sweep
+            -- (failTimedOutTasks, gated on started_at IS NOT NULL) can bound a
+            -- task even if the worker crashes before beginAttempt runs.
+            started_at = COALESCE(started_at, now())
       WHERE id IN (
         SELECT id FROM tasks
          WHERE status IN ('CREATED','PLANNED','CHANGED')

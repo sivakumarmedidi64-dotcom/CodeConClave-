@@ -7,7 +7,7 @@
  * and the honest visual diff (no fabricated before/after).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import { api, uploadForm } from '../lib/api';
 import { PreviewPanel } from '../components/PreviewPanel';
 import { useToast } from '../components/Toast';
 import type {
@@ -225,6 +225,23 @@ export function WorkspacePage() {
     }
   }, [proofTaskId]);
 
+  const uploadFiles = async (list: FileList) => {
+    if (!projectId) { toast('Select a project first', 'error'); return; }
+    setBusy(true);
+    try {
+      await api('/api/v1/files/upload', {
+        method: 'POST',
+        body: uploadForm(Array.from(list), { projectId }),
+      });
+      await loadTree();
+      toast(`Uploaded ${list.length} file(s)`);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'upload failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => {
     void loadProof();
   }, [loadProof]);
@@ -320,7 +337,24 @@ export function WorkspacePage() {
       {tab === 'CODE' && (
         <div className="cc-grid cc-grid-2" data-testid="workspace-code">
           <div className="cc-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h3 style={{ margin: 0 }}>File tree</h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>File tree</h3>
+              {projectId && (
+                <label style={{ cursor: 'pointer', display: 'inline-flex' }}>
+                  <span className="cc-btn cc-btn--ghost cc-btn--sm">{busy ? 'Uploading…' : 'Add files'}</span>
+                  <input
+                    type="file"
+                    multiple
+                    style={{ display: 'none' }}
+                    disabled={busy}
+                    onChange={(e) => {
+                      if (e.target.files) void uploadFiles(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
+            </div>
             <div style={{ maxHeight: 420, overflowY: 'auto' }}>
               <TreeView nodes={tree} depth={0} />
             </div>
@@ -337,7 +371,7 @@ export function WorkspacePage() {
                       style={{
                         width: 22,
                         height: Math.max(4, Math.round((h.changes / maxHeat) * 90)),
-                        background: '#7c3aed',
+                        background: '#8A3FFC',
                         borderRadius: '3px 3px 0 0',
                       }}
                     />

@@ -6,6 +6,7 @@
  * activity, settings and shared resources.
  */
 import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import { jsonResult } from '../auth/schemas.js';
 import {
   acceptInvitation,
@@ -40,10 +41,47 @@ import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
 import { TeamRole, MAX_TEAM_NAME_LENGTH, MAX_TEAM_DESCRIPTION_LENGTH } from '@codeconclave/shared';
+import { effectivePlan } from '../entitlements/service.js';
+
+/**
+ * Team plan gate. Bug fix: `/api/v1/teams` was mounted behind
+ * requireWorkspaceEntitlement(), which is satisfied by a SOLO (pro) purchase.
+ * That let a Solo customer create teams, invite members, and share projects and
+ * conversations with other users — receiving the Team product (₹4,999) for the
+ * Solo price (₹999). Team collaboration is now gated on the Team plan
+ * specifically. Read-only listing stays open so a downgraded customer can still
+ * see (and export/leave) the teams they were a member of.
+ */
+export function requireTeamPlan(): RequestHandler {
+  // Named so the route stack is introspectable in tests (a regression guard that
+  // every escalatory team endpoint actually carries this gate).
+  return async function requireTeamPlan(req, _res, next) {
+    try {
+      const userId = req.ctx?.user?.id;
+      if (!userId) {
+        next(AppError.unauthorized());
+        return;
+      }
+      if ((await effectivePlan(userId)) === 'team') {
+        next();
+        return;
+      }
+      next(
+        AppError.paymentRequired(
+          'team_plan_required',
+          'Team collaboration requires the Team plan (₹4,999). Solo (₹999) is a single-user plan and cannot create teams, invite members, or share work.',
+        ),
+      );
+    } catch {
+      next(AppError.unavailable('entitlement_check_failed', 'Could not verify entitlement. Try again.'));
+    }
+  };
+}
 
 export const teamRoutes = (): Router => {
   const router = Router();
   router.use(requireAuth);
+  const teamPlan = requireTeamPlan();
 
   router.get(
     '/',
@@ -52,6 +90,7 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const name = String(req.body.name ?? '').trim().slice(0, MAX_TEAM_NAME_LENGTH);
       if (!name) throw AppError.badRequest('name_required', 'Team name is required');
@@ -94,6 +133,7 @@ export const teamRoutes = (): Router => {
 
   router.patch(
     '/:id',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const userId = req.ctx.user!.id;
       const teamId = req.params.id!;
@@ -115,11 +155,13 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/archive',
+    teamPlan,
     asyncRoute(async (req, res) => res.json(jsonResult({ team: await archiveTeam(req.ctx.user!.id, req.params.id!) }))),
   );
 
   router.post(
     '/:id/restore',
+    teamPlan,
     asyncRoute(async (req, res) => res.json(jsonResult({ team: await restoreTeam(req.ctx.user!.id, req.params.id!) }))),
   );
 
@@ -130,6 +172,7 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/members',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const email = String(req.body.email ?? '');
       const role = String(req.body.role ?? TeamRole.EDITOR);
@@ -140,6 +183,7 @@ export const teamRoutes = (): Router => {
 
   router.patch(
     '/:id/members/:userId',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const role = String(req.body.role ?? '');
       await changeMemberRole(req.ctx.user!.id, req.params.id!, req.params.userId!, role);
@@ -149,12 +193,17 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/members/:userId/suspend',
+    teamPlan,
     asyncRoute(async (req, res) => {
       await suspendMember(req.ctx.user!.id, req.params.id!, req.params.userId!);
       res.json(jsonResult({ ok: true }));
     }),
   );
 
+  // De-escalation is deliberately NOT plan-gated. revoke / remove / detach /
+  // unshare all *reduce* access, so a customer who downgrades or expires must
+  // still be able to strip access; gating these would trap collaborators in a
+  // team the paying customer can no longer manage.
   router.post(
     '/:id/members/:userId/revoke',
     asyncRoute(async (req, res) => {
@@ -180,6 +229,7 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/invitations/:invitationId/cancel',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const invitation = await cancelInvitation(req.ctx.user!.id, req.params.id!, req.params.invitationId!);
       res.json(jsonResult({ invitation }));
@@ -207,6 +257,7 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/projects/:projectId',
+    teamPlan,
     asyncRoute(async (req, res) => {
       const project = await attachProjectToTeam(req.ctx.user!.id, req.params.id!, req.params.projectId!);
       res.status(201).json(jsonResult({ project }));
@@ -230,6 +281,7 @@ export const teamRoutes = (): Router => {
 
   router.post(
     '/:id/conversations/:conversationId',
+    teamPlan,
     asyncRoute(async (req, res) => {
       await shareConversationWithTeam(req.ctx.user!.id, req.params.id!, req.params.conversationId!);
       res.status(201).json(jsonResult({ ok: true }));

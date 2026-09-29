@@ -1,7 +1,7 @@
 /**
  * CodeConClave — toast notifications (unstyled API; styled by global.css).
  */
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 interface Toast {
@@ -18,13 +18,19 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => () => {
+    timersRef.current.forEach(clearTimeout);
+  }, []);
 
   const toast = useCallback((message: string, kind: 'info' | 'error' = 'info') => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, kind, message }]);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 5000);
+    timersRef.current.push(timer);
   }, []);
 
   const value = useMemo(() => ({ toast }), [toast]);

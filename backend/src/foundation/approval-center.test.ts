@@ -107,6 +107,12 @@ function remoteSessionRow(): Record<string, unknown> {
 /** Pending-dedupe query â†’ `pending` rows; post-write getApproval â†’ the created row. */
 function resolveApprovals(pending: Record<string, unknown>[] = [], after: Record<string, unknown> = approvalRow()): void {
   db.state.resolve = (text) => {
+    if (text.includes('UPDATE approvals') && (text.includes('decided_by') || text.includes('execution_started_at'))) {
+      // Conditional writes (decide / execution claim) succeed when the row
+      // still carries the expected state — the mock models the won race.
+      // Race-lost tests override resolve to return [] for these statements.
+      return [after];
+    }
     if (!text.includes('FROM approvals')) return null;
     if (text.includes('action_type =')) return pending;
     return [after];
@@ -277,6 +283,21 @@ describe('decideApproval â€” server revalidation', () => {
     resolveApprovals([], approvalRow({ expires_at: new Date(Date.now() - 1000) }));
     await expect(decideApproval(USER_ID, 'app_4c1', 'APPROVE')).rejects.toMatchObject({ errorCode: 'approval_expired' });
   });
+
+  it('a concurrent decision wins exactly once: the loser gets approval_not_pending, no overwrite', async () => {
+    // SELECT still sees PENDING, but the conditional UPDATE matches 0 rows —
+    // another decide (e.g. REJECT) committed first.
+    db.state.resolve = (text) => {
+      if (text.includes('UPDATE approvals')) return [];
+      if (text.includes('FROM approvals')) return [approvalRow({ status: 'PENDING' })];
+      return null;
+    };
+    await expect(decideApproval(USER_ID, 'app_4c1', 'APPROVE')).rejects.toMatchObject({
+      errorCode: 'approval_not_pending',
+    });
+    const upd = db.state.calls.find((c) => c.text.includes('UPDATE approvals'))!;
+    expect(upd.text).toContain("AND status = 'PENDING'");
+  });
 });
 
 describe('executeApprovedAction â€” human-gate execution', () => {
@@ -394,6 +415,10 @@ describe('executeApprovedAction â€” human-gate execution', () => {
       if (text.includes('FROM approvals')) return [approvalRow({ status: 'APPROVED', action_type: 'terminal_exec', affected_resources: [{ type: 'shell', ref: '*' }] })];
       if (text.includes('FROM devices')) return [pairedDeviceRow()];
       if (text.includes('FROM remote_sessions')) return [remoteSessionRow()];
+      // Atomic execution claim wins the race in this test.
+      if (text.includes('UPDATE approvals') && text.includes('execution_started_at')) {
+        return [approvalRow({ status: 'APPROVED', action_type: 'terminal_exec' })];
+      }
       return null;
     };
     registerTool('terminal_exec', async () => ({ ok: true, command: 'git status' }));
@@ -418,6 +443,36 @@ describe('executeApprovedAction â€” human-gate execution', () => {
     expect(recordAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'approval.execution_failed', detail: expect.objectContaining({ error: 'disk full' }) }),
     );
+  });
+
+  it('a concurrent execute loses the atomic claim: conflict, tool never runs twice', async () => {
+    let runs = 0;
+    registerTool('file_write', async () => {
+      runs += 1;
+      return { ok: true };
+    });
+    // SELECT sees APPROVED, but the claim UPDATE matches 0 rows — another
+    // executor already holds RUNNING.
+    db.state.resolve = (text) => {
+      if (text.includes('UPDATE approvals')) return [];
+      if (text.includes('FROM approvals')) return [approvalRow({ status: 'APPROVED' })];
+      return null;
+    };
+    await expect(
+      executeApprovedAction(USER_ID, 'app_4c1', { tool: 'file_write', input: { path: 'src/app.ts' } }),
+    ).rejects.toMatchObject({ errorCode: 'approval_execution_conflict' });
+    expect(runs).toBe(0);
+    const claim = db.state.calls.find((c) => c.text.includes("execution_status = 'RUNNING'"))!;
+    expect(claim.text).toContain("status = 'APPROVED'");
+    expect(claim.text).toContain("execution_status <> 'RUNNING'");
+  });
+
+  it('execute after a FAILED run may retry (claim allows non-RUNNING states)', async () => {
+    resolveApprovals([], approvalRow({ status: 'APPROVED', execution_status: 'FAILED' }));
+    registerTool('file_write', async () => ({ ok: true, retried: true }));
+    await executeApprovedAction(USER_ID, 'app_4c1', { tool: 'file_write', input: { path: 'src/app.ts' } });
+    const success = db.state.calls.find((c) => c.text.includes("execution_status = 'SUCCEEDED'"))!;
+    expect(success).toBeDefined();
   });
 });
 

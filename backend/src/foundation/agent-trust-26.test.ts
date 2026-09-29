@@ -25,6 +25,8 @@ const db = vi.hoisted(() => {
     pool: { query },
     queryMany: queryRows,
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
+    withTenant: async (_userId: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -46,7 +48,7 @@ vi.mock('../modules/memory/service.js', () => memory);
 const entitlements = vi.hoisted(() => ({
   FREE_LIMITS: { MAX_AGENTS: 2, AGENT_MAX_TASKS_PER_RUN: 5, AGENT_MAX_BUDGET_USD: 1 },
   PRO_LIMITS: { MAX_AGENTS: 10, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
-  TEAM_LIMITS: { MAX_AGENTS: 25, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
+  TEAM_LIMITS: { MAX_AGENTS: 20, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
   effectivePlan: vi.fn(async () => 'free'),
 }));
 vi.mock('../modules/entitlements/service.js', () => entitlements);

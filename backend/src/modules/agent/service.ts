@@ -6,7 +6,7 @@
  * (explicit, expiring authorization — spec 8h).
  */
 import { Timeouts, type DevicePresence } from '@codeconclave/shared';
-import { pool } from '../../shared/db.js';
+import { pool, withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 
 export type IsOnlineFn = (userId: string, deviceId: string) => boolean;
@@ -36,7 +36,7 @@ export interface DeviceStatus {
 }
 
 export async function listDeviceStatus(userId: string, isOnline: IsOnlineFn): Promise<DeviceStatus[]> {
-  const result = await pool.query<{
+  const result = await withTenant(userId, (q) => q.query<{
     id: string;
     name: string;
     state: string;
@@ -48,7 +48,7 @@ export async function listDeviceStatus(userId: string, isOnline: IsOnlineFn): Pr
     `SELECT id, name, state, paired_at, last_seen_at, created_at, capabilities
      FROM devices WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId],
-  );
+  ));
   return result.rows.map((row) => {
     const caps = Array.isArray(row.capabilities) ? (row.capabilities as string[]) : [];
     return {
@@ -66,10 +66,10 @@ export async function listDeviceStatus(userId: string, isOnline: IsOnlineFn): Pr
 }
 
 export async function requirePairedDevice(userId: string, deviceId: string): Promise<{ id: string; name: string; capabilities: string[] }> {
-  const result = await pool.query<{ id: string; name: string; state: string; capabilities: unknown }>(
+  const result = await withTenant(userId, (q) => q.query<{ id: string; name: string; state: string; capabilities: unknown }>(
     'SELECT id, name, state, capabilities FROM devices WHERE id = $1 AND user_id = $2',
     [deviceId, userId],
-  );
+  ));
   const row = result.rows[0];
   if (!row) throw AppError.notFound('Device');
   if (row.state !== 'PAIRED') {
@@ -92,12 +92,12 @@ export function requireAgentOnline(userId: string, deviceId: string, isOnline: I
 }
 
 export async function hasActiveRemoteSession(userId: string, deviceId: string): Promise<boolean> {
-  const result = await pool.query(
+  const result = await withTenant(userId, (q) => q.query(
     `SELECT 1 FROM remote_sessions
      WHERE owner_id = $1 AND device_id = $2 AND state = 'ACTIVE' AND expires_at > now()
      LIMIT 1`,
     [userId, deviceId],
-  );
+  ));
   return (result.rowCount ?? 0) === 1;
 }
 

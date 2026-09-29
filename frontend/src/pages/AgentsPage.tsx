@@ -25,7 +25,7 @@ type AgentsTab = 'agents' | 'debate' | 'marketplace';
 
 const ROLE_STATE_COLORS: Record<string, { label: string; color: string }> = {
   IDLE: { label: 'Idle', color: '#64748b' },
-  THINKING: { label: 'Thinking', color: '#7c3aed' },
+  THINKING: { label: 'Thinking', color: '#8A3FFC' },
   RUNNING: { label: 'Running', color: '#2563eb' },
   WAITING_FOR_APPROVAL: { label: 'Waiting for approval', color: '#b45309' },
   WAITING_FOR_DEPENDENCY: { label: 'Waiting for dependency', color: '#b45309' },
@@ -72,20 +72,23 @@ export function AgentsPage() {
 
   const [detail, setDetail] = useState<{ agent: Agent; runs: AgentRun[] } | null>(null);
   const [runDetail, setRunDetail] = useState<{ run: AgentRun; tasks: AgentRunTask[] } | null>(null);
+  const [usage, setUsage] = useState<{ count: number; max: number; plan: string } | null>(null);
 
   const load = useCallback(async () => {
     setState('loading');
     try {
-      const [r, a, m, p] = await Promise.all([
+      const [r, a, m, p, u] = await Promise.all([
         api<{ roles: AgentRoleEntry[] }>('/api/v1/agents/roles'),
         api<{ agents: Agent[] }>('/api/v1/agents'),
         api<{ models: ModelOption[] }>('/api/v1/ai/models'),
         api<{ projects: { id: string; name: string }[] }>('/api/v1/projects'),
+        api<{ usage: { count: number; max: number; plan: string } }>('/api/v1/agents/limits'),
       ]);
       setRoles(r.roles);
       setAgents(a.agents);
       setModels(m.models);
       setProjects(p.projects);
+      setUsage(u.usage);
       setState('ready');
     } catch {
       setState('error');
@@ -279,6 +282,11 @@ export function AgentsPage() {
             Specialized agents run through the existing planner → task → permission → approval → execution → audit
             pipeline. Bounds (tasks per run, retries, budget, deadline) are enforced server-side.
           </p>
+          {usage && (
+            <p className="cc-hint" style={{ margin: '6px 0 0' }}>
+              My Agents {usage.count}/{usage.max}
+            </p>
+          )}
         </div>
         {tab === 'agents' && <button className="cc-btn" onClick={() => setShowNew((s) => !s)}>+ New agent</button>}
       </div>

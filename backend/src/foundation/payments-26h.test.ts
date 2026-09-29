@@ -26,6 +26,12 @@ const db = vi.hoisted(() => {
   const query = async (text: string, params: unknown[] = []) => {
     state.calls.push({ text, params });
     const rows = state.resolve ? state.resolve(text, params) : null;
+    // INSERT INTO payment_evidence that is not intercepted by the custom
+    // resolver succeeds with rowCount 1 (matching real PostgreSQL behavior).
+    // Needed for ON CONFLICT DO NOTHING detection in the pipeline.
+    if (rows === null && /^\s*INSERT\b.*INTO\s+payment_evidence\b/i.test(text)) {
+      return { rows: [], rowCount: 1 };
+    }
     return { rows: rows ?? state.rows, rowCount: state.rowCount };
   };
   const queryRows = async (text: string, params: unknown[] = []) => {
@@ -55,13 +61,15 @@ vi.mock('../modules/notifications/service.js', () => ({ notify, notifyUser: noti
 import { AppError } from '../shared/errors.js';
 import { env } from '../config/env.js';
 import { createPaymentIntent, getIntent, intentInstructions, sweepIntentExpiry, type PaymentIntentRow } from '../modules/payments/intents.js';
-import { parseOcrText } from '../modules/payments/evidence.js';
-import { ingestEvidence, refreshIntentEvidence } from '../modules/payments/pipeline.js';
+import { parseOcrText, webhookDetectorAvailable } from '../modules/payments/evidence.js';
+import { ingestEvidence, refreshIntentEvidence, isTrustedEvidenceSource } from '../modules/payments/pipeline.js';
 import { scoreEvidence } from '../modules/payments/matcher.js';
 import { refundIntent, revokeIntent, chargebackIntent } from '../modules/payments/activation.js';
 import { resendReceipt } from '../modules/payments/receipts.js';
 import { runReconciliation } from '../modules/payments/reconciliation.js';
 import { generateFounderDigest } from '../modules/payments/digest.js';
+import { createPaymentSession, paymentLinkForPlan, PLAN_PRICES_INR, PLAN_PAYMENT_LINK_INR, verifySession, createRazorpayPaymentLinkForIntent } from '../modules/payments/service.js';
+import { paymentWebhookRoutes } from '../modules/payments/routes.js';
 
 const REF = 'CCPRO-ABCD12';
 
@@ -118,7 +126,7 @@ function baseResolve(intent: Record<string, unknown>, over: (text: string, param
     const custom = over(text, params);
     if (custom) return custom;
     if (text.includes('INSERT INTO payment_intents')) {
-      capturedRef = String(params[4]);
+      capturedRef = String(params[5]);
       return null;
     }
     if (text.includes("AND status IN ('PENDING','REVIEW','ACTIVE','GRACE')")) return [];
@@ -191,9 +199,9 @@ describe('payment intents — creation and reference', () => {
     expect(intent.status).toBe('PENDING');
     expect(intent.reference).toMatch(/^CCPRO-[A-Z0-9]{6}$/);
     const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO payment_intents'))!;
-    expect(insert.params[4]).toBe(intent.reference);
-    expect(insert.text).toContain('make_interval(hours => $7)');
-    expect(insert.params[6]).toBe(24);
+    expect(insert.params[5]).toBe(intent.reference);
+    expect(insert.text).toContain('make_interval(hours => $10)');
+    expect(insert.params[9]).toBe(24);
     expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.intent_created' }));
   });
 
@@ -233,25 +241,33 @@ describe('fake success never activates a plan', () => {
     expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
   });
 
-  it('weak signals (amount only) score LOW -> PENDING, no entitlement', async () => {
+  it('weak user-asserted signals (amount only) never activate -> forced REVIEW, no entitlement', async () => {
     const intent = intentRow();
     baseResolve(intent);
     const result = await ingestEvidence('u1', 'pin-1', 'ocr', { text: 'Paid ₹999 via UPI' });
-    expect(result.result!.decision).toBe('PENDING');
     expect(result.result!.confidence).toBe(0.25);
-    expect(result.result!.intentStatus).toBe('PENDING');
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.intentStatus).toBe('REVIEW');
     expect(db.state.calls.some((c) => c.text.includes("'ACTIVE'"))).toBe(false);
     expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
-    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.matched' }));
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.review_required' }));
   });
 
-  it('a claimed provider id from a client payload is not provider evidence', async () => {
+  it('a fabricated manual assertion (paymentId/reference/amount) can NEVER activate', async () => {
     const intent = intentRow();
     baseResolve(intent);
-    const result = await ingestEvidence('u1', 'pin-1', 'manual', { paymentId: 'pay_claimed_by_client', reference: REF, amountInr: 999 });
-    expect(result.result!.decision).toBe('ACTIVE');
+    const result = await ingestEvidence('u1', 'pin-1', 'manual', {
+      paymentId: 'pay_claimed_by_client',
+      reference: REF,
+      amountInr: 999,
+      payerEmail: 'u1@test.dev',
+    });
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(result.result!.flags).toContain('manual_assertion_cannot_activate');
     const source = db.state.calls.find((c) => c.text.includes('INSERT INTO payment_evidence'))!;
     expect(source.params[3]).toBe('manual');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
   });
 });
 
@@ -437,6 +453,26 @@ describe('intent lifecycle — expiry, grace, refund, revocation, chargeback', (
 // -------------------------------------------------------- exactly-once guard
 describe('exactly-once activation', () => {
   it('a concurrent double activation loses the race and never double-activates', async () => {
+    env.GMAIL_OAUTH_ACCESS_TOKEN = 'ya29.mock';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/messages?')) {
+        return { ok: true, json: async () => ({ messages: [{ id: 'msg-1' }] }) } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          payload: {
+            headers: [
+              { name: 'Subject', value: `CodeConClave Pro payment ₹999 ${REF} pay_race_1` },
+              { name: 'From', value: 'Razorpay <noreply@razorpay.com>' },
+              { name: 'Date', value: new Date().toUTCString() },
+              { name: 'Authentication-Results', value: 'dns.google; dkim=pass header.d=razorpay.com; spf=pass smtp.mailfrom=razorpay.com; dmarc=pass header.from=razorpay.com' },
+            ],
+          },
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
     const intent = intentRow();
     let activeUpdates = 0;
     baseResolve(intent, (text) => {
@@ -452,9 +488,8 @@ describe('exactly-once activation', () => {
       }
       return null;
     });
-    const signals = { reference: REF, amountInr: 999, paymentId: 'pay_race_1' };
-    const first = await ingestEvidence('u1', 'pin-1', 'manual', signals);
-    const second = await ingestEvidence('u1', 'pin-1', 'manual', signals);
+    const first = await ingestEvidence('u1', 'pin-1', 'gmail', undefined);
+    const second = await ingestEvidence('u1', 'pin-1', 'gmail', undefined);
     expect(first.result!.intentStatus).toBe('ACTIVE');
     expect(second.result!.intentStatus).toBe('ACTIVE');
     const entitlementInserts = db.state.calls.filter((c) => c.text.includes('INSERT INTO entitlements'));
@@ -482,18 +517,18 @@ describe('OCR evidence rail', () => {
     expect(parsed.paymentId).toBe('pay_ocr_abc123');
   });
 
-  it('high-confidence OCR evidence (ref+amount+paymentId+payer) activates', async () => {
+  it('high-confidence OCR evidence cannot activate alone (screenshot is not authority, forced to REVIEW)', async () => {
     const intent = intentRow();
     baseResolve(intent);
     const result = await ingestEvidence('u1', 'pin-1', 'ocr', {
       text: `Paid ₹999 to CodeConClave Ref ${REF} pay_ocr_hi123 from u1@test.dev`,
     });
-    expect(result.result!.decision).toBe('ACTIVE');
     expect(result.result!.confidence).toBe(0.9);
-    expect(result.result!.intentStatus).toBe('ACTIVE');
-    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(true);
-    expect(notify).toHaveBeenCalledWith('u1', 'payment.status', expect.stringContaining('activated'), expect.anything());
-    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.activated' }));
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(result.result!.flags).toContain('manual_assertion_cannot_activate');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+    expect(notify).toHaveBeenCalledWith('u1', 'payment.review_required', 'Payment needs review', expect.anything());
   });
 });
 
@@ -521,6 +556,7 @@ describe('Gmail evidence rail', () => {
               { name: 'Subject', value: `CodeConClave Pro payment ₹999 ${REF} pay_gm_123` },
               { name: 'From', value: 'Razorpay <noreply@razorpay.com>' },
               { name: 'Date', value: new Date().toUTCString() },
+              { name: 'Authentication-Results', value: 'dns.google; dkim=pass header.d=razorpay.com; spf=pass smtp.mailfrom=razorpay.com; dmarc=pass header.from=razorpay.com' },
             ],
           },
         }),
@@ -621,5 +657,621 @@ describe('matcher scoring', () => {
     expect(result.thresholds).toEqual({ active: 0.8, grace: 0.5 });
     expect(result.confidence).toBe(0.7);
     expect(result.decision).toBe('REVIEW');
+  });
+});
+
+// ------------------------------------------------- plan -> amount/link authority
+describe('plan -> amount/link server authority', () => {
+  it('PRO resolves to the ₹999 amount and PRO payment link', () => {
+    expect(PLAN_PRICES_INR.pro).toBe(999);
+    expect(paymentLinkForPlan('pro')).toBe('https://rzp.io/rzp/sAgHIpxS');
+    expect(PLAN_PAYMENT_LINK_INR.pro).toBe(paymentLinkForPlan('pro'));
+  });
+
+  it('TEAM resolves to the ₹4999 amount and TEAM payment link', () => {
+    expect(PLAN_PRICES_INR.team).toBe(4999);
+    expect(paymentLinkForPlan('team')).toBe('https://rzp.io/rzp/3ioXlCxd');
+    expect(PLAN_PAYMENT_LINK_INR.team).toBe(paymentLinkForPlan('team'));
+  });
+
+  it('TEAM never falls back to the PRO ₹999 link', () => {
+    expect(PLAN_PAYMENT_LINK_INR.team).not.toBe(PLAN_PAYMENT_LINK_INR.pro);
+  });
+
+  it('unknown plans are rejected (no fallback link)', () => {
+    expect(() => paymentLinkForPlan('enterprise')).toThrow();
+  });
+
+  it('API Access fails safely when RAZORPAY_API_PAYMENT_LINK is unset — never falls back to pro/team', () => {
+    const saved = env.RAZORPAY_API_PAYMENT_LINK;
+    env.RAZORPAY_API_PAYMENT_LINK = undefined;
+    try {
+      expect(() => paymentLinkForPlan('api')).toThrowError(
+        expect.objectContaining({ errorCode: 'payment_link_unconfigured' }),
+      );
+      // The API purchase path must never hand out the PRO or TEAM link instead.
+      const apiLink = { pro: env.RAZORPAY_PRO_PAYMENT_LINK, team: env.RAZORPAY_TEAM_PAYMENT_LINK, api: '' }['api']!;
+      expect(apiLink).toBe('');
+      expect(() => paymentLinkForPlan('pro')).not.toThrow();
+      expect(() => paymentLinkForPlan('team')).not.toThrow();
+    } finally {
+      env.RAZORPAY_API_PAYMENT_LINK = saved;
+    }
+  });
+
+  it('createPaymentSession stores the server-authoritative per-plan link and amount', async () => {
+    const calls: { text: string; params: unknown[] }[] = [];
+    const inserted: Record<string, { plan: string; ref: string; amount: number }> = {};
+    db.state.resolve = (text, params) => {
+      calls.push({ text, params });
+      if (text.includes('INSERT INTO payment_sessions')) {
+        inserted[String(params[0])] = { plan: String(params[2]), ref: String(params[5]), amount: Number(params[3]) };
+        return null;
+      }
+      if (text.includes('SELECT * FROM payment_sessions WHERE id = $1 AND user_id = $2')) {
+        const s = inserted[String(params[0])];
+        if (!s) return null;
+        return [{
+          id: String(params[0]), user_id: String(params[1]), plan_id: s.plan, amount_inr: s.amount,
+          currency: 'INR', mode: 'PAYMENT_LINK', state: 'PENDING', reference: s.ref,
+          provider_payment_id: null, provider_order_id: null, verification_evidence: null,
+          expires_at: new Date(), created_at: new Date(), tenant_id: String(params[1]), idempotency_key: null,
+        }];
+      }
+      return null;
+    };
+    const pro = await createPaymentSession('u1', 'pro');
+    expect(pro.reference).toBe('https://rzp.io/rzp/sAgHIpxS');
+    const proIns = calls.find((c) => c.text.includes('INSERT INTO payment_sessions'))!;
+    expect(proIns.params[5]).toBe('https://rzp.io/rzp/sAgHIpxS');
+    expect(proIns.params[3]).toBe(999);
+
+    const team = await createPaymentSession('u1', 'team');
+    expect(team.reference).toBe('https://rzp.io/rzp/3ioXlCxd');
+    const teamIns = calls.filter((c) => c.text.includes('INSERT INTO payment_sessions'))[1];
+    expect(teamIns.params[5]).toBe('https://rzp.io/rzp/3ioXlCxd');
+    expect(teamIns.params[3]).toBe(4999);
+  });
+
+  it('createPaymentIntent stores the per-plan authoritative link', async () => {
+    const intent = intentRow({ id: 'pin-pro', plan_id: 'pro', amount_inr: 999, reference: 'CCPRO-ABCD12' });
+    baseResolve(intent);
+    await createPaymentIntent('u1', 'pro');
+    const proIns = db.state.calls.find((c) => c.text.includes('INSERT INTO payment_intents'))!;
+    expect(proIns.params[6]).toBe('https://rzp.io/rzp/sAgHIpxS');
+
+    const teamIntent = intentRow({ id: 'pin-team', plan_id: 'team', amount_inr: 4999, reference: 'CCTEAM-ABCD12' });
+    baseResolve(teamIntent);
+    await createPaymentIntent('u1', 'team');
+    const teamIns = db.state.calls.filter((c) => c.text.includes('INSERT INTO payment_intents'))[1];
+    expect(teamIns.params[6]).toBe('https://rzp.io/rzp/3ioXlCxd');
+  });
+
+  it('client cannot supply a plan amount to override the server amount', async () => {
+    const calls: { text: string; params: unknown[] }[] = [];
+    db.state.resolve = (text, params) => {
+      calls.push({ text, params });
+      if (text.includes('SELECT * FROM payment_sessions WHERE id = $1 AND user_id = $2')) {
+        return [{ id: String(params[0]), user_id: String(params[1]), plan_id: 'team', amount_inr: 4999, currency: 'INR', mode: 'PAYMENT_LINK', state: 'PENDING', reference: 'https://rzp.io/rzp/3ioXlCxd', provider_payment_id: null, provider_order_id: null, verification_evidence: null, expires_at: new Date(), created_at: new Date(), tenant_id: String(params[1]), idempotency_key: null }];
+      }
+      return null;
+    };
+    await createPaymentSession('u1', 'team');
+    const ins = calls.find((c) => c.text.includes('INSERT INTO payment_sessions'))!;
+    expect(ins.params[3]).toBe(4999);
+  });
+});
+
+// ------------------------------------------------- manual evidence authority
+describe('manual evidence security — user assertion can never grant a paid plan', () => {
+  it('fabricated manual reference alone cannot activate', async () => {
+    const intent = intentRow();
+    baseResolve(intent);
+    const result = await ingestEvidence('u1', 'pin-1', 'manual', { reference: REF });
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('fabricated manual amount alone cannot activate', async () => {
+    const intent = intentRow();
+    baseResolve(intent);
+    const result = await ingestEvidence('u1', 'pin-1', 'manual', { amountInr: 999 });
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('fabricated manual paymentId alone cannot activate', async () => {
+    const intent = intentRow();
+    baseResolve(intent);
+    const result = await ingestEvidence('u1', 'pin-1', 'manual', { paymentId: 'pay_fabricated_123' });
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('a fully self-consistent manual assertion still cannot become VERIFIED/ACTIVE', async () => {
+    const intent = intentRow();
+    baseResolve(intent);
+    const result = await ingestEvidence('u1', 'pin-1', 'manual', {
+      paymentId: 'pay_x',
+      reference: REF,
+      amountInr: 999,
+      payerEmail: 'u1@test.dev',
+      paidAt: new Date(),
+    });
+    expect(result.result!.confidence).toBe(1);
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('ocr is user-asserted and is not a trusted activation source', () => {
+    expect(isTrustedEvidenceSource('manual')).toBe(false);
+    expect(isTrustedEvidenceSource('ocr')).toBe(false);
+    expect(isTrustedEvidenceSource('gmail')).toBe(true);
+    expect(isTrustedEvidenceSource('razorpay_api')).toBe(true);
+    expect(isTrustedEvidenceSource('razorpay_webhook')).toBe(true);
+  });
+});
+
+// ------------------------------------------------- plan/amount mismatch rejection
+describe('plan/amount mismatch rejection (trusted evidence)', () => {
+  // Gmail evidence that returns a single normalized signal from a subject.
+  function gmailResolveWith(subject: string) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/messages?')) return { ok: true, json: async () => ({ messages: [{ id: 'm1' }] }) } as Response;
+      return {
+        ok: true,
+        json: async () => ({
+          payload: {
+            headers: [
+              { name: 'Subject', value: subject },
+              { name: 'From', value: 'Razorpay <noreply@razorpay.com>' },
+              { name: 'Date', value: new Date().toUTCString() },
+              { name: 'Authentication-Results', value: 'dns.google; dkim=pass header.d=razorpay.com; spf=pass smtp.mailfrom=razorpay.com; dmarc=pass header.from=razorpay.com' },
+            ],
+          },
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+    vi.stubGlobal('fetch', fetchMock);
+    env.GMAIL_OAUTH_ACCESS_TOKEN = 'ya29.mock';
+  }
+
+  it('PRO intent + TEAM ₹4999 amount is rejected by the trusted matcher (no activation)', async () => {
+    gmailResolveWith(`CodeConClave Pro payment ₹4999 ${REF} pay_gm_wrongamt`);
+    const intent = intentRow();
+    baseResolve(intent, (text) => {
+      if (text.includes('FROM payment_evidence WHERE owner_id') && text.includes('count(*)')) return [{ n: 0 }];
+      return null;
+    });
+    const result = await ingestEvidence('u1', 'pin-1', 'gmail', undefined);
+    expect(result.result!.flags).toContain('amount_mismatch');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('amount_mismatch is a blocking flag and can never activate', async () => {
+    gmailResolveWith(`CodeConClave Pro payment ₹499 ${REF} pay_gm_low`);
+    const intent = intentRow();
+    baseResolve(intent, (text) => {
+      if (text.includes('FROM payment_evidence WHERE owner_id') && text.includes('count(*)')) return [{ n: 0 }];
+      return null;
+    });
+    const result = await ingestEvidence('u1', 'pin-1', 'gmail', undefined);
+    expect(result.result!.flags).toContain('amount_mismatch');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('plan_mismatch blocks TEAM-intent evidence with a PRO reference', async () => {
+    const intent = intentRow({ id: 'pin-team', plan_id: 'team', amount_inr: 4999, reference: 'CCTEAM-ABCD12' });
+    baseResolve(intent, (text) => {
+      if (text.includes('FROM payment_evidence WHERE owner_id') && text.includes('count(*)')) return [{ n: 0 }];
+      return null;
+    });
+    const result = await ingestEvidence('u1', 'pin-team', 'manual', {
+      reference: 'CCPRO-OLD99',
+      amountInr: 4999,
+      paymentId: 'pay_planx',
+    });
+    expect(result.result!.flags).toContain('plan_mismatch');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('a correct trusted Gmail evidence activates (normal verified user path)', async () => {
+    gmailResolveWith(`CodeConClave Pro payment ₹999 ${REF} pay_gm_ok_482713`);
+    const intent = intentRow();
+    baseResolve(intent);
+    const result = await ingestEvidence('u1', 'pin-1', 'gmail', undefined);
+    expect(result.result!.confidence).toBe(0.9);
+    expect(result.result!.intentStatus).toBe('ACTIVE');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(true);
+  });
+});
+
+// ------------------------------------------------ session verify amount authority
+describe('verifySession rejects amount mismatch with server authority', () => {
+  it('throws amount_mismatch and never VERIFIES when evidence amount differs', async () => {
+    const session = {
+      id: 'ps-amt', user_id: 'u1', plan_id: 'team', amount_inr: 4999, currency: 'INR',
+      mode: 'WEBHOOK', state: 'PENDING', reference: null, provider_payment_id: null, provider_order_id: null,
+      verification_evidence: null, expires_at: new Date(), created_at: new Date(), tenant_id: 'u1', idempotency_key: null,
+    };
+    db.state.resolve = (text) => {
+      if (text.includes('FROM payment_sessions WHERE id = $1 AND user_id = $2')) return [session];
+      return null;
+    };
+    await expect(
+      verifySession('u1', 'ps-amt', {
+        source: 'WEBHOOK',
+        provider_payment_id: 'pay_web_999',
+        raw: { payload: { payment: { entity: { id: 'pay_web_999', amount: 99900 } } } },
+      }),
+    ).rejects.toMatchObject({ errorCode: 'amount_mismatch' });
+    const rejectedEvent = db.state.calls.find(
+      (c) => c.text.includes('INSERT INTO payment_events') && JSON.stringify(c.params).includes('amount_mismatch'),
+    );
+    expect(rejectedEvent).toBeDefined();
+    expect(db.state.calls.some((c) => c.text.includes("state = 'VERIFIED'"))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('accepts matching amount and reaches VERIFIED', async () => {
+    const session = {
+      id: 'ps-ok', user_id: 'u1', plan_id: 'pro', amount_inr: 999, currency: 'INR',
+      mode: 'WEBHOOK', state: 'PENDING', reference: null, provider_payment_id: null, provider_order_id: null,
+      verification_evidence: null, expires_at: new Date(), created_at: new Date(), tenant_id: 'u1', idempotency_key: null,
+    };
+    db.state.resolve = (text) => {
+      if (text.includes('FROM payment_sessions WHERE id = $1 AND user_id = $2')) return [session];
+      if (text.includes('SELECT id FROM entitlements WHERE user_id = $1 AND plan_id = $2')) return [{ id: 'ent-ok' }];
+      return null;
+    };
+    const result = await verifySession('u1', 'ps-ok', {
+      source: 'WEBHOOK',
+      provider_payment_id: 'pay_web_ok',
+      raw: { payload: { payment: { entity: { id: 'pay_web_ok', amount: 99900 } } } },
+    });
+    expect(result.state).toBe('PENDING'); // static mock row returned by getSession
+    expect(db.state.calls.some((c) => c.text.includes("SET state = 'VERIFIED'"))).toBe(true);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(true);
+  });
+});
+
+// =====================================================================
+// AUTOMATIC PAYMENT ACTIVATION — trusted webhook verification rail.
+// The signed Razorpay webhook is the trusted rail. Nothing a client
+// fabricates (a made-up paymentId/reference/screenshot) may ever reach
+// ACTIVE on its own.
+// =====================================================================
+type WebhookEvent = {
+  id: string;
+  event: string;
+  payload?: {
+    payment?: { entity?: { id?: string; amount?: number; email?: string; created_at?: number; notes?: Record<string, string> } };
+    payment_link?: { entity?: { id?: string; reference_id?: string; notes?: Record<string, string> } };
+  };
+};
+
+function signWebhook(raw: Buffer): string {
+  const { createHmac } = require('node:crypto');
+  return createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET!).update(raw).digest('hex');
+}
+
+/** Drive the real /razorpay POST handler (extracted from the router) with stub req/res. */
+async function callWebhook(
+  body: WebhookEvent,
+  opts: { signature?: string; rawBody?: Buffer } = {},
+): Promise<{ statusCode: number; json: any; errors: any[] }> {
+  const raw = opts.rawBody ?? Buffer.from(JSON.stringify(body));
+  const router: any = paymentWebhookRoutes();
+  const layer = router.stack.find((l: any) => l.route && l.route.path === '/razorpay');
+  const handle = layer.route.stack[0].handle;
+  const req: any = {
+    method: 'POST',
+    url: '/razorpay',
+    path: '/razorpay',
+    get: (h: string) => (req.headers as Record<string, string>)[h.toLowerCase()] ?? undefined,
+    headers: {},
+    body: raw,
+  };
+  if (opts.signature !== undefined) req.headers['x-razorpay-signature'] = opts.signature;
+  else req.headers['x-razorpay-signature'] = signWebhook(raw);
+  let statusCode = 200;
+  let jsonOut: any = null;
+  let settle: (() => void) | null = null;
+  const done = new Promise<void>((r) => { settle = r; });
+  const res: any = {
+    status(c: number) { statusCode = c; return res; },
+    json(o: any) { jsonOut = o; settle?.(); return res; },
+    end: () => res,
+  };
+  const errors: any[] = [];
+  const next = (e?: any) => { if (e) errors.push(e instanceof Error ? e.message : e); settle?.(); };
+  await handle(req, res, next);
+  await done;
+  return { statusCode, json: jsonOut, errors };
+}
+
+/** Extend baseResolve so the webhook resolution + dedupe queries resolve too. */
+function webhookResolve(intent: Record<string, unknown>, over: (text: string, params: unknown[]) => unknown[] | null = () => null) {
+  const base = baseResolve(intent, over);
+  const baseFn = db.state.resolve!;
+  db.state.resolve = (text, params) => {
+    const custom = over(text, params);
+    if (custom) return custom;
+    if (text.includes('INSERT INTO payment_webhook_events') && text.includes('ON CONFLICT')) {
+      db.state.rowCount = 1;
+      return [{ event_id: String(params[0]) }];
+    }
+    if (text.includes('FROM payment_intents WHERE provider_reference_id') || text.includes('FROM payment_intents WHERE provider_payment_link_id') || text.includes('FROM payment_intents WHERE reference = $1 ORDER BY')) {
+      return params[0] === intent.reference || params[0] === 'plink_101' ? [{ ...intent }] : [];
+    }
+    return baseFn(text, params);
+  };
+  void base;
+}
+
+function webhookProEvent(over: Partial<WebhookEvent> = {}): WebhookEvent {
+  return {
+    id: 'evt_wh_1',
+    event: 'payment.captured',
+    payload: {
+      payment: { entity: { id: 'pay_wh_pro', amount: 99900, email: 'u1@test.dev', created_at: Math.floor(Date.now() / 1000) - 60, notes: { reference: REF } } },
+      payment_link: { entity: { id: 'plink_101', reference_id: REF, notes: { reference: REF } } },
+    },
+    ...over,
+  };
+}
+
+describe('AUTOMATIC PAYMENT ACTIVATION — webhook rail', () => {
+  it('webhookDetectorAvailable is enabled only when webhook flag + secret are set', () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    expect(webhookDetectorAvailable()).toBe(true);
+    env.RAZORPAY_WEBHOOK_SECRET = undefined;
+    expect(webhookDetectorAvailable()).toBe(false);
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    env.RAZORPAY_WEBHOOK_ENABLED = 'false';
+    expect(webhookDetectorAvailable()).toBe(false);
+  });
+
+  it('createRazorpayPaymentLinkForIntent calls the API with a unique reference and returns the link', async () => {
+    env.RAZORPAY_KEY_ID = 'rzp_test_key';
+    env.RAZORPAY_KEY_SECRET = 'rzp_test_secret';
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'plink_101', short_url: 'https://rzp.io/rzp/uniq1', reference_id: 'CCPRO-ABCD12' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    baseResolve(intentRow());
+    const link = await createRazorpayPaymentLinkForIntent('u1', 'pro', REF);
+    expect(link).toEqual({ id: 'plink_101', short_url: 'https://rzp.io/rzp/uniq1', reference_id: 'CCPRO-ABCD12' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body).reference_id).toBe(REF);
+    expect(JSON.parse(init.body).amount).toBe(99900);
+    expect(JSON.parse(init.body).currency).toBe('INR');
+  });
+
+  it('createPaymentIntent stores the unique link mapping (provider_payment_link_id + reference_id)', async () => {
+    env.RAZORPAY_KEY_ID = 'rzp_test_key';
+    env.RAZORPAY_KEY_SECRET = 'rzp_test_secret';
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'plink_101', short_url: 'https://rzp.io/rzp/uniq1', reference_id: 'CCPRO-ABCD12' }),
+    })));
+    baseResolve(intentRow());
+    await createPaymentIntent('u1', 'pro');
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO payment_intents'))!;
+    expect(insert.text).toContain('provider_payment_link_id');
+    expect(insert.params[7]).toBe('plink_101');
+    expect(insert.params[8]).toBe('CCPRO-ABCD12');
+    expect(insert.params[6]).toBe('https://rzp.io/rzp/uniq1');
+  });
+
+  it('a valid signed webhook auto-activates Pro -> ACTIVE with an entitlement', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh1', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    webhookResolve(intent);
+    const { json } = await callWebhook(webhookProEvent());
+    expect(json.ok).toBe(true);
+    expect(json.status).toBe('ACTIVE');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(true);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_processed' }));
+  });
+
+  it('rejects an invalid signature', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh2', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    webhookResolve(intent);
+    const { json, errors } = await callWebhook(webhookProEvent(), { signature: 'deadbeef'.repeat(8) });
+    expect(json).toBeNull();
+    expect(errors.some((e) => String(e).includes('Invalid Razorpay webhook signature'))).toBe(true);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_signature_invalid' }));
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('a replayed event.id is idempotent (no double the entitlement grant)', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh3', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    webhookResolve(intent);
+    // First delivery processes and grants.
+    const first = await callWebhook(webhookProEvent());
+    expect(first.json.status).toBe('ACTIVE');
+    // Second delivery: simulate the dedupe returning no row (already recorded).
+    const grantedBefore = db.state.calls.filter((c) => c.text.includes('INSERT INTO entitlements')).length;
+    db.state.resolve = (text, params) => {
+      if (text.includes('INSERT INTO payment_webhook_events') && text.includes('ON CONFLICT')) {
+        db.state.rowCount = 0;
+        return null;
+      }
+      return null;
+    };
+    const second = await callWebhook(webhookProEvent());
+    expect(second.json).toMatchObject({ ok: true, duplicate: true });
+    const grantedAfter = db.state.calls.filter((c) => c.text.includes('INSERT INTO entitlements')).length;
+    expect(grantedAfter).toBeGreaterThanOrEqual(grantedBefore);
+  });
+
+  it('a payment.authorized hold is recorded but never activates (authorization is not capture)', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-whauth', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    webhookResolve(intent);
+    const { json } = await callWebhook(webhookProEvent({ id: 'evt_wh_auth', event: 'payment.authorized' }));
+    expect(json.ok).toBe(true);
+    expect(json.event).toBe('payment.authorized');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'ACTIVE'"))).toBe(false);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_event' }));
+  });
+
+  it('a payment.dispute.created event suspends access (CHARGEBACK) and stops a pending auto-approval', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-whd', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF, status: 'ACTIVE' });
+    webhookResolve(intent, (text, params) => {
+      if (text.includes('FROM entitlements WHERE user_id') && text.includes('plan_id') && text.includes('PRO_VERIFIED')) {
+        return [{ id: 'ent-whd', payment_session_id: intent.id }];
+      }
+      if (text.includes('SELECT * FROM entitlements WHERE user_id') && text.includes('plan_id')) {
+        return [{ id: 'ent-whd', user_id: params[0], plan_id: params[1], state: 'PRO_VERIFIED', verified_at: new Date(), expires_at: null, payment_session_id: intent.id, reason: null, created_at: new Date(), updated_at: new Date() }];
+      }
+      return null;
+    });
+    const { json } = await callWebhook(webhookProEvent({ id: 'evt_wh_dispute', event: 'payment.dispute.created' }));
+    expect(json).toMatchObject({ ok: true, handled: 'chargeback' });
+    const chargeback = db.state.calls.find((c) => c.text.includes("SET status = 'CHARGEBACK'"))!;
+    expect(chargeback).toBeDefined();
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE entitlements SET state'))).toBe(true);
+    const stop = db.state.calls.find((c) => c.text.includes("SET state = 'STOPPED'") && c.text.includes('payment_reversed'))!;
+    expect(stop).toBeDefined();
+    expect(stop.params[0]).toBe('pay_wh_pro');
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_chargeback' }));
+  });
+
+  it('a refund during the autopilot window stops the pending auto-approval so the sweep cannot activate', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-whr', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF, status: 'PENDING' });
+    webhookResolve(intent);
+    const { json } = await callWebhook(webhookProEvent({
+      id: 'evt_wh_refund',
+      event: 'payment.refunded',
+      payload: {
+        payment: { entity: { id: 'pay_wh_ref', amount: 99900, email: 'u1@test.dev', created_at: Math.floor(Date.now() / 1000) - 60, notes: { reference: REF } } },
+        payment_link: { entity: { id: 'plink_101', reference_id: REF, notes: { reference: REF } } },
+      },
+    }));
+    expect(json).toMatchObject({ ok: true, handled: 'refunded' });
+    const stop = db.state.calls.find((c) => c.text.includes("SET state = 'STOPPED'") && c.text.includes('payment_reversed'))!;
+    expect(stop).toBeDefined();
+    expect(stop.params[0]).toBe('pay_wh_ref');
+    // PENDING intent: no activation, no entitlement grant.
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+  });
+
+  it('a webhook whose amount does not match the intent never auto-activates nor grants', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh4', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    webhookResolve(intent);
+    const { json } = await callWebhook(webhookProEvent({
+      payload: {
+        payment: { entity: { id: 'pay_wh_amt', amount: 499900, email: 'u1@test.dev', created_at: Math.floor(Date.now() / 1000) - 60, notes: { reference: REF } } },
+        payment_link: { entity: { id: 'plink_101', reference_id: REF, notes: { reference: REF } } },
+      },
+    }));
+    expect(json.ok).toBe(false);
+    expect(json.reason).toBe('amount_mismatch');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_amount_mismatch' }));
+  });
+
+  it('a webhook that resolves to no intent is recorded, never auto-activated', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow();
+    webhookResolve(intent);
+    db.state.resolve = (text, params) => {
+      if (text.includes('INSERT INTO payment_webhook_events') && text.includes('ON CONFLICT')) { db.state.rowCount = 1; return [{ event_id: String(params[0]) }]; }
+      if (text.includes('FROM payment_intents WHERE')) return [];
+      return null;
+    };
+    const { json } = await callWebhook(webhookProEvent({ payload: { payment: { entity: { id: 'pay_wh_unk', amount: 99900, email: 'other@example.com', created_at: Math.floor(Date.now() / 1000) - 60 } } } }));
+    expect(json).toMatchObject({ ok: false, reason: 'no_matching_intent' });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'payment.webhook_unmatched' }));
+  });
+
+  it('fabricated/manual evidence can never activate even when the webhook flag is on', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh5', reference: REF });
+    baseResolve(intent);
+    // A client attempts to claim a "captured" payment with a fabricated paymentId
+    // through the untrusted/manual rail — must not activate.
+    const result = await ingestEvidence('u1', 'pin-wh5', 'manual', {
+      paymentRef: 'pay_fab',
+      amountInr: 999,
+      paidAt: new Date().toISOString(),
+    });
+    // Manual/asserted evidence is usable only for REVIEW — it can never reach
+    // ACTIVE (manual_assertion_cannot_activate is the mandated boundary).
+    expect(result.result!.decision).toBe('REVIEW');
+    expect(result.result!.flags).toContain('manual_assertion_cannot_activate');
+    expect(result.result!.intentStatus).toBe('REVIEW');
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
+    // Trusted webhook with a mismatched plan reference still cannot fabricate an ACTIVE.
+  });
+
+  it('trusted webhook evidence reaches ACTIVE through the 26H pipeline', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh6', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF });
+    baseResolve(intent);
+    const payload = webhookProEvent();
+    const result = await ingestEvidence('u1', 'pin-wh6', 'razorpay_webhook', payload);
+    expect(result.result!.intentStatus).toBe('ACTIVE');
+    expect(result.result!.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(true);
+  });
+
+  it('a webhook refund sets the intent to REFUNDED and revokes the entitlement', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow({ id: 'pin-wh7', reference: REF, provider_payment_link_id: 'plink_101', provider_reference_id: REF, status: 'ACTIVE' });
+    webhookResolve(intent, (text, params) => {
+      if (text.includes('FROM entitlements WHERE user_id') && text.includes('plan_id') && text.includes('PRO_VERIFIED')) {
+        return [{ id: 'ent-wh7', payment_session_id: intent.id }];
+      }
+      if (text.includes('SELECT * FROM entitlements WHERE user_id') && text.includes('plan_id')) {
+        return [{ id: 'ent-wh7', user_id: params[0], plan_id: params[1], state: 'PRO_VERIFIED', verified_at: new Date(), expires_at: null, payment_session_id: intent.id, reason: null, created_at: new Date(), updated_at: new Date() }];
+      }
+      return null;
+    });
+    const { json } = await callWebhook(webhookProEvent({ id: 'evt_wh_refund', event: 'payment.refunded' }));
+    expect(json).toMatchObject({ ok: true, handled: 'refunded' });
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'REFUNDED'"))).toBe(true);
+  });
+
+  it('RAZORPAY_WEBHOOK_ENABLED off -> webhook route is unavailable (404), no processing', async () => {
+    env.RAZORPAY_WEBHOOK_ENABLED = 'false';
+    env.RAZORPAY_WEBHOOK_SECRET = 'whsec_test';
+    const intent = intentRow();
+    webhookResolve(intent);
+    const { errors } = await callWebhook(webhookProEvent());
+    expect(errors.some((e) => String(e).includes('Webhook not configured'))).toBe(true);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO payment_webhook_events'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO entitlements'))).toBe(false);
   });
 });

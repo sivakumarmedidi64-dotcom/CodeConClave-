@@ -7,11 +7,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join, normalize, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
+import { spawn } from 'node:child_process';
 import { VERSION, loadConfig, saveConfig, type AgentConfig } from './config.js';
 import { resolveWorkspacePath, classifyCommand, isProtectedPath, gateTerminalInput } from './policy.js';
 import { sha256 } from './diff.js';
 import { listDirectory, readFile, proposeEdit, applyEdit, fileMetadata } from './files.js';
-import { TerminalSession } from './terminal.js';
+import { TerminalSession, runCommandOnce } from './terminal.js';
 import { HubClient } from './hub.js';
 
 const DEFAULT_BACKEND = process.env.CODECONCLAVE_BACKEND_URL ?? 'http://localhost:4000';
@@ -106,6 +107,7 @@ async function cmdPair(deviceId: string, code: string, backendUrl: string): Prom
   config.token = body.data.token;
   config.pairedTo = base;
   config.backendUrl = base;
+  config.deviceId = deviceId;
   saveConfig(config);
   console.log('Paired. Token stored (0600) at ' + config.deviceId);
   console.log('Run `codeconclave-agent serve` to connect.');
@@ -245,6 +247,56 @@ async function cmdServe(): Promise<void> {
           const started = session.start();
           if (!started.ok) return relayError(started.error ?? 'start failed');
           relay({ tabId, shell, cwd, status: session.getStatus() });
+          return;
+        }
+        case 'browser.open': {
+          const url = String(cmd.url ?? '');
+          if (!/^https?:\/\//i.test(url)) {
+            return relayError(`policy_denied: only http(s) URLs are allowed, got "${url.slice(0, 80)}"`);
+          }
+          try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+              return relayError('policy_denied: only http(s) URLs are allowed');
+            }
+          } catch {
+            return relayError('policy_denied: malformed URL');
+          }
+          const opener =
+            process.platform === 'win32'
+              ? { command: 'cmd', args: ['/c', 'start', '', url] }
+              : process.platform === 'darwin'
+                ? { command: 'open', args: [url] }
+                : { command: 'xdg-open', args: [url] };
+          spawn(opener.command, opener.args, { cwd: homedir(), shell: false })
+            .on('error', (err) => relayError(`browser_open_failed: ${err.message}`))
+            .on('spawn', () => relay({ url, opened: true }));
+          return;
+        }
+        case 'terminal.exec': {
+          const command = String(cmd.command ?? '');
+          const shell = String(cmd.shell ?? DEFAULT_SHELL);
+          const root = workspaceFor(config, String(cmd.path ?? ''));
+          const gate = gateTerminalInput(command);
+          if (!gate.allowed) return relayError(`policy_denied: ${gate.reason}`);
+          const decision = classifyCommand(command);
+          if (!decision.allowed) return relayError(`policy_denied: ${decision.reason}`);
+          const cwd = root?.ok ? root.abs : (config.workspaces?.[0]?.root ?? homedir());
+          stream('stdout', `$ ${command}\n`);
+          const result = await runCommandOnce(shell, command, cwd, {
+            timeoutMs: Number(cmd.timeoutMs ?? 120_000),
+            maxBytes: Number(cmd.maxBytes ?? 256 * 1024),
+          });
+          if (result.output) stream('stdout', result.output.endsWith('\n') ? result.output : `${result.output}\n`);
+          if (result.timedOut) stream('status', JSON.stringify({ timedOut: true, exitCode: null }));
+          relay({
+            ok: result.ok,
+            timedOut: result.timedOut,
+            exitCode: result.exitCode,
+            error: result.error ?? null,
+            cwd,
+            outputByteLength: result.output.length,
+          });
           return;
         }
         case 'terminal.input': {

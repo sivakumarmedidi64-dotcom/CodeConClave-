@@ -16,6 +16,7 @@ import { PluginCapability, PluginPermission } from '@codeconclave/shared';
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_CALENDAR_API = 'https://www.googleapis.com' + '/calendar/v3/calendars/primary' + '/events';
 
 const str = z.string().min(1).max(500);
 
@@ -307,10 +308,10 @@ async function googleActionFetch(token: string, action: string, input: Record<st
     case 'calendar.events.list': {
       const max = input.maxResults !== undefined ? Number(input.maxResults) : 20;
       const timeMin = input.timeMin ? `&timeMin=${encodeURIComponent(String(input.timeMin))}` : '';
-      return googleFetch(token, `https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=${max}${timeMin}`);
+      return googleFetch(token, `${GOOGLE_CALENDAR_API}?maxResults=${max}${timeMin}`);
     }
     case 'calendar.events.create': {
-      const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      const response = await fetch(GOOGLE_CALENDAR_API, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({

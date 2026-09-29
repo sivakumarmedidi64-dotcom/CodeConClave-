@@ -124,6 +124,7 @@ beforeEach(() => {
   env.RAZORPAY_KEY_ID = undefined;
   env.RAZORPAY_KEY_SECRET = undefined;
   env.RAZORPAY_WEBHOOK_SECRET = undefined;
+  env.RAZORPAY_WEBHOOK_ENABLED = 'false';
   registerPaymentTools();
 });
 
@@ -152,12 +153,13 @@ describe('evidence providers — capability detection is honest', () => {
     expect(evidenceProviders().api.reason).toBeNull();
   });
 
-  it('enables the webhook detector only when secret AND webhook mode are set', () => {
+  it('enables the webhook detector only when secret AND the webhook verification rail are set', () => {
     env.RAZORPAY_WEBHOOK_SECRET = 'whsec_token';
     expect(evidenceProviders().webhook.enabled).toBe(false);
-    env.RAZORPAY_MODE = 'webhook';
+    env.RAZORPAY_WEBHOOK_ENABLED = 'true';
     expect(evidenceProviders().webhook.enabled).toBe(true);
-    env.RAZORPAY_MODE = 'payment_link';
+    expect(evidenceProviders().webhook.reason).toBeNull();
+    env.RAZORPAY_WEBHOOK_ENABLED = 'false';
     expect(evidenceProviders().webhook.enabled).toBe(false);
   });
 });

@@ -7,7 +7,7 @@
  * payload generated locally. The output is never presented as a real
  * provider response. Every run is recorded to plugin_sandbox_runs.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant, queryMany } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -81,11 +81,11 @@ export async function runPluginSandbox(
   const id = newId(PREFIX.PLUGIN_SANDBOX_RUN);
   const output = fakeOutput(found.def.name, found.def, inputData);
   const { pool } = await import('../../shared/db.js');
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO plugin_sandbox_runs (id, owner_id, plugin_type, action, input, output, ok, latency_ms)
      VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,true,0)`,
     [id, userId, input.pluginType, found.def.name, JSON.stringify(inputData), JSON.stringify(output)],
-  );
+  ));
   await recordAudit({
     action: AuditAction.PLUGIN_SANDBOX_RUN,
     actorUserId: userId,
@@ -108,8 +108,12 @@ export async function runPluginSandbox(
 }
 
 export async function listPluginSandboxRuns(userId: string, limit = 50): Promise<PluginSandboxRunRow[]> {
-  return queryMany<PluginSandboxRunRow>(
-    'SELECT * FROM plugin_sandbox_runs WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2',
-    [userId, Math.min(Math.max(limit, 1), 200)],
+  return withTenant<PluginSandboxRunRow[]>(userId, async (q) =>
+    (
+      await q.query<PluginSandboxRunRow>(
+        'SELECT * FROM plugin_sandbox_runs WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2',
+        [userId, Math.min(Math.max(limit, 1), 200)],
+      )
+    ).rows,
   );
 }

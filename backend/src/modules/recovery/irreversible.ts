@@ -5,7 +5,7 @@
  * rewinding past an irreversible action is BLOCKED — the branch is created from
  * the newest checkpoint that precedes the irreversible action, or not at all.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant, pool, queryMany } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction, RecoveryEventType } from '@codeconclave/shared';
@@ -42,11 +42,11 @@ export async function recordIrreversibleAction(
 ): Promise<IrreversibleActionRow> {
   const task = await getTask(userId, taskId);
   const id = newId(PREFIX.IRREVERSIBLE_ACTION);
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO irreversible_actions (id, task_id, owner_id, action_type, description, detail)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
     [id, taskId, userId, input.actionType, input.description, JSON.stringify(input.detail ?? {})],
-  );
+  ));
   await recordRecoveryHistory(taskId, userId, RecoveryEventType.IRREVERSIBLE_ACTION, {
     irreversibleActionId: id,
     actionType: input.actionType,
@@ -75,9 +75,13 @@ export async function recordIrreversibleAction(
 
 /** List all irreversible actions recorded for a task (newest first). */
 export async function listIrreversibleActions(userId: string, taskId: string): Promise<IrreversibleActionRow[]> {
-  const rows = await queryMany<IrreversibleActionRow>(
-    `SELECT * FROM irreversible_actions WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at`,
-    [taskId, userId],
+  const rows = await withTenant<IrreversibleActionRow[]>(userId, async (q) =>
+    (
+      await q.query<IrreversibleActionRow>(
+        `SELECT * FROM irreversible_actions WHERE task_id = $1 AND owner_id = $2 ORDER BY created_at`,
+        [taskId, userId],
+      )
+    ).rows,
   );
   return rows;
 }

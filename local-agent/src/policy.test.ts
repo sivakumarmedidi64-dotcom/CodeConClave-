@@ -36,6 +36,23 @@ describe('protected paths (deny by default)', () => {
   it('blocks .git internals', () => {
     expect(isProtectedPath('/proj/.git/config')).toBe(true);
   });
+  it('blocks orchestrator, browser, keychain and history credential locations', () => {
+    expect(isProtectedPath('/home/u/.kube/config')).toBe(true);
+    expect(isProtectedPath('/home/u/.docker/config.json')).toBe(true);
+    expect(isProtectedPath('/home/u/.config/Code/Default/Login Data')).toBe(true);
+    expect(isProtectedPath('/home/u/.mozilla/firefox/abc/logins.json')).toBe(true);
+    expect(isProtectedPath('/home/u/Library/Keychains/login.keychain-db')).toBe(true);
+    expect(isProtectedPath('/home/u/.gnupg/pubring.kbx')).toBe(true);
+    expect(isProtectedPath('/home/u/.bash_history')).toBe(true);
+    expect(isProtectedPath('/home/u/.zsh_history')).toBe(true);
+    expect(isProtectedPath('/proj/.netrc')).toBe(true);
+    expect(isProtectedPath('/proj/.pgpass')).toBe(true);
+  });
+  it('does not flag ordinary files with similar names', () => {
+    expect(isProtectedPath('/proj/src/keychain-demo.ts')).toBe(false);
+    expect(isProtectedPath('/proj/docs/docker-setup.md')).toBe(false);
+    expect(isProtectedPath('/proj/.bash_history.bak/notes.txt')).toBe(false);
+  });
   it('allows ordinary source files', () => {
     expect(isProtectedPath('/proj/src/index.ts')).toBe(false);
     expect(isProtectedPath('/proj/package.json')).toBe(false);

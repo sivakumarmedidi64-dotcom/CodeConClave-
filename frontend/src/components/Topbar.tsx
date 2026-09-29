@@ -4,7 +4,7 @@
  * notifications bell (real unread count), theme toggle, compact profile menu.
  * Notifications panel opens a compact list.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
@@ -14,6 +14,7 @@ import { ContextIndicator } from './ContextIndicator';
 import { ThemeToggle } from './ThemeToggle';
 import { HealthChip } from './HealthChip';
 import { ConnectivityIndicator } from './ConnectivityIndicator';
+import { Icon } from './Icon';
 import { isOnline, enqueueOfflineOp } from '../lib/offline';
 
 const SEARCH_ROUTES: Record<string, string> = {
@@ -67,39 +68,19 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  const loadCount = useCallback(async () => {
-    try {
-      const res = await api<{ count: number }>('/api/v1/notifications/unread-count');
-      setUnread(res.count);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCount();
-    pollRef.current = window.setInterval(() => void loadCount(), 30_000);
-    return () => {
-      if (pollRef.current !== null) window.clearInterval(pollRef.current);
-    };
-  }, [loadCount]);
-
-  // Browser notifications for NEW items (honest: only while the app is open).
-  // The first fetch only seeds the dedupe set; later fetches surface items the
-  // user has not seen yet this session.
+  // ONE notification polling mechanism: a single 30s interval drives both the
+  // unread badge (authoritative server count) and the browser-notification
+  // dedupe sweep. The first tick only seeds the dedupe set; later ticks surface
+  // items the user has not seen yet this session.
   useEffect(() => {
     let cancelled = false;
-    const seed = async () => {
+    const refresh = async () => {
       try {
-        const res = await api<{ notifications: Notification[] }>('/api/v1/notifications?limit=20');
-        if (cancelled) return;
-        for (const n of res.notifications) knownIdsRef.current.add(n.id);
+        const countRes = await api<{ count: number }>('/api/v1/notifications/unread-count');
+        if (!cancelled) setUnread(countRes.count);
       } catch {
         /* ignore */
       }
-    };
-    void seed();
-    const timer = window.setInterval(async () => {
       try {
         const res = await api<{ notifications: Notification[] }>('/api/v1/notifications?limit=20');
         if (cancelled) return;
@@ -111,17 +92,23 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       } catch {
         /* ignore */
       }
-    }, 30_000);
+    };
+    void refresh();
+    pollRef.current = window.setInterval(() => void refresh(), 30_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (pollRef.current !== null) window.clearInterval(pollRef.current);
     };
+    // openNotification is stable per component instance (re-created each render but
+    // always closes over the same hooks); the effect intentionally runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openNotification = (n: Notification) => {
     const target = NOTIFICATION_ROUTES[n.resourceType ?? ''] ?? '/home';
-    if (target.startsWith('/settings')) navigate('/settings');
-    else navigate(target);
+    // Preserve query strings (e.g. /settings?tab=security) — the target IS a
+    // full location; stripping the search would land on the wrong Settings tab.
+    navigate(target);
     void api(`/api/v1/notifications/${n.id}/read`, { method: 'POST' }).catch(() => undefined);
   };
 
@@ -213,6 +200,29 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
     window.dispatchEvent(new Event('cc:open-palette'));
   };
 
+  /* Escape closes whichever topbar popover is open. Focus stays where it is
+     (the toggle buttons remain mounted, so keyboard users are not stranded). */
+  useEffect(() => {
+    if (!open && !profileOpen && !searchOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      setProfileOpen(false);
+      setSearchOpen(false);
+      setResults([]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, profileOpen, searchOpen]);
+
+  /* The debounced search timer must not fire after unmount — a late tick
+     would setState on an unmounted component and issue a stray request. */
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
   const initial = (user?.displayName ?? user?.email ?? '?').charAt(0).toUpperCase();
 
   return (
@@ -220,11 +230,17 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         {onMenuClick && (
           <button className="cc-hamburger" onClick={onMenuClick} aria-label="Toggle navigation">
-            ☰
+            <Icon name="menu" />
           </button>
         )}
         <div className="cc-topbar__title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {user?.displayName ?? 'CodeConClave'} — {planLabel}
+          {user?.displayName ?? 'CodeConClave'}{' '}
+          <span
+            className={`cc-plan-pill${user?.entitlementState === 'PRO_VERIFIED' ? ' cc-plan-pill--pro' : ''}`}
+            data-testid="plan-badge"
+          >
+            {planLabel}
+          </span>
         </div>
       </div>
       <div className="cc-topbar__actions">
@@ -266,16 +282,13 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         <ContextIndicator />
         <HealthChip />
         <ConnectivityIndicator />
-        <Link to="/approvals" title="Approvals" style={{ color: 'inherit' }}>
-          ✓
-        </Link>
         <div style={{ position: 'relative' }}>
-          <button className="cc-bell" onClick={() => void openPanel()} aria-label="Notifications">
-            🔔
+          <button className="cc-bell" onClick={() => void openPanel()} aria-label="Notifications" aria-expanded={open}>
+            <Icon name="bell" size={18} />
             {unread > 0 && <span className="cc-bell__badge">{unread > 99 ? '99+' : unread}</span>}
           </button>
           {open && (
-            <div className="cc-popover cc-popover--scroll" style={{ right: 0, top: 34, width: 340, maxWidth: 'calc(100vw - 32px)' }}>
+            <div className="cc-popover cc-popover--scroll" role="dialog" aria-label="Notifications" style={{ right: 0, top: 34, width: 340, maxWidth: 'calc(100vw - 32px)' }}>
               {panelState === 'loading' && <div className="cc-empty">Loading…</div>}
               {panelState === 'error' && <div className="cc-empty">Could not load notifications.</div>}
               {panelState === 'ready' && items.length === 0 && <div className="cc-empty">No notifications</div>}
@@ -298,7 +311,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
                     aria-label={`Dismiss ${n.title}`}
                     title="Dismiss"
                   >
-                    ✕
+                    <Icon name="close" size={14} />
                   </button>
                 </div>
               ))}
@@ -320,10 +333,10 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
                   navigate('/settings');
                 }}
               >
-                ⚙ Settings
+                <Icon name="settings" size={16} /> Settings
               </button>
               <button className="cc-menu__item" onClick={() => void logout()}>
-                ⏻ Sign out
+                <Icon name="logout" size={16} /> Sign out
               </button>
             </div>
           )}

@@ -6,7 +6,7 @@
  * exposed: capabilities are booleans + sanitized reason strings only.
  */
 import { env } from '../../config/env.js';
-import { queryMany } from '../../shared/db.js';
+import { withSystem } from '../../shared/db.js';
 import { listConnections, type PluginConnectionRow } from '../plugins/health.js';
 import { ProviderStatus } from '@codeconclave/shared';
 
@@ -78,7 +78,7 @@ export async function providerStatus(userId: string): Promise<ProviderStatusRepo
 
   // ---- Razorpay (payments)
   const razorpayApi = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
-  const razorpayWebhook = Boolean(env.RAZORPAY_WEBHOOK_SECRET) && env.RAZORPAY_MODE === 'webhook';
+  const razorpayWebhook = Boolean(env.RAZORPAY_WEBHOOK_SECRET) && env.RAZORPAY_WEBHOOK_ENABLED === 'true';
   const razorpayCapabilities = [
     { id: 'payment_link', available: true },
     { id: 'api', available: razorpayApi },
@@ -113,7 +113,7 @@ export async function providerStatus(userId: string): Promise<ProviderStatusRepo
         : 'LIMITED';
 
   // ---- AI providers
-  const aiRows = await queryMany<AiHealthRow>('SELECT provider_id, state, last_check_at FROM provider_health');
+  const aiRows = await withSystem<AiHealthRow[]>(async (q) => (await q.query<AiHealthRow>('SELECT provider_id, state, last_check_at FROM provider_health')).rows);
   const aiHealth = new Map(aiRows.map((r) => [r.provider_id, r]));
   const aiConfigured = new Set(configuredAiProviders());
   const aiProviders: ProviderCapabilityEntry[] = [...aiConfigured].sort().map((id) => {
@@ -217,6 +217,12 @@ function configuredAiProviders(): string[] {
     kimi: env.KIMI_API_KEY,
     nemotron: env.NVIDIA_API_KEY,
     north: env.COHERE_API_KEY,
+    qwen: env.QWEN_API_KEY,
+    gemma: env.GEMINI_API_KEY,
+    devin: env.DEVIN_API_KEY,
+    ox_alpha: env.OX_ALPHA_API_KEY,
+    manus: env.MANUS_API_KEY,
+    z_code_5_3: env.Z_AI_API_KEY,
   };
   return env.AI_PROVIDERS_ENABLED.split(',')
     .map((s) => s.trim())

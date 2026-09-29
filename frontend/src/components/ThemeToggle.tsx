@@ -1,38 +1,22 @@
 /**
- * CodeConClave — theme toggle (header).
- * Theme is server-authoritative: PUT /api/v1/workspace/preferences and apply
- * the confirmed value; on failure the previous theme is kept.
+ * CodeConClave — theme indicator (header).
+ * The app ships a single premium dark theme; this control communicates that
+ * state rather than switching themes. Theme persistence helpers remain in
+ * lib/theme for compatibility.
  */
-import { useState } from 'react';
-import { currentTheme, persistTheme, type Theme } from '../lib/theme';
+import { Icon } from './Icon';
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(currentTheme);
-  const [busy, setBusy] = useState(false);
-
-  const toggle = async () => {
-    if (busy) return;
-    setBusy(true);
-    const next: Theme = theme === 'dark' ? 'light' : 'dark';
-    try {
-      const confirmed = await persistTheme(next);
-      if (confirmed) setTheme(confirmed);
-    } catch {
-      /* keep previous theme */
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <button
-      className="cc-btn cc-btn--ghost cc-btn--sm"
-      onClick={() => void toggle()}
-      disabled={busy}
-      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+    <span
+      className="cc-plan-pill"
+      role="status"
+      aria-label="Dark theme"
+      title="Premium dark theme"
+      style={{ color: 'var(--cc-text-muted)' }}
     >
-      {theme === 'dark' ? '☀' : '☾'}
-    </button>
+      <Icon name="moon" size={12} />
+      Dark
+    </span>
   );
 }

@@ -7,7 +7,7 @@
  * otherwise null. Snapshot capture is best-effort from build transitions and
  * never fabricates a build result.
  */
-import { queryMany } from '../../shared/db.js';
+import { withTenant, queryMany } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { AuditAction } from '@codeconclave/shared';
 import { recordAudit } from '../audit/service.js';
@@ -37,9 +37,13 @@ export async function capturePreviewSnapshot(
 ): Promise<PreviewSnapshotRow | null> {
   try {
     const session = await getPreview(userId, projectId);
-    const existing = await queryMany<PreviewSnapshotRow>(
-      'SELECT * FROM preview_snapshots WHERE project_id = $1 AND version = $2',
-      [projectId, session.version],
+    const existing = await withTenant<PreviewSnapshotRow[]>(userId, async (q) =>
+      (
+        await q.query<PreviewSnapshotRow>(
+          'SELECT * FROM preview_snapshots WHERE owner_id = $1 AND project_id = $2 AND version = $3',
+          [userId, projectId, session.version],
+        )
+      ).rows,
     );
     if (existing[0]) return existing[0];
     const id = `${session.id}.v${session.version}`;
@@ -74,21 +78,25 @@ async function dbPoolInsert(
   id: string,
 ): Promise<void> {
   const { pool } = await import('../../shared/db.js');
-  await pool.query(
+  await withTenant(userId, (q) => q.query(
     `INSERT INTO preview_snapshots (id, owner_id, project_id, version, state, build_log)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb)
      ON CONFLICT (project_id, version) DO NOTHING`,
     [id, userId, projectId, session.version, session.state, JSON.stringify(session.build_log ?? [])],
-  );
+  ));
 }
 
 /** Visual diff: the two most recent snapshots for the project, or null when
  * fewer than two exist (honest — no fabricated before/after). */
 export async function previewVisualDiff(userId: string, projectId: string): Promise<VisualDiff> {
   await getPreview(userId, projectId);
-  const snapshots = await queryMany<PreviewSnapshotRow>(
-    'SELECT * FROM preview_snapshots WHERE owner_id = $1 AND project_id = $2 ORDER BY version DESC LIMIT 2',
-    [userId, projectId],
+  const snapshots = await withTenant<PreviewSnapshotRow[]>(userId, async (q) =>
+    (
+      await q.query<PreviewSnapshotRow>(
+        'SELECT * FROM preview_snapshots WHERE owner_id = $1 AND project_id = $2 ORDER BY version DESC LIMIT 2',
+        [userId, projectId],
+      )
+    ).rows,
   );
   const before = snapshots[1] ?? null;
   const after = snapshots[0] ?? null;

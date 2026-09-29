@@ -28,6 +28,17 @@ const PROTECTED_PATTERNS: RegExp[] = [
   /(^|\/|\\|\\)\.gcloud(\/|\\)?/,
   /(^|\/|\\|\\)\.config\/gcloud(\/|\\)?/,
   /(^|\/|\\|\\)(credentials|secrets?|tokens?|service-account)\.(json|txt|yaml|yml|ini)$/i,
+  // Backend upload-policy basenames, mirrored so the desktop gate matches.
+  /(^|\/|\\|\\)\.(netrc|htpasswd|pgpass|npmrc|pypirc)$/,
+  // Orchestrator / container credentials.
+  /(^|\/|\\|\\)\.kube(\/|\\)?/,
+  /(^|\/|\\|\\)\.docker(\/|\\)?config\.json$/,
+  // Browser credential stores (Chromium + Firefox profiles).
+  /(^|\/|\\|\\)(Login Data|Cookies|Local State|logins\.json|key4\.db|cert9\.db)$/,
+  // OS keychains / PGP + shell histories.
+  /(^|\/|\\|\\)Library(\/|\\)Keychains(\/|\\)?/,
+  /(^|\/|\\|\\)\.gnupg(\/|\\)?/,
+  /(^|\/|\\|\\)\.(bash_history|zsh_history|ps_history|mysql_history|psql_history|irb_history)$/,
   /(^|\/|\\|\\)\.codeconclave(\/|\\)?/,
   /(^|\/|\\|\\)\.git(\/|\\)?/,
 ];

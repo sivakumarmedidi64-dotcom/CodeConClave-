@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { ApiError } from '../lib/api';
+import { BrandLogo } from '../components/BrandLogo';
 
 type Outcome = 'verifying' | 'success' | 'error';
 
@@ -43,7 +44,7 @@ export function VerifyEmailPage() {
     <div className="cc-auth">
       <div className="cc-auth__card">
         <div className="cc-auth__brand">
-          <span className="cc-logo">C</span> CodeConClave
+          <BrandLogo variant="lockup" height={44} />
         </div>
         <h2>Email verification</h2>
         {outcome === 'verifying' && (

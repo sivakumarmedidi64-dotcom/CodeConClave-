@@ -22,6 +22,7 @@ const db = vi.hoisted(() => {
     queryOne: async (text: string, params: unknown[] = []) => (await query(text, params)).rows[0] ?? null,
     queryMany: async (text: string, params: unknown[] = []) => (await query(text, params)).rows,
     withTenant: async (_u: string | null, fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
+    withSystem: async (fn: (q: { query: typeof query }) => Promise<unknown>) => fn({ query }),
   };
 });
 vi.mock('../shared/db.js', () => db);
@@ -59,6 +60,9 @@ function setup() {
         return [{ id: params[0] }];
       }
       return [];
+    }
+    if (t.includes('from projects where id = $1')) {
+      return [{ id: params[0], owner_id: USER_ID, team_id: null, deleted_at: null }];
     }
     if (t.includes('insert into tasks')) {
       tasks.push({ id: params[0], project_id: params[1], conversation_id: params[2], owner_id: params[3], title: params[4], description: params[5], status: 'CREATED', risk_level: params[6], required_approval: params[7], coworker_pipeline: params[8], execution_mode: params[9], timeout_ms: params[10], max_attempts: params[11], priority: params[12], created_at: new Date(), updated_at: new Date(), deleted_at: null });

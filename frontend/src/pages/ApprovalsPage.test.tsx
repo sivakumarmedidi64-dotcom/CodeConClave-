@@ -114,6 +114,24 @@ describe('ApprovalsPage — pending approvals', () => {
     expect(screen.getByText('Reject')).toBeInTheDocument();
   });
 
+  it('shows the companion in approval state while server-reported pendings exist', async () => {
+    renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [snakeRow()], pendingCount: 2 } });
+      return jsonResponse({ data: {} });
+    });
+    await waitFor(() => expect(screen.getByText(/2 pending/)).toBeInTheDocument());
+    expect(screen.getByRole('status', { name: 'AI is waiting for approval' })).toBeInTheDocument();
+  });
+
+  it('shows the companion idle when nothing is pending', async () => {
+    renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [], pendingCount: 0 } });
+      return jsonResponse({ data: {} });
+    });
+    await waitFor(() => expect(screen.getByText(/No approvals/)).toBeInTheDocument());
+    expect(screen.getByRole('status', { name: 'AI companion idle' })).toBeInTheDocument();
+  });
+
   it('approves and refreshes the list', async () => {
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'POST' && url.includes('/decide')) {
@@ -144,6 +162,33 @@ describe('ApprovalsPage — pending approvals', () => {
     await userEvent.type(screen.getByPlaceholderText('reason (optional)'), 'not now');
     await userEvent.click(screen.getByText('Reject'));
     await waitFor(() => expect(fetchFn.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('keeps reason drafts per approval row (no cross-row mirroring)', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && String(url).includes('/decide')) {
+        bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return jsonResponse({ data: { approval: snakeRow({ status: 'REJECTED', decision: 'REJECT' }) } });
+      }
+      return jsonResponse({
+        data: {
+          approvals: [snakeRow({ id: 'app_1' }), snakeRow({ id: 'app_2', justification: 'second approval' })],
+          pendingCount: 2,
+        },
+      });
+    });
+    renderPage(fetchFn);
+    await waitFor(() => expect(screen.getByLabelText('Reason for approval app_2')).toBeInTheDocument());
+    await userEvent.type(screen.getByLabelText('Reason for approval app_1'), 'first reason');
+    await userEvent.type(screen.getByLabelText('Reason for approval app_2'), 'second reason');
+    // Each row kept its own draft — typing in one row never mirrored into the other.
+    expect(screen.getByLabelText('Reason for approval app_1')).toHaveValue('first reason');
+    expect(screen.getByLabelText('Reason for approval app_2')).toHaveValue('second reason');
+    const rejectButtons = screen.getAllByText('Reject');
+    await userEvent.click(rejectButtons[1]!);
+    await waitFor(() => expect(bodies.length).toBeGreaterThan(0));
+    expect(bodies[0]).toMatchObject({ decision: 'REJECT', reason: 'second reason' });
   });
 });
 

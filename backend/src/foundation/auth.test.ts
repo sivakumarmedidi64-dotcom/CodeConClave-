@@ -65,6 +65,8 @@ import {
   revokeDevice,
   expireStaleSessions,
   hookSuspiciousSession,
+  updateProfile,
+  getUserById,
 } from '../modules/auth/service.js';
 import { googleStateToken, verifyGoogleState, googleConfigured } from '../modules/auth/google.js';
 import { AuditAction } from '@codeconclave/shared';
@@ -157,6 +159,112 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('USER IDENTITY — handle + keyword at registration (D1 primary credentials)', () => {
+  const HANDLE = 'alice_01';
+  const KEYWORD = 'CorrectHorse9Battery';
+
+  function resolveRegistration(handleTaken = false): void {
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT 1 FROM user_auth_identities')) return handleTaken ? [{ '?column?': 1 }] : [];
+      if (text.includes('SELECT id FROM users WHERE lower(email)')) return [];
+      // getUserById / device lookup: the new account resolves to the fixture row.
+      if (text.includes('SELECT * FROM users')) return [userRow()];
+      if (text.includes('FROM users')) return [];
+      if (text.includes('FROM sessions')) return [];
+      return null;
+    };
+  }
+
+  it('creates the identity row in the SAME transaction, storing only a scrypt keyword hash', async () => {
+    resolveRegistration();
+    const result = await register(
+      { email: 'alice@example.com', password: PASSWORD, handle: HANDLE, keyword: KEYWORD },
+      fakeReq('10.0.0.1'),
+    );
+    expect(result.sessionToken).toBeTruthy();
+
+    const identityInsert = db.state.calls.find((c) => c.text.includes('INSERT INTO user_auth_identities'));
+    expect(identityInsert).toBeTruthy();
+    expect(identityInsert!.params[2]).toBe(HANDLE);
+    const keywordHash = identityInsert!.params[3] as string;
+    expect(keywordHash.startsWith('scrypt$')).toBe(true);
+    expect(keywordHash).not.toContain(KEYWORD);
+    expect(verifyHash(keywordHash, KEYWORD)).toBe(true);
+
+    // Both inserts are issued through the same tenant client, so a failure in
+    // either rolls the account back rather than orphaning it.
+    const order = db.state.calls.filter(
+      (c) => c.text.includes('INSERT INTO users') || c.text.includes('INSERT INTO user_auth_identities'),
+    );
+    expect(order).toHaveLength(2);
+    expect(order[0]!.text).toContain('INSERT INTO users');
+    expect(order[1]!.text).toContain('INSERT INTO user_auth_identities');
+  });
+
+  it('normalizes the handle to lowercase', async () => {
+    resolveRegistration();
+    await register({ email: 'alice@example.com', password: PASSWORD, handle: '  Alice_01 ', keyword: KEYWORD }, fakeReq());
+    expect(db.state.calls.find((c) => c.text.includes('INSERT INTO user_auth_identities'))!.params[2]).toBe('alice_01');
+  });
+
+  it('refuses a half-pair (handle without keyword) before writing anything', async () => {
+    resolveRegistration();
+    await expect(
+      register({ email: 'alice@example.com', password: PASSWORD, handle: HANDLE }, fakeReq()),
+    ).rejects.toMatchObject({ errorCode: 'identity_pair_required' });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO users'))).toBe(false);
+  });
+
+  it('rejects an invalid handle and creates NO user (validated before insert)', async () => {
+    resolveRegistration();
+    await expect(
+      register({ email: 'alice@example.com', password: PASSWORD, handle: 'ad', keyword: KEYWORD }, fakeReq()),
+    ).rejects.toMatchObject({ errorCode: 'invalid_handle' });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO users'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO user_auth_identities'))).toBe(false);
+  });
+
+  it('rejects a weak keyword and creates NO user', async () => {
+    resolveRegistration();
+    await expect(
+      register({ email: 'alice@example.com', password: PASSWORD, handle: HANDLE, keyword: 'alllowercase' }, fakeReq()),
+    ).rejects.toMatchObject({ errorCode: 'invalid_keyword' });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO users'))).toBe(false);
+  });
+
+  it('surfaces handle_taken for an already-registered handle', async () => {
+    resolveRegistration(true);
+    await expect(
+      register({ email: 'alice@example.com', password: PASSWORD, handle: HANDLE, keyword: KEYWORD }, fakeReq()),
+    ).rejects.toMatchObject({ errorCode: 'handle_taken', status: 409 });
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO users'))).toBe(false);
+  });
+
+  it('maps a unique-index violation on the handle to handle_taken (race loser)', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT 1 FROM user_auth_identities')) return [];
+      if (text.includes('SELECT id FROM users WHERE lower(email)')) return [];
+      if (text.includes('SELECT * FROM users')) return [userRow()];
+      if (text.includes('FROM users')) return [];
+      if (text.includes('FROM sessions')) return [];
+      if (text.includes('INSERT INTO user_auth_identities')) {
+        throw Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'uq_auth_identity_handle' });
+      }
+      return null;
+    };
+    await expect(
+      register({ email: 'alice@example.com', password: PASSWORD, handle: HANDLE, keyword: KEYWORD }, fakeReq()),
+    ).rejects.toMatchObject({ errorCode: 'handle_taken' });
+  });
+
+  it('still allows a legacy registration with no handle/keyword at all', async () => {
+    resolveRegistration();
+    const result = await register({ email: 'old@example.com', password: PASSWORD }, fakeReq());
+    expect(result.sessionToken).toBeTruthy();
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO user_auth_identities'))).toBe(false);
+  });
+});
+
 describe('USER IDENTITY — signup', () => {
   it('registers a unique user with a scrypt password hash, never plaintext', async () => {
     resolveUser([]);
@@ -169,7 +277,7 @@ describe('USER IDENTITY — signup', () => {
     expect(usersInsert.params[1]).toBe('alice@example.com');
     const hash = usersInsert.params[2] as string;
     expect(hash).not.toContain(PASSWORD);
-    expect(hash.startsWith('scrypt$v1$')).toBe(true);
+    expect(hash.startsWith('scrypt$v2$')).toBe(true);
     expect(verifyHash(hash, PASSWORD)).toBe(true);
 
     const entitlement = db.state.calls.find((c) => c.text.includes('INSERT INTO entitlements'))!;
@@ -196,6 +304,103 @@ describe('USER IDENTITY — signup', () => {
     expect(sessionsInsert.params.length).toBe(7);
     const hash = sessionsInsert.params[2] as string;
     expect(/^[0-9a-f]{64}$/.test(hash)).toBe(true);
+  });
+
+  it('updateProfile persists a trimmed display name and returns the fresh user', async () => {
+    const updated = userRow({ display_name: 'Aly' });
+    db.state.resolve = (text, _params) => {
+      if (text.includes('UPDATE users SET display_name')) return { affected: 1 };
+      if (text.includes('SELECT * FROM users')) return [updated];
+      return null;
+    };
+    const result = await updateProfile('u1', { displayName: '  Aly  ' });
+    const updateCall = db.state.calls.find((c) => c.text.includes('UPDATE users SET display_name'))!;
+    expect(updateCall).toBeDefined();
+    expect(updateCall.params[0]).toBe('Aly');
+    expect(updateCall.params[1]).toBe('u1');
+    expect(result.displayName).toBe('Aly');
+  });
+
+  it('updateProfile rejects a display name shorter than 2 characters', async () => {
+    await expect(updateProfile('u1', { displayName: 'A' })).rejects.toMatchObject({
+      errorCode: 'display_name_short',
+      status: 400,
+    });
+  });
+
+  it('updateProfile clears the display name when null is passed', async () => {
+    db.state.resolve = (text, _params) => {
+      if (text.includes('UPDATE users SET display_name')) return { affected: 1 };
+      if (text.includes('SELECT * FROM users')) return [userRow({ display_name: null })];
+      return null;
+    };
+    await updateProfile('u1', { displayName: null });
+    const updateCall = db.state.calls.find((c) => c.text.includes('UPDATE users SET display_name'))!;
+    expect(updateCall).toBeDefined();
+    expect(updateCall.params[0]).toBeNull();
+  });
+});
+
+describe('USER IDENTITY — onboarding role + primary use case', () => {
+  it('register persists role and primary use case into the users insert', async () => {
+    resolveUser([]);
+    await register(
+      { email: 'alice@example.com', password: PASSWORD, displayName: 'Alice', role: 'Founder', primaryUseCase: 'Research' },
+      fakeReq('10.0.0.1'),
+    );
+    const usersInsert = db.state.calls.find((c) => c.text.includes('INSERT INTO users'))!;
+    expect(usersInsert.text).toContain('role');
+    expect(usersInsert.text).toContain('primary_use_case');
+    expect(usersInsert.params).toContain('Founder');
+    expect(usersInsert.params).toContain('Research');
+  });
+
+  it('register allows omitted onboarding fields (null role / use case)', async () => {
+    resolveUser([]);
+    await register({ email: 'alice@example.com', password: PASSWORD }, fakeReq('10.0.0.1'));
+    const usersInsert = db.state.calls.find((c) => c.text.includes('INSERT INTO users'))!;
+    expect(usersInsert.params).toContain(null);
+  });
+
+  it('updateProfile persists role and primary use case together', async () => {
+    const updated = userRow({ role: 'Designer', primary_use_case: 'Learning' });
+    db.state.resolve = (text, _params) => {
+      if (text.includes('UPDATE users SET role')) return { affected: 1 };
+      if (text.includes('SELECT * FROM users')) return [updated];
+      return null;
+    };
+    const result = await updateProfile('u1', { role: 'Designer', primaryUseCase: 'Learning' });
+    const updateCall = db.state.calls.find((c) => c.text.includes('UPDATE users SET role'))!;
+    expect(updateCall).toBeDefined();
+    expect(updateCall.text).toContain('primary_use_case');
+    expect(result.role).toBe('Designer');
+    expect(result.primaryUseCase).toBe('Learning');
+  });
+
+  it('updateProfile rejects a role outside the allow-list', async () => {
+    await expect(updateProfile('u1', { role: 'Hacker' })).rejects.toMatchObject({
+      errorCode: 'invalid_role',
+      status: 400,
+    });
+  });
+
+  it('updateProfile rejects a primary use case outside the allow-list', async () => {
+    await expect(updateProfile('u1', { primaryUseCase: 'Wasting time' })).rejects.toMatchObject({
+      errorCode: 'invalid_use_case',
+      status: 400,
+    });
+  });
+
+  it('updateProfile clears role and primary use case when null is passed', async () => {
+    db.state.resolve = (text, _params) => {
+      if (text.includes('UPDATE users SET role')) return { affected: 1 };
+      if (text.includes('SELECT * FROM users')) return [userRow({ role: null, primary_use_case: null })];
+      return null;
+    };
+    await updateProfile('u1', { role: null, primaryUseCase: null });
+    const updateCall = db.state.calls.find((c) => c.text.includes('UPDATE users SET role'))!;
+    expect(updateCall.params[0]).toBeNull();
+    expect(updateCall.params[1]).toBeNull();
   });
 });
 
@@ -308,6 +513,35 @@ describe('SESSION lifecycle — expiry sweep, revocation, device cascade', () =>
   });
 });
 
+describe('CROSS-BROWSER — account is the identity, session is the browser', () => {
+  it('two browser logins for the same account create two INDEPENDENT sessions, keyed only by token hash, never bound to a fingerprint', async () => {
+    resolveUser('unique');
+    const chromeReq = fakeReq('10.0.0.1', { headers: { 'user-agent': 'Chrome/126.0.0.0' } });
+    const edgeReq = fakeReq('10.0.0.1', { headers: { 'user-agent': 'Edge/126.0.0.0' } });
+    const first = await login({ email: 'alice@example.com', password: PASSWORD }, chromeReq);
+    const second = await login({ email: 'alice@example.com', password: PASSWORD }, edgeReq);
+
+    // Never the same token: each browser creates its OWN server-side session.
+    expect(first.sessionToken).toBeTruthy();
+    expect(second.sessionToken).toBeTruthy();
+    expect(first.sessionToken).not.toBe(second.sessionToken);
+
+    // No browser fingerprint / device / local-storage binding for plain logins.
+    const inserts = db.state.calls.filter((c) => c.text.includes('INSERT INTO sessions'));
+    expect(inserts.length).toBe(2);
+    for (const insert of inserts) {
+      expect(insert.params[2]).toMatch(/^[0-9a-f]{64}$/); // sha256(token) only
+      expect(insert.params[2]).not.toBe(first.sessionToken);
+      expect(insert.params[2]).not.toBe(second.sessionToken);
+      expect(insert.params[5]).toBeNull(); // device_id = null for browser login
+      expect(insert.params[1]).toBe('u1'); // SAME account in both sessions
+    }
+    // user-agent is metadata recorded for audit, never an authorization key.
+    const agents = inserts.map((i) => i.params[4]).sort();
+    expect(agents).toEqual(['Chrome/126.0.0.0', 'Edge/126.0.0.0']);
+  });
+});
+
 describe('SUSPICIOUS-SESSION hook', () => {
   it('flags and audits a login from an unseen IP', async () => {
     db.state.resolve = (text) => {
@@ -361,7 +595,7 @@ describe('MFA — setup, verification, recovery codes', () => {
     for (const insert of codeInserts) {
       const hash = insert.params[2] as string;
       expect(hash).not.toContain(codes[0]);
-      expect(hash.startsWith('scrypt$v1$')).toBe(true);
+      expect(hash.startsWith('scrypt$v2$')).toBe(true);
       expect(verifyHash(hash, codes[codeInserts.indexOf(insert)]!)).toBe(true);
     }
     expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: AuditAction.AUTH_MFA_ENABLED }));

@@ -7,7 +7,7 @@
  *  - owner/admin only: merge branches + resolve conflicts
  * Team DNA is RLS-scoped to team members; it is never globally visible.
  */
-import { pool, queryMany } from '../../shared/db.js';
+import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, DnaKind } from '@codeconclave/shared';
@@ -52,26 +52,30 @@ export async function saveTeamDna(userId: string, input: SaveTeamDnaInput): Prom
   if (!role) throw AppError.forbidden();
   const scope = input.scope ?? 'MAIN';
   const id = newId(PREFIX.DNA);
-  await pool.query(
-    `INSERT INTO team_dna (id, team_id, created_by, kind, scope, title, content, version, parent_version_id, conflict_state, change_summary)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'NONE',$10)`,
-    [
-      id,
-      input.teamId,
-      userId,
-      normalizeKind(input.kind),
-      scope,
-      input.title,
-      input.content,
-      1,
-      input.parentVersionId ?? null,
-      input.changeSummary ?? null,
-    ],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO team_dna (id, team_id, created_by, kind, scope, title, content, version, parent_version_id, conflict_state, change_summary)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'NONE',$10)`,
+      [
+        id,
+        input.teamId,
+        userId,
+        normalizeKind(input.kind),
+        scope,
+        input.title,
+        input.content,
+        1,
+        input.parentVersionId ?? null,
+        input.changeSummary ?? null,
+      ],
+    ),
   );
-  await pool.query(
-    `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [newId(PREFIX.DNA), id, 1, input.content, input.changeSummary ?? null, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [newId(PREFIX.DNA), id, 1, input.content, input.changeSummary ?? null, userId],
+    ),
   );
   await recordAudit({
     action: scope === 'BRANCH' ? AuditAction.DNA_TEAM_BRANCH_CREATED : AuditAction.DNA_TEAM_CREATED,
@@ -87,10 +91,12 @@ export async function saveTeamDna(userId: string, input: SaveTeamDnaInput): Prom
 
 /** Membership-scoped read: only team members can see team DNA. */
 export async function getTeamDna(userId: string, dnaId: string): Promise<TeamDnaRow> {
-  const rows = await queryMany<TeamDnaRow>(
-    `SELECT * FROM team_dna WHERE id = $1 AND deleted_at IS NULL
-       AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = team_dna.team_id AND tm.user_id = $2)`,
-    [dnaId, userId],
+  const rows = await withTenant<TeamDnaRow[]>(userId, async (q) =>
+    (await q.query<TeamDnaRow>(
+      `SELECT * FROM team_dna WHERE id = $1 AND deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = team_dna.team_id AND tm.user_id = $2)`,
+      [dnaId, userId],
+    )).rows,
   );
   if (!rows[0]) throw AppError.notFound('Team DNA block');
   return rows[0];
@@ -104,19 +110,23 @@ export async function listTeamDna(userId: string, teamId: string, scope?: 'MAIN'
     params.push(scope);
     scopeClause = `AND scope = $${params.length}`;
   }
-  return queryMany<TeamDnaRow>(
-    `SELECT * FROM team_dna WHERE team_id = $1 AND deleted_at IS NULL ${scopeClause}
-     ORDER BY updated_at DESC`,
-    params,
+  return withTenant<TeamDnaRow[]>(userId, async (q) =>
+    (await q.query<TeamDnaRow>(
+      `SELECT * FROM team_dna WHERE team_id = $1 AND deleted_at IS NULL ${scopeClause}
+       ORDER BY updated_at DESC`,
+      params,
+    )).rows,
   );
 }
 
 export async function teamDnaVersions(userId: string, dnaId: string): Promise<unknown[]> {
   await getTeamDna(userId, dnaId);
-  return queryMany(
-    `SELECT id, version, content_snapshot, change_summary, created_by, created_at
-     FROM team_dna_versions WHERE dna_id = $1 ORDER BY version DESC`,
-    [dnaId],
+  return withTenant<Record<string, unknown>[]>(userId, async (q) =>
+    (await q.query<Record<string, unknown>>(
+      `SELECT id, version, content_snapshot, change_summary, created_by, created_at
+       FROM team_dna_versions WHERE dna_id = $1 ORDER BY version DESC`,
+      [dnaId],
+    )).rows,
   );
 }
 
@@ -142,12 +152,14 @@ export async function updateTeamDna(
   }
   if (!fields.length) return existing;
   const newVersion = existing.version + 1;
-  await pool.query(`UPDATE team_dna SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withTenant(userId, (q) => q.query(`UPDATE team_dna SET ${fields.join(', ')} WHERE id = $1`, params));
   if (input.content !== undefined) {
-    await pool.query(
-      `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [newId(PREFIX.DNA), dnaId, newVersion, input.content, input.changeSummary ?? null, userId],
+    await withTenant(userId, (q) =>
+      q.query(
+        `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [newId(PREFIX.DNA), dnaId, newVersion, input.content, input.changeSummary ?? null, userId],
+      ),
     );
   }
   return getTeamDna(userId, dnaId);
@@ -194,12 +206,16 @@ export async function mergeTeamBranches(
   const baseChangedAfterBranch = base.updated_at.getTime() > branch.created_at.getTime() + 1000;
 
   if (baseChangedAfterBranch) {
-    await pool.query(
-      `INSERT INTO team_dna_conflicts (id, branch_dna_id, base_dna_id, state) VALUES ($1,$2,$3,'CONFLICT')
-       ON CONFLICT (branch_dna_id, base_dna_id) DO UPDATE SET state = 'CONFLICT', resolution = NULL, resolved_at = NULL`,
-      [newId(PREFIX.DNA), branch.id, base.id],
+    await withTenant(userId, (q) =>
+      q.query(
+        `INSERT INTO team_dna_conflicts (id, branch_dna_id, base_dna_id, state) VALUES ($1,$2,$3,'CONFLICT')
+         ON CONFLICT (branch_dna_id, base_dna_id) DO UPDATE SET state = 'CONFLICT', resolution = NULL, resolved_at = NULL`,
+        [newId(PREFIX.DNA), branch.id, base.id],
+      ),
     );
-    await pool.query("UPDATE team_dna SET conflict_state = 'CONFLICT' WHERE id IN ($1,$2)", [branch.id, base.id]);
+    await withTenant(userId, (q) =>
+      q.query("UPDATE team_dna SET conflict_state = 'CONFLICT' WHERE id IN ($1,$2)", [branch.id, base.id]),
+    );
     throw AppError.conflict(
       'team_dna_conflict',
       'Conflicting team DNA changes detected. Both versions are preserved. Provide a resolution to merge.',
@@ -208,21 +224,27 @@ export async function mergeTeamBranches(
   }
 
   const mergedContent = resolution ?? branch.content;
-  await pool.query(
-    `UPDATE team_dna SET conflict_state = 'RESOLVED', version = version + 1, parent_version_id = $2,
-       content = $3, scope = 'MAIN', status = 'MERGED', merged_into_id = $4, change_summary = $5, updated_at = now()
-     WHERE id = $1`,
-    [base.id, branch.id, mergedContent, branch.id, changeSummary ?? `Merged branch ${branch.title}`],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE team_dna SET conflict_state = 'RESOLVED', version = version + 1, parent_version_id = $2,
+         content = $3, scope = 'MAIN', status = 'MERGED', merged_into_id = $4, change_summary = $5, updated_at = now()
+       WHERE id = $1`,
+      [base.id, branch.id, mergedContent, branch.id, changeSummary ?? `Merged branch ${branch.title}`],
+    ),
   );
-  await pool.query(
-    `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
-     SELECT $1, id, version, content, $2, $3 FROM team_dna WHERE id = $4`,
-    [newId(PREFIX.DNA), changeSummary ?? null, userId, base.id],
+  await withTenant(userId, (q) =>
+    q.query(
+      `INSERT INTO team_dna_versions (id, dna_id, version, content_snapshot, change_summary, created_by)
+       SELECT $1, id, version, content, $2, $3 FROM team_dna WHERE id = $4`,
+      [newId(PREFIX.DNA), changeSummary ?? null, userId, base.id],
+    ),
   );
-  await pool.query(
-    `UPDATE team_dna_conflicts SET state = 'RESOLVED', resolution = $2, resolved_at = now(), resolved_by = $3
-     WHERE branch_dna_id = $1 OR base_dna_id = $1`,
-    [branch.id, mergedContent, userId],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE team_dna_conflicts SET state = 'RESOLVED', resolution = $2, resolved_at = now(), resolved_by = $3
+       WHERE branch_dna_id = $1 OR base_dna_id = $1`,
+      [branch.id, mergedContent, userId],
+    ),
   );
   await recordAudit({
     action: AuditAction.DNA_TEAM_MERGED,
@@ -244,12 +266,16 @@ export async function resolveTeamDnaConflict(userId: string, teamId: string, bra
   }
   const branch = await getTeamDna(userId, branchDnaId);
   const base = await getTeamDna(userId, baseDnaId);
-  await pool.query(
-    `UPDATE team_dna_conflicts SET state = 'RESOLVED', resolution = $1, resolved_at = now(), resolved_by = $2
-     WHERE branch_dna_id = $3 AND base_dna_id = $4`,
-    [resolution, userId, branch.id, base.id],
+  await withTenant(userId, (q) =>
+    q.query(
+      `UPDATE team_dna_conflicts SET state = 'RESOLVED', resolution = $1, resolved_at = now(), resolved_by = $2
+       WHERE branch_dna_id = $3 AND base_dna_id = $4`,
+      [resolution, userId, branch.id, base.id],
+    ),
   );
-  await pool.query("UPDATE team_dna SET conflict_state = 'RESOLVED' WHERE id IN ($1,$2)", [branch.id, base.id]);
+  await withTenant(userId, (q) =>
+    q.query("UPDATE team_dna SET conflict_state = 'RESOLVED' WHERE id IN ($1,$2)", [branch.id, base.id]),
+  );
   await recordAudit({
     action: AuditAction.DNA_TEAM_CONFLICT_RESOLVED,
     actorUserId: userId,

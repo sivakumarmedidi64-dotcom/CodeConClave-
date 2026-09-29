@@ -45,6 +45,8 @@ const recordAudit = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../modules/audit/service.js', () => ({ recordAudit }));
 const notify = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../modules/notifications/service.js', () => ({ notify, notifyUser: notify }));
+const entitlementsApi = vi.hoisted(() => ({ TEAM_MAX_MEMBERS: 30 }));
+vi.mock('../modules/entitlements/service.js', () => entitlementsApi);
 
 import { AppError } from '../shared/errors.js';
 import {
@@ -407,6 +409,21 @@ describe('invitations', () => {
     };
     await expect(inviteMember('u2', 't1', 'b@example.com', 'owner')).rejects.toMatchObject({
       errorCode: 'insufficient_permission',
+    });
+  });
+
+  it('rejects the 31st invite — hard cap (spec §74), existing members unaffected', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('SELECT t.* FROM teams t JOIN team_members')) return [teamRow()];
+      if (text.includes('SELECT role FROM team_members')) return [{ role: 'admin' }];
+      if (text.includes('SELECT id FROM users WHERE lower(email)')) return [{ id: 'u2' }];
+      if (text.includes('SELECT status FROM team_members')) return [];
+      if (text.includes('SELECT id FROM team_invitations')) return [];
+      if (text.includes('AS members')) return [{ members: 30, pending: 0 }];
+      return null;
+    };
+    await expect(inviteMember('u1', 't1', 'b@example.com', 'editor')).rejects.toMatchObject({
+      errorCode: 'team_member_limit',
     });
   });
 
@@ -799,6 +816,9 @@ describe('team scoped search', () => {
 describe('team task notifications', () => {
   it('createTask announces assignment to team members of a team project', async () => {
     db.state.resolve = (text) => {
+      if (text.includes('SELECT * FROM projects WHERE id = $1')) {
+        return [{ id: 'p1', owner_id: 'u1', team_id: 't1', deleted_at: null }];
+      }
       if (text.includes('SELECT team_id FROM projects')) return [{ team_id: 't1' }];
       if (text.includes('SELECT user_id FROM team_members')) return [{ user_id: 'u1' }, { user_id: 'u2' }];
       if (text.includes('SELECT * FROM tasks WHERE id = $1 AND owner_id = $2')) return [taskRow()];

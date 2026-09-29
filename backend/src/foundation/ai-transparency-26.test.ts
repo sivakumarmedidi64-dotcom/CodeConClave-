@@ -170,6 +170,24 @@ describe('PROVIDER STATUS SNAPSHOT — /api/v1/ai/providers data', () => {
     expect(snapshot.find((p) => p.providerId === 'openai')!.status).toBe(ProviderStatus.RATE_LIMITED);
   });
 
+  it('preserves a persisted RATE_LIMITED probe verdict instead of collapsing it to DEGRADED', async () => {
+    registry.configuredProviders.mockReturnValue(['mistral']);
+    db.state.rows = [HEALTH_ROW('mistral', 'RATE_LIMITED', 'mistral rate limit reached — retry after ~30s')];
+    const snapshot = await providerStatusSnapshot();
+    const mistral = snapshot.find((p) => p.providerId === 'mistral')!;
+    expect(mistral.status).toBe(ProviderStatus.RATE_LIMITED);
+    expect(mistral.label).toContain('retry later');
+  });
+
+  it('preserves a persisted QUOTA_EXHAUSTED probe verdict instead of collapsing it to DEGRADED', async () => {
+    registry.configuredProviders.mockReturnValue(['mistral']);
+    db.state.rows = [HEALTH_ROW('mistral', 'QUOTA_EXHAUSTED', 'mistral quota exhausted (429)')];
+    const snapshot = await providerStatusSnapshot();
+    const mistral = snapshot.find((p) => p.providerId === 'mistral')!;
+    expect(mistral.status).toBe(ProviderStatus.QUOTA_EXHAUSTED);
+    expect(mistral.label).toContain('billing');
+  });
+
   it('derives QUOTA_EXHAUSTED from billing failures', async () => {
     registry.configuredProviders.mockReturnValue(['openai']);
     db.state.rows = [HEALTH_ROW('openai', 'DOWN', 'billing quota exhausted (429)')];
@@ -207,16 +225,41 @@ describe('PROVIDER STATUS SNAPSHOT — /api/v1/ai/providers data', () => {
     expect(snapshot.find((p) => p.providerId === 'openai')!.status).toBe(ProviderStatus.OFFLINE);
   });
 
-  it('covers all nine providers with honest labels', async () => {
+  it('covers every registered provider with honest labels', async () => {
     registry.configuredProviders.mockReturnValue([]);
     db.state.rows = [];
     const snapshot = await providerStatusSnapshot();
     expect(snapshot.map((p) => p.providerId).sort()).toEqual(
-      ['anthropic', 'deepseek', 'google', 'grok', 'kimi', 'mistral', 'nemotron', 'north', 'openai'].sort(),
+      [
+        'anthropic',
+        'deepseek',
+        'devin',
+        'gemma',
+        'google',
+        'grok',
+        'kimi',
+        'manus',
+        'mistral',
+        'nemotron',
+        'north',
+        'openai',
+        'ox_alpha',
+        'qwen',
+        'z_code_5_3',
+      ].sort(),
     );
     for (const p of snapshot) {
       expect(p.label).toBeTruthy();
-      expect(p.status).not.toBe(ProviderStatus.BLOCKED);
+      // Stage 81 provider gate: manus is the only provably-unusable registry
+      // provider in this no-health-rows scenario — honestly BLOCKED with the
+      // quality-gate reason; every other provider must NOT be blocked.
+      if (p.providerId === 'manus') {
+        expect(p.status).toBe(ProviderStatus.BLOCKED);
+        expect(p.configured).toBe(false);
+        expect(p.label).toContain('provider quality gate');
+      } else {
+        expect(p.status).not.toBe(ProviderStatus.BLOCKED);
+      }
     }
   });
 

@@ -8,11 +8,23 @@
 import { env } from '../../config/env.js';
 import { AppError } from '../../shared/errors.js';
 import { logger } from '../../shared/logger.js';
+import { providerGateReason } from './gate.js';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  /**
+   * Canonical content: either plain text or a normalized part list enabling
+   * multimodal requests. TEXT / IMAGE_INPUT / TEXT_PLUS_IMAGE are expressed as
+   * part lists; every adapter normalizes them into its provider wire format.
+   */
+  content: string | ChatContentPart[];
 }
+
+/** Canonical multimodal content parts (TEXT / IMAGE_INPUT / TEXT_PLUS_IMAGE). */
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; url: string; detail?: 'auto' | 'low' | 'high' }
+  | { type: 'image_base64'; data: string; mimeType: string };
 
 export interface ChatRequest {
   messages: ChatMessage[];
@@ -24,6 +36,30 @@ export interface ChatChunk {
   delta: string;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * Generated image output (e.g. Gemini image-generation adapter). dataB64 is a
+   * base64 payload; the gateway carries it through the normalized completion
+   * summary — never logged.
+   */
+  image?: { mimeType: string; dataB64: string };
+  /**
+   * External-agent run state (EXTERNAL_AGENT adapters). Carries the
+   * provider-side run identity (Devin session id / Manus task id) and its
+   * lifecycle state through the SAME normalized stream. This is the honest
+   * representation the UI renders — the UI never claims an external agent
+   * executed something absent this id + status pair.
+   */
+  externalRun?: ExternalRunInfo;
+}
+
+/** Normalized external-agent run facts (EXTERNAL_AGENT capability). */
+export interface ExternalRunInfo {
+  /** Provider-side run id (Devin session id, Manus task id). */
+  externalId: string;
+  /** Provider-side lifecycle state (running / finished / blocked / failed). */
+  status: string;
+  /** Run start time (ISO) as reported when the session was created. */
+  startedAt: string;
 }
 
 export interface ChatResult {
@@ -31,6 +67,12 @@ export interface ChatResult {
   inputTokens: number;
   outputTokens: number;
   durationMs: number;
+}
+
+/** Character count of a message's textual content (token estimation only). */
+export function messageTextChars(message: ChatMessage): number {
+  if (typeof message.content === 'string') return message.content.length;
+  return message.content.reduce((n, part) => (part.type === 'text' ? n + part.text.length : n), 0);
 }
 
 export interface ProviderAdapter {
@@ -54,7 +96,28 @@ const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 const KIMI_URL = 'https://api.moonshot.cn/v1/chat/completions';
 const NIM_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const COHERE_URL = 'https://api.cohere.com/v2/chat';
+const QWEN_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const ZAI_URL = 'https://api.z.ai/api/v1/chat/completions';
 
+const MANUS_V2_BASE = 'https://api.manus.ai/v2';
+
+/**
+ * Documented Gemini image-generation model ids. getAdapter selects the image
+ * adapter ONLY for these ids — any other google model uses the text/multimodal
+ * adapter. The registry keeps the authoritative enabled row (image_generation =
+ * true), so routing can never reach an image id that was not really served.
+ * The set is confirmed against the live models list during real verification.
+ */
+export const GEMINI_IMAGE_MODEL_IDS: ReadonlySet<string> = new Set<string>([
+  'gemini-2.0-flash-preview-image-generation',
+  'gemini-3-pro-image-preview',
+  'gemini-3-pro-image',
+  'nano-banana-image-generation',
+]);
+
+const DEVIN_V1_BASE = 'https://api.devin.ai/v1';
+const DEVIN_V3_BASE = 'https://api.devin.ai/v3';
 /**
  * Classify a provider failure into the shared fallback-reason taxonomy.
  * Used by the gateway to record honest fallback reasons and by tests.
@@ -109,7 +172,7 @@ function httpError(status: number, provider: string, bodyHint = '', retryAfterSe
   if (retryAfterSec !== undefined && Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
     details.retryAfterSec = Math.ceil(retryAfterSec);
   }
-  const isBilling = /insufficient_quota|billing|credit balance|payment|out of credits/i.test(bodyHint);
+  const isBilling = /insufficient_quota|billing|credit balance|payment|out of credits|insufficient[ _-]?balance/i.test(bodyHint);
   if (status === 401 || status === 403) {
     return AppError.unavailable('invalid_credentials', `${provider} rejected the configured credentials`, details);
   }
@@ -125,6 +188,9 @@ function httpError(status: number, provider: string, bodyHint = '', retryAfterSe
   }
   if (status === 408 || status === 504) {
     return AppError.unavailable('provider_timeout', `${provider} request timed out`, details);
+  }
+  if (status === 402) {
+    return AppError.unavailable('provider_billing', `${provider} rejected the request for payment (402)`, details);
   }
   return AppError.unavailable('provider_error', `${provider} error ${status}`, details);
 }
@@ -199,6 +265,7 @@ function anthropicAdapter(model: string, apiKey: string): ProviderAdapter {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
+          ...(env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {}),
         },
         body: JSON.stringify({
           model,
@@ -269,35 +336,148 @@ function openaiAdapter(model: string, apiKey: string): ProviderAdapter {
   };
 }
 
+/**
+ * Normalize a canonical CodeConClave part into a Gemini `Part`. TEXT stays text;
+ * IMAGE_INPUT arrives as inline inline_data (base64) or a URL as fileData.
+ * Unknown parts are skipped (never fabricated).
+ */
+function geminiPart(part: ChatContentPart): { text?: string; inlineData?: { data: string; mimeType: string }; fileData?: { fileUri: string } } | null {
+  switch (part.type) {
+    case 'text':
+      return { text: part.text };
+    case 'image_base64':
+      return { inlineData: { data: part.data, mimeType: part.mimeType || 'image/png' } };
+    case 'image_url':
+      return { fileData: { fileUri: part.url } };
+    default:
+      return null;
+  }
+}
+
+function geminiContents(messages: ChatMessage[]): {
+  contents: { role: 'user' | 'model'; parts: Array<Record<string, unknown>> }[];
+  systemParts: Array<Record<string, unknown>> | null;
+} {
+  const systemParts: Array<Record<string, unknown>> = [];
+  const contents: { role: 'user' | 'model'; parts: Array<Record<string, unknown>> }[] = [];
+  const last = new Map<string, number>();
+  for (const m of messages) {
+    if (m.role === 'system') {
+      const parts = typeof m.content === 'string' ? [{ text: m.content }] : m.content.map((p) => geminiPart(p)).filter((p) => p !== null);
+      systemParts.push(...parts);
+      continue;
+    }
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    const parts = typeof m.content === 'string' ? [{ text: m.content }] : m.content.map((p) => geminiPart(p)).filter((p) => p !== null);
+    const prevIdx = last.get(role);
+    if (prevIdx !== undefined) {
+      contents[prevIdx]!.parts.push(...parts);
+    } else {
+      last.set(role, contents.length);
+      contents.push({ role, parts });
+    }
+  }
+  return { contents, systemParts: systemParts.length ? systemParts : null };
+}
+
 function geminiAdapter(model: string, apiKey: string): ProviderAdapter {
   return {
     providerId: 'google',
     supportsToolCalls: false,
     async *complete(req, signal) {
-      const contents = req.messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-      const systemInstruction = req.messages.find((m) => m.role === 'system')?.content;
+      const { contents, systemParts } = geminiContents(req.messages);
       const response = await fetch(GEMINI_URL(model), {
         method: 'POST',
         signal,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
           contents,
-          systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
+          systemInstruction: systemParts ? { parts: systemParts } : undefined,
           generationConfig: { maxOutputTokens: req.maxTokens ?? 4096, temperature: req.temperature ?? 0.7 },
         }),
       });
       yield* sseReader(response, 'Gemini', (json: unknown) => {
-        const data = json as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const data = json as {
+          candidates?: { content?: { parts?: { text?: string }[] } }[];
+          usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+        };
         const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('');
-        return text ? { delta: text } : null;
+        const usage = data.usageMetadata;
+        return text || usage
+          ? { delta: text ?? '', inputTokens: usage?.promptTokenCount, outputTokens: usage?.candidatesTokenCount }
+          : null;
       }, signal);
     },
   };
 }
 
+/**
+ * Gemini image-generation adapter (canonical IMAGE_GENERATION capability).
+ * Non-streaming generateContent with responseModalities TEXT+IMAGE; every
+ * returned part is normalized — text parts become text deltas, inline image
+ * parts become ChatChunk.image payloads. Reuses the SAME route + API key as the
+ * text adapter; nothing here is a separate AI engine.
+ */
+function geminiImageAdapter(model: string, apiKey: string): ProviderAdapter {
+  return {
+    providerId: 'google',
+    supportsToolCalls: false,
+    async *complete(req, signal) {
+      const { contents, systemParts } = geminiContents(req.messages);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const response = await fetch(url, {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: systemParts ? { parts: systemParts } : undefined,
+          generationConfig: {
+            maxOutputTokens: req.maxTokens ?? 4096,
+            temperature: req.temperature ?? 0.7,
+            responseModalities: ['TEXT', 'IMAGE'],
+          },
+        }),
+      });
+      if (!response.ok) {
+        const bodyHint = await response.text().catch(() => '').then((t) => t.slice(0, 300));
+        throw httpError(response.status, 'Gemini Image', bodyHint);
+      }
+      const data = (await response.json()) as {
+        candidates?: {
+          content?: {
+            parts?: Array<{ text?: string; inlineData?: { data?: string; mimeType?: string } }>;
+          };
+        }[];
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      };
+      const part = data.candidates?.[0]?.content?.parts ?? [];
+      const usage = data.usageMetadata;
+      let emitted = false;
+      for (const p of part) {
+        if (p.text) {
+          emitted = true;
+          yield { delta: p.text, inputTokens: usage?.promptTokenCount, outputTokens: usage?.candidatesTokenCount };
+        } else if (p.inlineData?.data) {
+          emitted = true;
+          yield {
+            delta: '',
+            image: { mimeType: p.inlineData.mimeType ?? 'image/png', dataB64: p.inlineData.data },
+            inputTokens: usage?.promptTokenCount,
+            outputTokens: usage?.candidatesTokenCount,
+          };
+        }
+      }
+      if (!emitted) throw AppError.unavailable('provider_error', 'Gemini image generation returned no image parts');
+    },
+  };
+}
+
 function mistralAdapter(model: string, apiKey: string): ProviderAdapter {
+  const MISTRAL_WIRE_ID_ALIASES: Record<string, string> = {
+    'mistral-small-4': 'mistral-small-latest',
+  };
+  const wireModel = MISTRAL_WIRE_ID_ALIASES[model] ?? model;
   return {
     providerId: 'mistral',
     supportsToolCalls: true,
@@ -307,7 +487,7 @@ function mistralAdapter(model: string, apiKey: string): ProviderAdapter {
         signal,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model,
+          model: wireModel,
           max_tokens: req.maxTokens ?? 4096,
           temperature: req.temperature ?? 0.7,
           stream: true,
@@ -331,7 +511,22 @@ function mistralAdapter(model: string, apiKey: string): ProviderAdapter {
   };
 }
 
-/** OpenAI-compatible SSE adapter shared by grok, deepseek, kimi and NVIDIA NIM. */
+/** Normalize canonical messages to OpenAI-compatible wire messages. */
+function openAiMessages(messages: ChatMessage[]): Array<{ role: string; content: string | unknown[] }> {
+  return messages.map((m) => {
+    if (typeof m.content === 'string') return { role: m.role, content: m.content };
+    return {
+      role: m.role,
+      content: m.content.map((p) => {
+        if (p.type === 'text') return { type: 'text', text: p.text };
+        if (p.type === 'image_base64') return { type: 'image_url', image_url: { url: `data:${p.mimeType || 'image/png'};base64,${p.data}` } };
+        return { type: 'image_url', image_url: { url: p.url, detail: p.detail ?? 'auto' } };
+      }),
+    };
+  });
+}
+
+/** OpenAI-compatible SSE adapter shared by grok, deepseek, kimi, NVIDIA NIM, Ox Alpha and Z Code. */
 function openaiCompatAdapter(providerId: string, label: string, baseUrl: string, model: string, apiKey: string): ProviderAdapter {
   return {
     providerId,
@@ -346,11 +541,12 @@ function openaiCompatAdapter(providerId: string, label: string, baseUrl: string,
           max_tokens: req.maxTokens ?? 4096,
           temperature: req.temperature ?? 0.7,
           stream: true,
-          messages: req.messages,
+          messages: openAiMessages(req.messages),
         }),
       });
       let outputTokens = 0;
-      yield* sseReader(response, label, (json) => {
+      let sawDelta = false;
+      for await (const chunk of sseReader(response, label, (json) => {
         const data = json as {
           choices?: { delta?: { content?: string } }[];
           usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -361,7 +557,16 @@ function openaiCompatAdapter(providerId: string, label: string, baseUrl: string,
           return { delta, inputTokens: data.usage?.prompt_tokens, outputTokens };
         }
         return null;
-      }, signal);
+      }, signal)) {
+        if (chunk.delta) sawDelta = true;
+        yield chunk;
+      }
+      // Honest guard: some OpenAI-compatible endpoints (e.g. Z.ai) answer
+      // HTTP 200 with a JSON error body that is not SSE; swallowing it as an
+      // empty successful completion would be fabrication. Surface it instead.
+      if (!sawDelta && outputTokens === 0) {
+        throw AppError.unavailable('provider_error', `${label} returned an empty completion (HTTP 200)`, { status: 200 });
+      }
     },
   };
 }
@@ -407,7 +612,172 @@ function cohereAdapter(model: string, apiKey: string): ProviderAdapter {
   };
 }
 
+/**
+ * Devin v1 adapter — external autonomous engineering agent.
+ * NOT a chat/completion model. Wraps the Devin session lifecycle into the
+ * ProviderAdapter interface so it integrates with the same gateway, cost
+ * tracking, health monitoring, and audit path.
+ *
+ * Flow: POST /v1/sessions → poll GET /v1/sessions/{id} → stream result.
+ * Requires DEVIN_API_KEY (cog_ prefix) and DEVIN_ORG_ID in env.
+ */
+function devinAdapter(apiKey: string, orgId: string | undefined): ProviderAdapter {
+  return {
+    providerId: 'devin',
+    supportsToolCalls: true,
+    async *complete(req, signal) {
+      const prompt = req.messages.map((m) => `[${m.role}] ${m.content}`).join('\n');
+      const createUrl = orgId
+        ? `${DEVIN_V3_BASE}/organizations/${orgId}/sessions`
+        : `${DEVIN_V1_BASE}/sessions`;
+      const createResp = await fetch(createUrl, {
+        method: 'POST',
+        signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ prompt, title: 'CodeConClave AI task' }),
+      });
+      if (!createResp.ok) {
+        const body = await createResp.text().catch(() => '').then((t) => t.slice(0, 300));
+        throw httpError(createResp.status, 'Devin', body);
+      }
+      const createData = (await createResp.json()) as { session_id: string; url?: string };
+      const sessionId = createData.session_id;
+      const startedAt = new Date().toISOString();
+      yield { delta: '', inputTokens: 0, outputTokens: 0, externalRun: { externalId: sessionId, status: 'running', startedAt } };
+
+      const pollIntervalMs = 5000;
+      const maxPollMs = 300_000;
+      const deadline = Date.now() + maxPollMs;
+      while (Date.now() < deadline) {
+        if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+        const statusUrl = orgId
+          ? `${DEVIN_V3_BASE}/organizations/${orgId}/sessions/${sessionId}`
+          : `${DEVIN_V1_BASE}/sessions/${sessionId}`;
+        const statusResp = await fetch(statusUrl, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal,
+        });
+        if (!statusResp.ok) {
+          throw httpError(statusResp.status, 'Devin', `poll ${statusResp.status}`);
+        }
+        const session = (await statusResp.json()) as {
+          status_enum?: string;
+          session_url?: string;
+          structured_output?: Record<string, unknown>;
+          messages?: { sender_type: string; message: string }[];
+        };
+        if (session.status_enum === 'finished') {
+          const lastAssistant = session.messages?.filter((m) => m.sender_type !== 'human').pop();
+          const resultText = lastAssistant?.message ?? JSON.stringify(session.structured_output ?? {});
+          yield { delta: resultText, inputTokens: prompt.length / 4, outputTokens: resultText.length / 4, externalRun: { externalId: sessionId, status: 'finished', startedAt } };
+          return;
+        }
+        if (session.status_enum === 'blocked') {
+          throw AppError.unavailable('provider_error', 'Devin session blocked', { sessionId });
+        }
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+      }
+      throw AppError.unavailable('provider_timeout', `Devin session ${sessionId} did not complete within ${maxPollMs}ms`);
+    },
+  };
+}
+
+/**
+ * Manus v2 adapter — external autonomous agent capability (EXTERNAL_AGENT).
+ * NOT a chat/completion model. Wraps the v2 async task lifecycle into the
+ * ProviderAdapter interface so Manus flows through the SAME gateway, health,
+ * cost, and audit rails as every other provider.
+ *
+ * Flow: POST /v2/task.create → {task_id} → poll /v2/task.listMessages
+ * until task status is terminal → normalized result text.
+ *
+ * Safety: the external agent is ALWAYS opt-in. The router never auto-picks an
+ * EXTERNAL_AGENT for chat; CodeConClave tasks stay authoritative and every
+ * external action passes the existing permission/approval/budget/audit gates.
+ * Auth: x-manus-api-key header (MANUS_API_KEY).
+ */
+function manusAdapter(apiKey: string): ProviderAdapter {
+  return {
+    providerId: 'manus',
+    supportsToolCalls: false,
+    async *complete(req, signal) {
+      const prompt = req.messages.map((m) => `[${m.role}] ${m.content}`).join('\n');
+      const createResp = await fetch(`${MANUS_V2_BASE}/task.create`, {
+        method: 'POST',
+        signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-manus-api-key': apiKey,
+        },
+        body: JSON.stringify({ prompt, ai_profile: 'manus-1.6' }),
+      });
+      if (!createResp.ok) {
+        const body = await createResp.text().catch(() => '').then((t) => t.slice(0, 300));
+        throw httpError(createResp.status, 'Manus', body);
+      }
+      const createData = (await createResp.json()) as { task_id?: string; id?: string };
+      const taskId = createData.task_id ?? createData.id;
+      if (!taskId) throw AppError.unavailable('provider_error', 'Manus did not return a task id', { status: createResp.status });
+      const startedAt = new Date().toISOString();
+      yield { delta: '', inputTokens: 0, outputTokens: 0, externalRun: { externalId: taskId, status: 'running', startedAt } };
+
+      const pollIntervalMs = 5000;
+      const maxPollMs = 600_000;
+      const deadline = Date.now() + maxPollMs;
+      while (Date.now() < deadline) {
+        if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+        const statusResp = await fetch(`${MANUS_V2_BASE}/task.listMessages`, {
+          method: 'POST',
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-manus-api-key': apiKey,
+          },
+          body: JSON.stringify({ task_id: taskId }),
+        });
+        if (!statusResp.ok) {
+          throw httpError(statusResp.status, 'Manus', `poll ${statusResp.status}`);
+        }
+        const msg = (await statusResp.json()) as {
+          status?: string;
+          data?: {
+            status?: string;
+            result?: { result_text?: string };
+            messages?: Array<{ type: string; text?: string }>;
+          };
+        };
+        const status = msg.status ?? msg.data?.status;
+        if (status === 'completed' || status === 'finished') {
+          const resultText =
+            msg.data?.result?.result_text ??
+            msg.data?.messages?.filter((m) => m.type === 'message').map((m) => m.text ?? '').join('\n') ??
+            '';
+          yield { delta: resultText || 'Manus task completed.', inputTokens: prompt.length / 4, outputTokens: (resultText || prompt).length / 4, externalRun: { externalId: taskId, status: 'finished', startedAt } };
+          return;
+        }
+        if (status === 'blocked') {
+          throw AppError.unavailable('provider_error', 'Manus task blocked, awaiting human decision', { taskId });
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          throw AppError.unavailable('provider_error', `Manus task ${status}`, { taskId });
+        }
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+      }
+      throw AppError.unavailable('provider_timeout', `Manus task ${taskId} did not complete within ${maxPollMs}ms`);
+    },
+  };
+}
+
 export function getAdapter(providerId: string, model: string): ProviderAdapter {
+  // Stage 81 provider quality gate — fail closed BEFORE any key lookup: gated
+  // providers can never construct an adapter, even when a key is present.
+  const gateReason = providerGateReason(providerId);
+  if (gateReason) {
+    throw AppError.unavailable('provider_quality_gate', `Provider ${providerId} is blocked by the provider quality gate (${gateReason})`);
+  }
   switch (providerId) {
     case 'anthropic':
       if (!env.ANTHROPIC_API_KEY) throw AppError.unavailable('provider_not_configured', 'Anthropic is not configured');
@@ -417,7 +787,9 @@ export function getAdapter(providerId: string, model: string): ProviderAdapter {
       return openaiAdapter(model, env.OPENAI_API_KEY);
     case 'google':
       if (!env.GEMINI_API_KEY) throw AppError.unavailable('provider_not_configured', 'Google is not configured');
-      return geminiAdapter(model, env.GEMINI_API_KEY);
+      return GEMINI_IMAGE_MODEL_IDS.has(model)
+        ? geminiImageAdapter(model, env.GEMINI_API_KEY)
+        : geminiAdapter(model, env.GEMINI_API_KEY);
     case 'mistral':
       if (!env.MISTRAL_API_KEY) throw AppError.unavailable('provider_not_configured', 'Mistral is not configured');
       return mistralAdapter(model, env.MISTRAL_API_KEY);
@@ -436,6 +808,28 @@ export function getAdapter(providerId: string, model: string): ProviderAdapter {
     case 'north':
       if (!env.COHERE_API_KEY) throw AppError.unavailable('provider_not_configured', 'Cohere is not configured');
       return cohereAdapter(model, env.COHERE_API_KEY);
+    case 'qwen':
+      if (!env.QWEN_API_KEY) throw AppError.unavailable('provider_not_configured', 'Qwen is not configured');
+      return openaiCompatAdapter('qwen', 'Qwen', QWEN_URL, model, env.QWEN_API_KEY);
+    case 'gemma':
+      if (!env.GEMINI_API_KEY) throw AppError.unavailable('provider_not_configured', 'Gemma (Google) is not configured');
+      return geminiAdapter(model, env.GEMINI_API_KEY);
+    case 'devin':
+      if (!env.DEVIN_API_KEY) throw AppError.unavailable('provider_not_configured', 'Devin is not configured');
+      return devinAdapter(env.DEVIN_API_KEY, env.DEVIN_ORG_ID);
+    case 'ox_alpha':
+      if (!env.OX_ALPHA_API_KEY) {
+        throw AppError.unavailable('provider_not_configured', 'Ox Alpha (OpenRouter) is not configured');
+      }
+      // Ox Alpha has NO first-party endpoint — the stored OX_ALPHA_API_KEY is an
+      // OpenRouter key and the model is the stealth/ox-alpha listing.
+      return openaiCompatAdapter('ox_alpha', 'OpenRouter (Ox Alpha)', OPENROUTER_URL, model, env.OX_ALPHA_API_KEY);
+    case 'z_code_5_3':
+      if (!env.Z_AI_API_KEY) throw AppError.unavailable('provider_not_configured', 'Z Code 5.3 (Z.ai) is not configured');
+      return openaiCompatAdapter('z_code_5_3', 'Z Code 5.3 (Z.ai GLM-5.3)', ZAI_URL, model, env.Z_AI_API_KEY);
+    case 'manus':
+      if (!env.MANUS_API_KEY) throw AppError.unavailable('provider_not_configured', 'Manus is not configured');
+      return manusAdapter(env.MANUS_API_KEY);
     default:
       throw AppError.badRequest('unknown_provider', `Unknown provider ${providerId}`);
   }
@@ -470,21 +864,41 @@ export function deriveStatusFromFailure(err: unknown): import('@codeconclave/sha
   }
 }
 
+/**
+ * Consecutive failures required before a provider is downgraded off the active
+ * rotation. Free-tier APIs return transient 429/5xx (rate-limit / overload) all
+ * the time — a single blip must never permanently kill a provider.
+ */
+export const HEALTH_DOWNGRADE_THRESHOLD = 2;
+
+/**
+ * How long a provider stays excluded after a failure before the registry marks
+ * it tentatively retryable again (lazy recovery on the next request).
+ */
+export const HEALTH_RETRY_COOLDOWN_MS = 60_000;
+
 export function updateProviderHealth(providerId: string, ok: boolean, durationMs: number, error?: string | unknown): void {
   const state = ok ? 'HEALTHY' : error === undefined ? 'DOWN' : deriveStatusFromFailure(error);
   const lastError = typeof error === 'string' ? error : error instanceof Error ? error.message : null;
   import('../../shared/db.js')
-    .then(({ pool: db }) =>
-      db.query(
+    .then(async ({ pool: db }) => {
+      await db.query(
         `INSERT INTO provider_health (provider_id, state, last_check_at, last_error, success_count, failure_count, avg_latency_ms, consecutive_failures)
          VALUES ($1, $2, now(), $3, $4, $5, $6, $7)
          ON CONFLICT (provider_id) DO UPDATE SET
-           state = $2,
+           -- Only downgrade after HEALTH_DOWNGRADE_THRESHOLD consecutive
+           -- failures; the first blip is kept healthy (retryable) so a single
+           -- transient 429/503 from a free tier cannot disable the provider.
+           state = CASE
+             WHEN $2 = 'HEALTHY' OR $8 <= 1 THEN $2
+             WHEN provider_health.consecutive_failures >= ($8 - 1) THEN $2
+             ELSE 'HEALTHY'
+           END,
            last_check_at = now(),
            last_error = $3,
            success_count = provider_health.success_count + $4,
            failure_count = provider_health.failure_count + $5,
-           avg_latency_ms = CASE WHEN $8 THEN $6 ELSE (provider_health.avg_latency_ms * 4 + $6) / 5 END,
+           avg_latency_ms = CASE WHEN $2 = 'HEALTHY' THEN $6 ELSE (provider_health.avg_latency_ms * 4 + $6) / 5 END,
            consecutive_failures = CASE WHEN $2 = 'HEALTHY' THEN 0 ELSE provider_health.consecutive_failures + 1 END,
            updated_at = now()`,
         [
@@ -495,9 +909,13 @@ export function updateProviderHealth(providerId: string, ok: boolean, durationMs
           ok ? 0 : 1,
           durationMs,
           ok ? 0 : 1,
-          false,
+          HEALTH_DOWNGRADE_THRESHOLD,
         ],
-      ),
-    )
+      );
+      // The registry caches health verdicts for AI_MODEL_REFRESH_MINUTES — a
+      // stale DOWN would outlive the retry cooldown, so bust it on every write.
+      const { cache } = await import('../../shared/cache.js');
+      await cache.del('ai:registry');
+    })
     .catch((err) => logger.warn('provider health update failed', { error: (err as Error).message }));
 }

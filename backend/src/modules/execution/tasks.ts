@@ -4,10 +4,11 @@
  *   CREATED → PLANNED → WAITING_APPROVAL → RUNNING → TESTING → VERIFIED → COMPLETED
  *   |-> FAILED / TIMED_OUT / CANCELLED / BLOCKED / WAITING_FOR_LOCAL_AGENT / REQUIRES_REVIEW
  */
-import { pool, queryOne, queryMany, withSystem } from '../../shared/db.js';
+import { withSystem, withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { AuditAction, type Risky } from './policy-shared.js';
+import { guardTransition } from '../autonomy/state-machine.js';
 import { recordAudit } from '../audit/service.js';
 import { notify } from '../notifications/service.js';
 import { notifyTeamMembersAbout } from '../teams/service.js';
@@ -72,6 +73,16 @@ export async function createTask(input: {
   await assertAutonomyEnabled(input.userId, 'TASKS');
   const { evaluatePolicy } = await import('../control/policies.js');
   const policy = await evaluatePolicy(input.userId, 'task', input.title ? 'create' : 'create', input.riskLevel ?? 'MEDIUM');
+  // Tenant gate: the caller must own or belong to the project (and to the
+  // linked conversation when one is given). Without this, any authenticated
+  // user could plant tasks into a victim's project — polluting project stats
+  // and fanning team notifications to the victim's team.
+  const { getProject } = await import('../projects/service.js');
+  await getProject(input.userId, input.projectId);
+  if (input.conversationId) {
+    const { getConversation } = await import('../conversations/service.js');
+    await getConversation(input.userId, input.conversationId);
+  }
   const id = newId(PREFIX.TASK);
   let riskLevel = input.riskLevel ?? 'MEDIUM';
   if (!policy.allowed) {
@@ -79,29 +90,31 @@ export async function createTask(input: {
   }
   if (policy.requireApproval) riskLevel = 'HIGH';
   const requiredApproval = riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
-  await pool.query(
-    `INSERT INTO tasks (
-       id, project_id, conversation_id, owner_id, title, description, status,
-       risk_level, required_approval, coworker_pipeline, execution_mode, timeout_ms,
-       max_attempts, priority
-     ) VALUES ($1,$2,$3,$4,$5,$6,'CREATED',$7,$8,$9::jsonb,$10,$11,$12,$13)`,
-    [
-      id,
-      input.projectId,
-      input.conversationId ?? null,
-      input.userId,
-      input.title,
-      input.description ?? null,
-      riskLevel,
-      requiredApproval,
-      input.coworkerPipeline === undefined || input.coworkerPipeline === null
-        ? null
-        : JSON.stringify(input.coworkerPipeline),
-      input.executionMode ?? 'CLOUD',
-      TASK_TIMEOUT_MS,
-      input.maxAttempts ?? RetryPolicy.DEFAULT_MAX_ATTEMPTS,
-      input.priority ?? 0,
-    ],
+  await withTenant(input.userId, async (q) =>
+    q.query(
+      `INSERT INTO tasks (
+         id, project_id, conversation_id, owner_id, title, description, status,
+         risk_level, required_approval, coworker_pipeline, execution_mode, timeout_ms,
+         max_attempts, priority
+       ) VALUES ($1,$2,$3,$4,$5,$6,'CREATED',$7,$8,$9::jsonb,$10,$11,$12,$13)`,
+      [
+        id,
+        input.projectId,
+        input.conversationId ?? null,
+        input.userId,
+        input.title,
+        input.description ?? null,
+        riskLevel,
+        requiredApproval,
+        input.coworkerPipeline === undefined || input.coworkerPipeline === null
+          ? null
+          : JSON.stringify(input.coworkerPipeline),
+        input.executionMode ?? 'CLOUD',
+        TASK_TIMEOUT_MS,
+        input.maxAttempts ?? RetryPolicy.DEFAULT_MAX_ATTEMPTS,
+        input.priority ?? 0,
+      ],
+    ),
   );
   if (input.dependsOn?.length) {
     for (const dep of input.dependsOn) {
@@ -120,12 +133,14 @@ export async function createTask(input: {
   await recordUsage(input.userId, 'tasks', 1).catch(() => undefined);
   try {
     // Phase 9: new tasks in team projects announce to the team.
-    const project = await queryMany<{ team_id: string | null }>(
-      'SELECT team_id FROM projects WHERE id = $1 AND deleted_at IS NULL',
-      [input.projectId],
+    const project = await withTenant<{ rows: { team_id: string | null }[] }>(input.userId, async (q) =>
+      q.query<{ team_id: string | null }>(
+        'SELECT team_id FROM projects WHERE id = $1 AND deleted_at IS NULL',
+        [input.projectId],
+      ),
     );
-    if (project[0]?.team_id) {
-      await notifyTeamMembersAbout(project[0].team_id, NotificationType.TEAM_TASK_ASSIGNED, 'A task was assigned in a team project', {
+    if (project.rows[0]?.team_id) {
+      await notifyTeamMembersAbout(project.rows[0].team_id, NotificationType.TEAM_TASK_ASSIGNED, 'A task was assigned in a team project', {
         exceptUserId: input.userId,
         body: input.title,
         resourceType: 'task',
@@ -139,26 +154,66 @@ export async function createTask(input: {
 }
 
 export async function getTask(userId: string, taskId: string): Promise<TaskRow> {
-  const rows = await queryMany<TaskRow>('SELECT * FROM tasks WHERE id = $1 AND owner_id = $2', [taskId, userId]);
-  if (!rows[0]) throw AppError.notFound('Task');
-  return rows[0];
+  const rows = await withTenant<{ rows: TaskRow[] }>(userId, async (q) =>
+    q.query<TaskRow>('SELECT * FROM tasks WHERE id = $1 AND owner_id = $2', [taskId, userId]),
+  );
+  if (!rows.rows[0]) throw AppError.notFound('Task');
+  return rows.rows[0];
 }
 
 /** Internal fetch without tenant filter (used by worker/audit paths). */
 export async function getTaskInternal(taskId: string): Promise<TaskRow> {
-  const rows = await queryMany<TaskRow>('SELECT * FROM tasks WHERE id = $1', [taskId]);
-  if (!rows[0]) throw AppError.notFound('Task');
-  return rows[0];
+  const rows = await withSystem<{ rows: TaskRow[] }>(async (q) => q.query<TaskRow>('SELECT * FROM tasks WHERE id = $1', [taskId]));
+  if (!rows.rows[0]) throw AppError.notFound('Task');
+  return rows.rows[0];
+}
+
+/**
+ * Read the current status and reject semantically-impossible rewrites (e.g.
+ * resurrecting COMPLETED work, or jumping out of CANCELLED). This is the single
+ * enforcement point for the canonical lifecycle: every single-row status write
+ * routes through here (the SQL WHERE-gated sweeps in shared/queue.ts encode
+ * their legal source states directly in the predicate).
+ *
+ * The read is BEST-EFFORT: a real task row always exists, so the guard always
+ * applies in production. If the row cannot be read (e.g. a stripped test double
+ * that does not model `SELECT status FROM tasks`) we proceed as before rather
+ * than inventing a policy from missing data.
+ */
+async function guardTaskWrite(taskId: string, to: string): Promise<void> {
+  const row = await withSystem<{ rows: { status: string }[] }>(async (q) =>
+    q.query<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [taskId]),
+  );
+  if (row.rows[0]?.status) guardTransition(row.rows[0].status, to);
+}
+
+/**
+ * Continuity: latest task filed under a conversation (owner-scoped). Used by
+ * the chat deep-work path to answer a retried send (same clientId) with the
+ * already-created task instead of filing a duplicate.
+ */
+export async function findLatestTaskByConversation(userId: string, conversationId: string): Promise<TaskRow | null> {
+  const rows = await withTenant<{ rows: TaskRow[] }>(userId, async (q) =>
+    q.query<TaskRow>(
+      'SELECT * FROM tasks WHERE owner_id = $1 AND conversation_id = $2 ORDER BY created_at DESC LIMIT 1',
+      [userId, conversationId],
+    ),
+  );
+  return rows.rows[0] ?? null;
 }
 
 export async function listTasks(userId: string, projectId: string): Promise<TaskRow[]> {
-  return queryMany<TaskRow>(
-    'SELECT * FROM tasks WHERE owner_id = $1 AND project_id = $2 ORDER BY created_at DESC',
-    [userId, projectId],
+  const rows = await withTenant<{ rows: TaskRow[] }>(userId, async (q) =>
+    q.query<TaskRow>(
+      'SELECT * FROM tasks WHERE owner_id = $1 AND project_id = $2 ORDER BY created_at DESC',
+      [userId, projectId],
+    ),
   );
+  return rows.rows;
 }
 
 export async function setTaskStatus(taskId: string, status: string, errorCode?: string): Promise<void> {
+  await guardTaskWrite(taskId, status);
   const fields: string[] = ['status = $2', 'updated_at = now()'];
   const params: unknown[] = [taskId, status];
   if (status === 'COMPLETED') fields.push('completed_at = now()');
@@ -167,7 +222,7 @@ export async function setTaskStatus(taskId: string, status: string, errorCode?: 
     params.push(errorCode);
     fields.push(`error_code = $${params.length}`);
   }
-  await pool.query(`UPDATE tasks SET ${fields.join(', ')} WHERE id = $1`, params);
+  await withSystem(async (q) => q.query(`UPDATE tasks SET ${fields.join(', ')} WHERE id = $1`, params));
   if (status === 'COMPLETED' || status === 'FAILED' || status === 'TIMED_OUT' || status === 'CANCELLED' || status === 'BLOCKED') {
     try {
       const task = await getTaskInternal(taskId);
@@ -205,12 +260,14 @@ export async function setTaskStatus(taskId: string, status: string, errorCode?: 
       });
       // Phase 9: tasks inside team projects fan out to team members.
       if (status === 'COMPLETED') {
-        const project = await queryMany<{ team_id: string | null }>(
-          'SELECT team_id FROM projects WHERE id = $1 AND deleted_at IS NULL',
-          [task.project_id],
+        const project = await withSystem<{ rows: { team_id: string | null }[] }>(async (q) =>
+          q.query<{ team_id: string | null }>(
+            'SELECT team_id FROM projects WHERE id = $1 AND deleted_at IS NULL',
+            [task.project_id],
+          ),
         );
-        if (project[0]?.team_id) {
-          await notifyTeamMembersAbout(project[0].team_id, NotificationType.TEAM_TASK_COMPLETED, 'A team task was completed', {
+        if (project.rows[0]?.team_id) {
+          await notifyTeamMembersAbout(project.rows[0].team_id, NotificationType.TEAM_TASK_COMPLETED, 'A team task was completed', {
             exceptUserId: task.owner_id,
             body: task.title,
             resourceType: 'task',
@@ -261,18 +318,21 @@ export async function scheduleRetry(
   recoveryStatus: 'RETRYING' | 'RECOVERED' = 'RETRYING',
 ): Promise<void> {
   const task = await getTaskInternal(taskId);
+  guardTransition(task.status, 'CREATED');
   const backoff = retryBackoffMs(task.retry_count);
-  await pool.query(
-    `UPDATE tasks
-        SET status = 'CREATED', recovery_status = $2,
-            retry_count = retry_count + 1,
-            next_attempt_at = now() + ($3 || ' milliseconds')::interval,
-            failure_reason = COALESCE($4, failure_reason),
-            error_code = COALESCE($5, error_code),
-            error_detail = COALESCE($6, error_detail),
-            failed_at = NULL, completed_at = NULL, updated_at = now()
-      WHERE id = $1`,
-    [taskId, recoveryStatus, backoff, failureReason ?? null, errorCode ?? null, errorCode ?? null],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE tasks
+          SET status = 'CREATED', recovery_status = $2,
+              retry_count = retry_count + 1,
+              next_attempt_at = now() + ($3 || ' milliseconds')::interval,
+              failure_reason = COALESCE($4, failure_reason),
+              error_code = COALESCE($5, error_code),
+              error_detail = COALESCE($6, error_detail),
+              failed_at = NULL, completed_at = NULL, updated_at = now()
+        WHERE id = $1`,
+      [taskId, recoveryStatus, backoff, failureReason ?? null, errorCode ?? null, errorCode ?? null],
+    ),
   );
   await recordAudit({
     action: recoveryStatus === 'RECOVERED' ? AuditAction.TASK_RECOVERED : AuditAction.TASK_RETRIED,
@@ -359,21 +419,24 @@ export async function retryTask(userId: string, taskId: string, reason?: string)
     throw AppError.conflict('task_not_retryable', `Task ${task.status.toLowerCase()} cannot be retried`);
   }
   if (task.recovery_status === 'DEAD_LETTERED') {
-    await pool.query('DELETE FROM task_dlq WHERE task_id = $1', [taskId]);
+    await withTenant(userId, async (q) => q.query('DELETE FROM task_dlq WHERE task_id = $1', [taskId]));
   }
   await scheduleRetry(taskId, undefined, reason ?? task.failure_reason ?? 'retried_by_user', 'RECOVERED');
   return getTask(userId, taskId);
 }
 
 export async function listDeadLettered(userId: string) {
-  return queryMany(
-    `SELECT d.*, t.status AS task_status, t.priority, t.retry_count, t.max_attempts
-       FROM task_dlq d
-       JOIN tasks t ON t.id = d.task_id
-      WHERE d.owner_id = $1
-      ORDER BY d.moved_at DESC`,
-    [userId],
+  const rows = await withTenant<{ rows: Record<string, unknown>[] }>(userId, async (q) =>
+    q.query(
+      `SELECT d.*, t.status AS task_status, t.priority, t.retry_count, t.max_attempts
+         FROM task_dlq d
+         JOIN tasks t ON t.id = d.task_id
+        WHERE d.owner_id = $1
+        ORDER BY d.moved_at DESC`,
+      [userId],
+    ),
   );
+  return rows.rows;
 }
 
 export async function getTaskFailureInfo(taskId: string) {
@@ -394,10 +457,12 @@ export async function getTaskFailureInfo(taskId: string) {
 
 export async function addTaskDependency(taskId: string, dependsOnTaskId: string): Promise<void> {
   const id = newId(PREFIX.TASK_DEPENDENCY);
-  await pool.query(
-    `INSERT INTO task_dependencies (id, task_id, depends_on_task_id, kind)
-     VALUES ($1,$2,$3,'finish') ON CONFLICT DO NOTHING`,
-    [id, taskId, dependsOnTaskId],
+  await withSystem(async (q) =>
+    q.query(
+      `INSERT INTO task_dependencies (id, task_id, depends_on_task_id, kind)
+       VALUES ($1,$2,$3,'finish') ON CONFLICT DO NOTHING`,
+      [id, taskId, dependsOnTaskId],
+    ),
   );
   await recordAudit({
     action: AuditAction.TASK_DEPENDENCY_ADDED,
@@ -411,14 +476,17 @@ export async function addTaskDependency(taskId: string, dependsOnTaskId: string)
 }
 
 export async function listTaskDependencies(taskId: string) {
-  return queryMany(
-    `SELECT td.*, dep.title AS depends_on_title, dep.status AS depends_on_status
-       FROM task_dependencies td
-       JOIN tasks dep ON dep.id = td.depends_on_task_id
-      WHERE td.task_id = $1
-      ORDER BY td.created_at`,
-    [taskId],
+  const rows = await withSystem<{ rows: Record<string, unknown>[] }>(async (q) =>
+    q.query(
+      `SELECT td.*, dep.title AS depends_on_title, dep.status AS depends_on_status
+         FROM task_dependencies td
+         JOIN tasks dep ON dep.id = td.depends_on_task_id
+        WHERE td.task_id = $1
+        ORDER BY td.created_at`,
+      [taskId],
+    ),
   );
+  return rows.rows;
 }
 
 // ---------------------------------------------------------------- watchdog (phase 7)
@@ -429,12 +497,12 @@ export async function listTaskDependencies(taskId: string) {
  * backoff; exhausted → dead-letter. Returns per-decision counts.
  */
 export async function recoverTimedOutTasks(): Promise<{ retried: number; deadLettered: number }> {
-  const res = await pool.query(
-    `SELECT id FROM tasks WHERE status = 'TIMED_OUT' AND recovery_status = 'NONE'`,
+  const res = await withSystem<{ rows: { id: string }[] }>(async (q) =>
+    q.query(`SELECT id FROM tasks WHERE status = 'TIMED_OUT' AND recovery_status = 'NONE'`),
   );
   let retried = 0;
   let deadLettered = 0;
-  for (const row of res.rows as { id: string }[]) {
+  for (const row of res.rows) {
     const decision = await retryOrDeadLetter(row.id, 'task_timeout', 'Timed out; retry policy applied');
     if (decision === 'RETRIED') retried++;
     else deadLettered++;
@@ -444,24 +512,26 @@ export async function recoverTimedOutTasks(): Promise<{ retried: number; deadLet
 
 /** Watchdog: block dependent tasks whose dependency failed terminally. */
 export async function blockBlockedDependencies(): Promise<number> {
-  const result = await pool.query(
-    `UPDATE tasks t
-        SET status = 'BLOCKED', error_code = 'dependency_failed', updated_at = now()
-      WHERE t.status IN ('CREATED','PLANNED','CHANGED')
-        AND EXISTS (
-          SELECT 1 FROM task_dependencies td
-          JOIN tasks dep ON dep.id = td.depends_on_task_id
-          WHERE td.task_id = t.id AND dep.status IN ('FAILED','TIMED_OUT','CANCELLED','BLOCKED')
-        )
-      RETURNING id`,
+  const result = await withSystem<{ rowCount: number | null }>(async (q) =>
+    q.query(
+      `UPDATE tasks t
+          SET status = 'BLOCKED', error_code = 'dependency_failed', updated_at = now()
+        WHERE t.status IN ('CREATED','PLANNED','CHANGED')
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies td
+            JOIN tasks dep ON dep.id = td.depends_on_task_id
+            WHERE td.task_id = t.id AND dep.status IN ('FAILED','TIMED_OUT','CANCELLED','BLOCKED')
+          )
+        RETURNING id`,
+    ),
   );
   return result.rowCount ?? 0;
 }
 
 export async function requireApprovalForTask(taskId: string): Promise<void> {
-  await pool.query(
-    `UPDATE tasks SET status = 'WAITING_APPROVAL', updated_at = now() WHERE id = $1`,
-    [taskId],
+  await guardTaskWrite(taskId, 'WAITING_APPROVAL');
+  await withSystem(async (q) =>
+    q.query(`UPDATE tasks SET status = 'WAITING_APPROVAL', updated_at = now() WHERE id = $1`, [taskId]),
   );
   try {
     const task = await getTaskInternal(taskId);
@@ -480,11 +550,23 @@ export async function requireApprovalForTask(taskId: string): Promise<void> {
 }
 
 export async function approveLinkTask(taskId: string, approvalId: string): Promise<void> {
-  await pool.query(
-    `UPDATE tasks SET status = 'PLANNED', required_approval = false, approval_id = $2, updated_at = now()
-     WHERE id = $1`,
-    [taskId, approvalId],
+  await guardTaskWrite(taskId, 'PLANNED');
+  // Conditional release: only a pre-execution task may be released by an
+  // approval. A task that moved on concurrently (cancelled, completed,
+  // already running) must not be yanked back to PLANNED by a late approval.
+  const released = await withSystem<{ rowCount: number | null }>(async (q) =>
+    q.query(
+      `UPDATE tasks SET status = 'PLANNED', required_approval = false, approval_id = $2, updated_at = now()
+       WHERE id = $1 AND status IN ('WAITING_APPROVAL','CREATED','PLANNED','CHANGED')`,
+      [taskId, approvalId],
+    ),
   );
+  if ((released.rowCount ?? 0) === 0) {
+    throw AppError.conflict(
+      'task_not_waiting_approval',
+      'Task is no longer awaiting approval (it moved on concurrently)',
+    );
+  }
   try {
     const task = await getTaskInternal(taskId);
     if (task.agent_run_id) {
@@ -515,29 +597,32 @@ export interface AttemptRow {
 }
 
 export async function beginAttempt(taskId: string): Promise<AttemptRow> {
-  const next = await queryOne<{ n: number }>(
-    'SELECT COALESCE(MAX(attempt_number), 0) + 1 AS n FROM task_attempts WHERE task_id = $1',
-    [taskId],
+  const next = await withSystem<{ rows: { n: number }[] }>(async (q) =>
+    q.query<{ n: number }>(
+      'SELECT COALESCE(MAX(attempt_number), 0) + 1 AS n FROM task_attempts WHERE task_id = $1',
+      [taskId],
+    ),
   );
   const id = newId(PREFIX.TASK_ATTEMPT);
-  await pool.query(
-    `INSERT INTO task_attempts (id, task_id, attempt_number, started_at) VALUES ($1,$2,$3, now())`,
-    [id, taskId, next?.n ?? 1],
+  await withSystem(async (q) =>
+    q.query(`INSERT INTO task_attempts (id, task_id, attempt_number, started_at) VALUES ($1,$2,$3, now())`, [id, taskId, next.rows[0]?.n ?? 1]),
   );
   // Phase 16: stamp started_at on the first claim so the timeout sweep
   // (failTimedOutTasks, gated on started_at IS NOT NULL) can bound even
   // long-running tasks — a task is never RUNNING forever.
-  await pool.query(
-    `UPDATE tasks
-        SET attempt_count = attempt_count + 1,
-            last_heartbeat_at = now(),
-            started_at = COALESCE(started_at, now()),
-            updated_at = now()
-      WHERE id = $1`,
-    [taskId],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE tasks
+          SET attempt_count = attempt_count + 1,
+              last_heartbeat_at = now(),
+              started_at = COALESCE(started_at, now()),
+              updated_at = now()
+        WHERE id = $1`,
+      [taskId],
+    ),
   );
-  const row = await queryOne<AttemptRow>('SELECT * FROM task_attempts WHERE id = $1', [id]);
-  return row!;
+  const row = await withSystem<{ rows: AttemptRow[] }>(async (q) => q.query<AttemptRow>('SELECT * FROM task_attempts WHERE id = $1', [id]));
+  return row.rows[0]!;
 }
 
 export async function finishAttempt(
@@ -546,10 +631,12 @@ export async function finishAttempt(
   errorCode?: string,
   outputSummary?: string,
 ): Promise<void> {
-  await pool.query(
-    `UPDATE task_attempts SET finished_at = now(), result = $2, error_code = $3, output_summary = $4
-     WHERE id = $1`,
-    [attemptId, result, errorCode ?? null, outputSummary ?? null],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE task_attempts SET finished_at = now(), result = $2, error_code = $3, output_summary = $4
+       WHERE id = $1`,
+      [attemptId, result, errorCode ?? null, outputSummary ?? null],
+    ),
   );
 }
 
@@ -564,21 +651,25 @@ export interface AttemptCheckpoint {
 
 /** Persist durable progress so a worker restart can resume, never restart silently. */
 export async function saveAttemptCheckpoint(attemptId: string, checkpoint: AttemptCheckpoint): Promise<void> {
-  await pool.query(
-    `UPDATE task_attempts SET checkpoint = $2::jsonb, checkpointed_at = now() WHERE id = $1`,
-    [attemptId, JSON.stringify(checkpoint)],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE task_attempts SET checkpoint = $2::jsonb, checkpointed_at = now() WHERE id = $1`,
+      [attemptId, JSON.stringify(checkpoint)],
+    ),
   );
 }
 
 /** Latest checkpoint from a finished or interrupted PREVIOUS attempt (never the given attemptId). */
 export async function latestCheckpoint(taskId: string, excludeAttemptId: string): Promise<AttemptCheckpoint | null> {
-  const row = await queryOne<{ checkpoint: unknown }>(
-    `SELECT checkpoint FROM task_attempts
-      WHERE task_id = $1 AND id <> $2 AND checkpointed_at IS NOT NULL
-      ORDER BY checkpointed_at DESC LIMIT 1`,
-    [taskId, excludeAttemptId],
+  const row = await withSystem<{ rows: { checkpoint: unknown }[] }>(async (q) =>
+    q.query<{ checkpoint: unknown }>(
+      `SELECT checkpoint FROM task_attempts
+        WHERE task_id = $1 AND id <> $2 AND checkpointed_at IS NOT NULL
+        ORDER BY checkpointed_at DESC LIMIT 1`,
+      [taskId, excludeAttemptId],
+    ),
   );
-  const raw = row?.checkpoint;
+  const raw = row.rows[0]?.checkpoint;
   if (!raw || typeof raw !== 'object') return null;
   const cp = raw as { stageIndex?: unknown; runIdsByOrder?: unknown };
   if (typeof cp.stageIndex !== 'number' || !cp.runIdsByOrder || typeof cp.runIdsByOrder !== 'object') return null;
@@ -590,7 +681,10 @@ export async function latestCheckpoint(taskId: string, excludeAttemptId: string)
 }
 
 export async function listAttempts(taskId: string): Promise<AttemptRow[]> {
-  return queryMany<AttemptRow>('SELECT * FROM task_attempts WHERE task_id = $1 ORDER BY started_at', [taskId]);
+  const rows = await withSystem<{ rows: AttemptRow[] }>(async (q) =>
+    q.query<AttemptRow>('SELECT * FROM task_attempts WHERE task_id = $1 ORDER BY started_at', [taskId]),
+  );
+  return rows.rows;
 }
 
 // ---------------------------------------------------------------- steps
@@ -616,13 +710,15 @@ export async function addStep(
   title: string,
 ): Promise<StepRow> {
   const id = newId(PREFIX.TASK_STEP);
-  await pool.query(
-    `INSERT INTO task_steps (id, task_id, attempt_id, kind, title, status, started_at)
-     VALUES ($1,$2,$3,$4,$5,'RUNNING', now())`,
-    [id, taskId, attemptId, kind, title],
+  await withSystem(async (q) =>
+    q.query(
+      `INSERT INTO task_steps (id, task_id, attempt_id, kind, title, status, started_at)
+       VALUES ($1,$2,$3,$4,$5,'RUNNING', now())`,
+      [id, taskId, attemptId, kind, title],
+    ),
   );
-  const row = await queryOne<StepRow>('SELECT * FROM task_steps WHERE id = $1', [id]);
-  return row!;
+  const row = await withSystem<{ rows: StepRow[] }>(async (q) => q.query<StepRow>('SELECT * FROM task_steps WHERE id = $1', [id]));
+  return row.rows[0]!;
 }
 
 export async function finishStep(
@@ -632,28 +728,33 @@ export async function finishStep(
   output?: string,
   errorCode?: string,
 ): Promise<void> {
-  await pool.query(
-    `UPDATE task_steps
-        SET status = $2, completed_at = now(), detail = COALESCE($3::jsonb, detail),
-            output = COALESCE($4, output), error_code = COALESCE($5, error_code)
-      WHERE id = $1`,
-    [stepId, status, detail ? JSON.stringify(detail) : null, output ?? null, errorCode ?? null],
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE task_steps
+          SET status = $2, completed_at = now(), detail = COALESCE($3::jsonb, detail),
+              output = COALESCE($4, output), error_code = COALESCE($5, error_code)
+        WHERE id = $1`,
+      [stepId, status, detail ? JSON.stringify(detail) : null, output ?? null, errorCode ?? null],
+    ),
   );
 }
 
 export async function listSteps(taskId: string): Promise<StepRow[]> {
-  return queryMany<StepRow>('SELECT * FROM task_steps WHERE task_id = $1 ORDER BY started_at', [taskId]);
+  const rows = await withSystem<{ rows: StepRow[] }>(async (q) =>
+    q.query<StepRow>('SELECT * FROM task_steps WHERE task_id = $1 ORDER BY started_at', [taskId]),
+  );
+  return rows.rows;
 }
 
 /** Worker/poll paths: keep the task's heartbeat fresh (watchdog recovery signal). */
 export async function touchTask(taskId: string): Promise<void> {
-  await pool.query(`UPDATE tasks SET last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [taskId]);
+  await withSystem(async (q) => q.query(`UPDATE tasks SET last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [taskId]));
 }
 
 /** Watchdog: refresh heartbeats of RUNNING tasks so long-running work isn't reclaimed. */
 export async function heartbeatRunningTasks(): Promise<number> {
-  const result = await pool.query(
-    `UPDATE tasks SET last_heartbeat_at = now() WHERE status = 'RUNNING' RETURNING id`,
+  const result = await withSystem<{ rowCount: number | null }>(async (q) =>
+    q.query(`UPDATE tasks SET last_heartbeat_at = now() WHERE status = 'RUNNING' RETURNING id`),
   );
   return result.rowCount ?? 0;
 }
