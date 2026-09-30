@@ -8,7 +8,7 @@ services:
     name: codeconclave-backend
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/frontend
+    buildCommand: npm ci --include=dev && npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/frontend
     startCommand: npm run start --workspace @codeconclave/backend
     healthCheckPath: /healthz
     envVars:
