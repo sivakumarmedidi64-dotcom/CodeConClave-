@@ -1,0 +1,113 @@
+{
+  "generatedAt": "2026-09-07T20:52:57.454Z",
+  "allowList": [
+    "anthropic",
+    "openai",
+    "grok",
+    "nemotron",
+    "google",
+    "qwen",
+    "gemma",
+    "ox_alpha",
+    "z_code_5_3",
+    "manus"
+  ],
+  "rows": [
+    {
+      "providerId": "google",
+      "status": "VERIFIED",
+      "mode": "text",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
+      "modelId": "gemini-3.7-flash",
+      "httpStatus": 200,
+      "tail": "OK",
+      "notes": []
+    },
+    {
+      "providerId": "google",
+      "status": "VERIFIED",
+      "mode": "multimodal_input",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
+      "modelId": "gemini-3.7-flash",
+      "httpStatus": 200,
+      "tail": "Coral",
+      "notes": []
+    },
+    {
+      "providerId": "google",
+      "status": "VERIFIED",
+      "mode": "models.list",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+      "modelId": "(all)",
+      "httpStatus": 200,
+      "imageModelsFound": [
+        "gemini-2.5-flash-image",
+        "gemini-3-pro-image",
+        "gemini-3-pro-image-preview",
+        "gemini-3.1-flash-image",
+        "gemini-3.1-flash-image-preview",
+        "gemini-3.1-flash-lite-image",
+        "gemma-4-26b-a4b-it",
+        "gemma-4-31b-it",
+        "nano-banana-pro-preview"
+      ],
+      "gemmaAvailable": true,
+      "notes": []
+    },
+    {
+      "providerId": "qwen",
+      "status": "VERIFIED",
+      "mode": "text",
+      "endpoint": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "modelId": "qwen3.5-flash",
+      "httpStatus": 200,
+      "tail": "OK",
+      "notes": []
+    },
+    {
+      "providerId": "gemma",
+      "status": "VERIFIED",
+      "mode": "text",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent",
+      "modelId": "gemma-4-31b-it",
+      "httpStatus": 200,
+      "tail": "The user wants me to reply with exactly: OK.The user wants me to reply with exactly: OK. * Constraint 1: Reply with \"OK\". * Constraint 2: Exactly \"OK\" (no extra",
+      "notes": [
+        "gemma-3-27b-it is NOT served for this key (404); gemma-4-31b-it is the served official variant — recorded honestly"
+      ]
+    },
+    {
+      "providerId": "ox_alpha",
+      "status": "FAILED",
+      "mode": "text",
+      "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "modelId": "stealth/ox-alpha",
+      "httpStatus": 401,
+      "notes": [
+        "call failed: Missing Authentication header"
+      ]
+    },
+    {
+      "providerId": "z_code_5_3",
+      "status": "FAILED",
+      "mode": "text",
+      "endpoint": "https://api.z.ai/api/v1/chat/completions",
+      "modelId": "glm-5.3",
+      "httpStatus": 200,
+      "notes": [
+        "glm-5.3 rejected: token expired or incorrect"
+      ]
+    },
+    {
+      "providerId": "manus",
+      "status": "ENVIRONMENT_BLOCKED",
+      "mode": "none",
+      "endpoint": "https://api.manus.ai/v2",
+      "modelId": "manus-1.6",
+      "notes": [
+        "No read-only probe exists on the v2 task API; a real call would create an agent task (disallowed by gate rules).",
+        "Endpoint identity + auth documented in CODECONCLAVE_NEW_PROVIDER_MATRIX.md."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+# Docker build-context exclusions.
+# Ensures the Docker daemon receives source + manifests ONLY, never host
+# dependency/cache directories. In particular: frontend/node_modules/.vite
+# must NEVER enter the build context.
+# Does NOT exclude source, workspace packages, lockfiles, migrations, railway.toml,
+# or any required production configuration.
+
+# Dependencies
+node_modules
+**/node_modules
+
+# Vite cache
+.vite
+**/.vite
+
+# Build / generated output
+dist
+**/dist
+build
+**/build
+coverage
+**/coverage
+*.tsbuildinfo
+
+# Caches / temp / logs / local artifacts
+.cache
+**/.cache
+.tmp
+**/.tmp
+logs
+*.log
+data
+*.pid
+*.seed
+minio-data
+s3-local
+
+# Environment files (never ship secrets)
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# VCS / IDE / OS metadata
+.git
+.git/**
+.gitignore
+.railwayignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local agent runtime state
+local-agent/.agent
+agent-state.json
+
+# Local backup / scratch copies
+CodeConClave-Complete
+CodeConClave-Complete.zip
+*.txt

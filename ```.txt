@@ -1,0 +1,2153 @@
+```
+// PHASE 0 — core
+```
+
+```typescript
+// packages/core/src/manifest.ts
+export const SYSTEM_NAME = "CodeConClave" as const;
+export const SYSTEM_PROMISE = "Tell CodeConClave what you want. It understands. It remembers. It plans. It works. It verifies. It preserves the result. It keeps cloud-side work running while you are away. When you return, you continue instead of starting over." as const;
+export const PILLARS = ["MEMORY", "EXECUTION", "CONTINUITY", "TEAM", "CONTROL"] as const;
+export type Pillar = (typeof PILLARS)[number];
+export const IS_NOT: readonly string[] = ["only a chatbot", "only a code editor", "only a browser extension", "only an IDE assistant", "only an autonomous agent"] as const;
+export type SurvivalAxis = "FAST_ENOUGH" | "AFFORDABLE_ENOUGH" | "SECURE_ENOUGH" | "TRUSTWORTHY_ENOUGH" | "POWERFUL_ENOUGH" | "SIMPLE_ENOUGH_TO_USE";
+export const SURVIVAL_MANDATE: Readonly<Record<SurvivalAxis, string>> = {
+  FAST_ENOUGH: "system must stay faster than manual alternative",
+  AFFORDABLE_ENOUGH: "cost per outcome stays within plan budget",
+  SECURE_ENOUGH: "enterprise security lock never degrades",
+  TRUSTWORTHY_ENOUGH: "every artifact verified before claim",
+  POWERFUL_ENOUGH: "full AI OS capability retained",
+  SIMPLE_ENOUGH_TO_USE: "core loop usable without training",
+};
+export interface Manifest {
+  readonly name: typeof SYSTEM_NAME;
+  readonly promise: typeof SYSTEM_PROMISE;
+  readonly pillars: readonly Pillar[];
+  readonly not: readonly string[];
+  readonly survival: Readonly<Record<SurvivalAxis, string>>;
+}
+export const MANIFEST: Manifest = Object.freeze({ name: SYSTEM_NAME, promise: SYSTEM_PROMISE, pillars: PILLARS, not: IS_NOT, survival: SURVIVAL_MANDATE });
+```
+
+```typescript
+// packages/core/src/contracts.ts
+export interface OperationBlueprint<TTrigger = unknown, TAction = unknown, TArtifact = unknown, TState = unknown, TFailure = unknown, TRecovery = unknown, TVerification = unknown> {
+  readonly trigger: TTrigger;
+  readonly action: TAction;
+  readonly artifact: TArtifact;
+  readonly persistence: TState;
+  readonly failure: TFailure;
+  readonly recovery: TRecovery;
+  readonly verification: TVerification;
+}
+export type OperationStage = "TRIGGER" | "ACTION" | "ARTIFACT" | "PERSISTENCE" | "FAILURE_STATE" | "RECOVERY" | "VERIFICATION_TEST";
+export const OPERATION_STAGES: readonly OperationStage[] = ["TRIGGER", "ACTION", "ARTIFACT", "PERSISTENCE", "FAILURE_STATE", "RECOVERY", "VERIFICATION_TEST"] as const;
+export interface AcceptanceGate {
+  readonly id: string;
+  readonly description: string;
+  readonly verify: () => Promise<boolean>;
+  readonly gateOf: string;
+}
+export const NEVER_INVENT_CAPABILITY = "A capability must be implemented only if the provider surface explicitly supports it." as const;
+export const NEVER_FAKE_EXECUTION = "A powered-off local device must never report local execution progress." as const;
+export const NEVER_CLAIM_PRODUCTION = "production-ready may only be claimed after every AcceptanceGate passes." as const;
+```
+
+```typescript
+// packages/core/src/brand.lock.ts
+export const BRAND = "CodeConClave" as const;
+export const BRAND_REGEX = /^CodeConClave$/;
+export const FORBIDDEN_VARIANTS = ["CodeConclave", "CodeConCLAVE", "codeconclave"] as const;
+export function assertBrandName(candidate: string): asserts candidate is typeof BRAND {
+  if (!BRAND_REGEX.test(candidate)) throw new Error(`BRAND NAME LOCK: "${candidate}" violates the locked capitalization C-o-d-e-C-o-n-C-l-a-v-e.`);
+}
+export const LOGO = {
+  asset: "assets/logo/codeconclave-logo.svg",
+  wordmarkColor: "YELLOW",
+  structure: "black/white striped",
+  lock: "Must be used exactly as supplied. No redraw, no recolor, no replacement.",
+  forbidden: ["robots", "mascots", "alternate moons"] as const,
+} as const;
+export function assertLogoRule(hasWordmarkYellow: boolean, hasStripedStructure: boolean, hasForbiddenElement: boolean): void {
+  if (!hasWordmarkYellow) throw new Error("LOGO LOCK: wordmark must stay YELLOW.");
+  if (!hasStripedStructure) throw new Error("LOGO LOCK: structure stays black/white striped.");
+  if (hasForbiddenElement) throw new Error("LOGO LOCK: no robots, mascots, or alternate moons.");
+}
+```
+
+```typescript
+// packages/core/src/design-tokens.ts
+export const COLORS = {
+  terracotta: "#C15F3C",
+  terracottaRGB: { r: 193, g: 95, b: 60 },
+  terracottaCMYK: { c: 0, m: 51, y: 69, k: 24 },
+  terracottaHSB: { h: 16, s: 69, b: 76 },
+  terracottaHSL: { h: 16, s: 53, l: 50 },
+  white: "#FFFFFF",
+  background: "#F4F3EE",
+  muted: "#B1ADA1",
+  black: "#111111",
+} as const;
+export type ThemeToken = keyof typeof COLORS;
+export const DESIGN_ROLES = {
+  primaryAccent: COLORS.terracotta,
+  surface: COLORS.white,
+  appBackground: COLORS.background,
+  secondaryTextAndBordersAndInactive: COLORS.muted,
+  bodyTextAndDarkTerminalAndMoon: COLORS.black,
+} as const;
+```
+
+```typescript
+// packages/core/src/architecture.lock.ts
+export const LAYERS = ["PRESENTATION", "API_GATEWAY", "APPLICATION_SERVICES", "DATA", "WORKER", "EXTERNAL_INTEGRATIONS"] as const;
+export type Layer = (typeof LAYERS)[number];
+export interface GatewayConfig {
+  readonly rateLimitPerUserPerEndpoint: { windowMs: number; max: number };
+  readonly auth: "JWT";
+  readonly cache: "REDIS";
+}
+export type ServerAuthority = "IDENTITY" | "PERMISSIONS" | "PLAN" | "ENTITLEMENTS" | "USAGE" | "PAYMENTS" | "TASK_STATE" | "APPROVALS" | "TENANT_OWNERSHIP" | "MODEL_ACCESS";
+export const SERVER_AUTHORITY: readonly ServerAuthority[] = ["IDENTITY", "PERMISSIONS", "PLAN", "ENTITLEMENTS", "USAGE", "PAYMENTS", "TASK_STATE", "APPROVALS", "TENANT_OWNERSHIP", "MODEL_ACCESS"] as const;
+export const APP_SERVICES = ["identity", "sessions", "mfa", "devices", "tenancy", "rbac", "plans", "entitlements", "usage", "payments", "approval", "tasks", "executions", "memory", "storage", "modelGateway", "audit"] as const;
+export type AppServiceId = (typeof APP_SERVICES)[number];
+export const APP_SERVICE_COUNT: 17 = 17;
+export interface ServiceModule<I extends AppServiceId = AppServiceId, TContract = unknown, TState = unknown> {
+  readonly id: I;
+  readonly contract: TContract;
+  readonly state: TState;
+  readonly dependencies: readonly AppServiceId[];
+}
+export type Registry = { [K in AppServiceId]: ServiceModule<K> };
+export function serviceRegistry(modules: { [K in AppServiceId]: ServiceModule<K> }): Registry {
+  const present = new Set<AppServiceId>(APP_SERVICES.filter((s) => s in modules));
+  if (present.size !== APP_SERVICE_COUNT) {
+    const missing = APP_SERVICES.filter((s) => !present.has(s));
+    throw new Error(`ARCHITECTURE LOCK: missing application services: ${missing.join(", ")}`);
+  }
+  return Object.freeze({ ...modules });
+}
+export type DeploymentMode = "MODULAR_MONOLITH" | "DISTRIBUTED";
+export function assertDeploymentMode(mode: DeploymentMode, when: "NOW" | "LATER"): void {
+  if (when === "NOW" && mode !== "MODULAR_MONOLITH") throw new Error("ARCHITECTURE LOCK: public behavior must not change between monolith and extracted services.");
+}
+export function assertServerAuthority(claimingLayer: Layer, ...authorities: ServerAuthority[]): void {
+  if (claimingLayer === "PRESENTATION" && authorities.length > 0) throw new Error("SECURITY LOCK: client-side UI is never the security authority. Transferred authority: " + authorities.join(","));
+  if (claimingLayer !== "APPLICATION_SERVICES" && claimingLayer !== "API_GATEWAY") throw new Error("ARCHITECTURE LOCK: authority must live in the gateway or application services layer.");
+}
+```
+
+```typescript
+// packages/core/src/payment.lock.ts
+import { createHmac } from "node:crypto";
+export type PaymentMode = "A_PAYMENT_LINK" | "B_ENHANCED_API" | "C_WEBHOOK";
+export const PAYMENT_MODES: readonly PaymentMode[] = ["A_PAYMENT_LINK", "B_ENHANCED_API", "C_WEBHOOK"] as const;
+export interface RazorpayPaymentLink {
+  readonly id: string;
+  readonly shortUrl: string;
+  readonly amount: number;
+  readonly currency: "INR";
+  readonly status: "created" | "paid" | "cancelled" | "expired";
+}
+export type PaymentState = "DRAFT" | "LINK_GENERATED" | "LINK_EXPIRED" | "PAID" | "VERIFIED" | "FULFILLED" | "PAYMENT_FAILED" | "VERIFICATION_FAILED";
+export type PaymentEvent =
+  | { type: "LINK_CREATED"; link: RazorpayPaymentLink }
+  | { type: "LINK_EXPIRED" }
+  | { type: "PAYMENT_CALLBACK"; reference: string }
+  | { type: "VERIFY_OK"; paymentId: string }
+  | { type: "VERIFY_FAILED"; reason: string }
+  | { type: "FULFILLED" };
+export const PAYMENT_TRANSITIONS: Readonly<Record<PaymentState, readonly PaymentState[]>> = {
+  DRAFT: ["LINK_GENERATED", "PAYMENT_FAILED"],
+  LINK_GENERATED: ["PAID", "LINK_EXPIRED", "PAYMENT_FAILED"],
+  LINK_EXPIRED: ["LINK_GENERATED"],
+  PAID: ["VERIFIED", "VERIFICATION_FAILED"],
+  VERIFIED: ["FULFILLED", "VERIFICATION_FAILED"],
+  FULFILLED: [],
+  PAYMENT_FAILED: ["LINK_GENERATED"],
+  VERIFICATION_FAILED: ["PAID"],
+};
+export function reducePayment(state: PaymentState, event: PaymentEvent): PaymentState {
+  const to: Record<PaymentEvent["type"], PaymentState> = {
+    LINK_CREATED: "LINK_GENERATED",
+    LINK_EXPIRED: "LINK_EXPIRED",
+    PAYMENT_CALLBACK: "PAID",
+    VERIFY_OK: "VERIFIED",
+    VERIFY_FAILED: "VERIFICATION_FAILED",
+    FULFILLED: "FULFILLED",
+  };
+  const next = to[event.type];
+  if (!PAYMENT_TRANSITIONS[state].includes(next)) throw new Error(`PAYMENT LOCK: illegal transition ${state} -> ${next}`);
+  return next;
+}
+export interface IdempotencyRecord {
+  readonly idempotencyKey: string;
+  readonly state: PaymentState;
+  readonly mode: PaymentMode;
+  readonly tenantId: string;
+  readonly userPrincipal: string;
+}
+export interface PaymentDisposition {
+  readonly mode: PaymentMode;
+  readonly authority: "SERVER";
+  readonly idempotent: boolean;
+}
+export function disposition(mode: PaymentMode): PaymentDisposition {
+  return { mode, authority: "SERVER", idempotent: true };
+}
+export function signHex(payload: string, secret: string): string {
+  return createHmac("sha256", secret).update(payload).digest("hex");
+}
+export function verifyServerSide(link: RazorpayPaymentLink, serverSecret: string, signature: string): { ok: true; paymentId: string } | { ok: false; reason: string } {
+  const expected = signHex(`${link.id}.${link.amount}`, serverSecret);
+  if (expected !== signature) return { ok: false, reason: "signature mismatch" };
+  if (link.status !== "paid") return { ok: false, reason: "razorpay status is not paid" };
+  return { ok: true, paymentId: link.id };
+}
+export const PAYMENT_LOCK = "Mode A: Payment Link current; Mode B: Enhanced API future; Mode C: Webhooks future. State machine, idempotency rules, and server-side verification authority are frozen." as const;
+```
+
+```typescript
+// packages/db/src/database-contract.ts
+export type SqlType = "uuid" | "text" | "citext" | "timestamptz" | "numeric" | "integer" | "boolean" | "jsonb";
+export type Nullability = "NOT NULL" | "NULL";
+export interface ColumnContract {
+  readonly name: string;
+  readonly type: SqlType;
+  readonly nullability: Nullability;
+  readonly default?: string;
+  readonly primaryKey?: boolean;
+  readonly references?: { readonly table: string; readonly column: string; readonly onDelete: "CASCADE" | "SET NULL" | "RESTRICT" };
+  readonly unique?: boolean;
+  readonly check?: string;
+  readonly index?: boolean;
+}
+export interface RlsPolicy {
+  readonly forced: boolean;
+  readonly using: string;
+  readonly withCheck: string;
+}
+export interface TableContract {
+  readonly table: string;
+  readonly purpose: string;
+  readonly columns: readonly ColumnContract[];
+  readonly primaryKey: readonly string[];
+  readonly foreignKeys: readonly { readonly column: string; readonly references: { readonly table: string; readonly column: string; readonly onDelete: "CASCADE" | "SET NULL" | "RESTRICT" } }[];
+  readonly uniqueConstraints: readonly { readonly name: string; readonly columns: readonly string[] }[];
+  readonly checkConstraints: readonly { readonly name: string; readonly expression: string }[];
+  readonly indexes: readonly { readonly name: string; readonly columns: readonly string[]; readonly unique?: boolean }[];
+  readonly rls: RlsPolicy | null;
+  readonly stateMachine: string | null;
+  readonly retention: string | null;
+  readonly audit: "APPEND_ONLY" | "TRACE" | null;
+}
+class TableContractBuilder {
+  private readonly c: TableContract;
+  constructor(table: string, purpose: string) {
+    this.c = { table, purpose, columns: [], primaryKey: [], foreignKeys: [], uniqueConstraints: [], checkConstraints: [], indexes: [], rls: null, stateMachine: null, retention: null, audit: null };
+  }
+  column(name: string, type: SqlType, nullability: Nullability = "NOT NULL"): this {
+    this.c.columns = [...this.c.columns, { name, type, nullability }];
+    return this;
+  }
+  withDefault(expr: string): this {
+    const last = this.c.columns[this.c.columns.length - 1];
+    this.c.columns = [...this.c.columns.slice(0, -1), { ...last, default: expr }];
+    return this;
+  }
+  primaryKey(...columns: string[]): this {
+    this.c.primaryKey = columns;
+    this.c.columns = this.c.columns.map((col) => (columns.includes(col.name) ? { ...col, primaryKey: true } : col));
+    return this;
+  }
+  references(table: string, column: string, onDelete: "CASCADE" | "SET NULL" | "RESTRICT" = "RESTRICT"): this {
+    const last = this.c.columns[this.c.columns.length - 1];
+    const ref = { table, column, onDelete };
+    this.c.columns = [...this.c.columns.slice(0, -1), { ...last, references: ref }];
+    this.c.foreignKeys = [...this.c.foreignKeys, { column: last.name, references: ref }];
+    return this;
+  }
+  unique(name: string, ...columns: string[]): this {
+    this.c.uniqueConstraints = [...this.c.uniqueConstraints, { name, columns }];
+    return this;
+  }
+  check(name: string, expression: string): this {
+    this.c.checkConstraints = [...this.c.checkConstraints, { name, expression }];
+    return this;
+  }
+  index(name: string, ...columns: string[]): this {
+    this.c.indexes = [...this.c.indexes, { name, columns }];
+    for (const col of columns) this.c.columns = this.c.columns.map((x) => (x.name === col ? { ...x, index: true } : x));
+    return this;
+  }
+  rls(using: string, withCheck: string, forced = true): this {
+    this.c.rls = { forced, using, withCheck };
+    return this;
+  }
+  stateMachine(definition: string): this {
+    this.c.stateMachine = definition;
+    return this;
+  }
+  retention(definition: string): this {
+    this.c.retention = definition;
+    return this;
+  }
+  audit(mode: "APPEND_ONLY" | "TRACE"): this {
+    this.c.audit = mode;
+    return this;
+  }
+  build(): Readonly<TableContract> {
+    return Object.freeze({ ...this.c, columns: Object.freeze([...this.c.columns]) });
+  }
+}
+export function table(name: string, purpose: string): TableContractBuilder {
+  return new TableContractBuilder(name, purpose);
+}
+export const DATABASE_CONTRACT = [
+  table("tenant", "Root isolation boundary; ownership of plans, users, tasks, approvals, and entitlements")
+    .column("id", "uuid").withDefault("gen_random_uuid()").primaryKey("id")
+    .column("name", "citext")
+    .column("created_at", "timestamptz").withDefault("now()")
+    .unique("uq_tenant_name", "name")
+    .rls("id = current_setting('app.tenant_id')::uuid", "id = current_setting('app.tenant_id')::uuid")
+    .retention("indefinite")
+    .audit("APPEND_ONLY")
+    .build(),
+  table("app_user", "Authenticated principal; RBAC subject; owner of devices, sessions, and tasks")
+    .column("id", "uuid").withDefault("gen_random_uuid()").primaryKey("id")
+    .column("tenant_id", "uuid").references("tenant", "id")
+    .column("email", "citext")
+    .column("password_hash", "text")
+    .column("plan", "text").withDefault("'free'")
+    .column("mfa_secret_encrypted", "text", "NULL")
+    .column("mfa_enabled", "boolean").withDefault("false")
+    .column("created_at", "timestamptz").withDefault("now()")
+    .unique("uq_app_user_email", "email")
+    .check("ck_app_user_plan", "plan IN ('free','pro','team','enterprise')")
+    .index("ix_app_user_tenant", "tenant_id")
+    .rls("tenant_id = current_setting('app.tenant_id')::uuid", "tenant_id = current_setting('app.tenant_id')::uuid")
+    .retention("28 years per RBAC subject legal record")
+    .audit("TRACE")
+    .build(),
+  table("audit_log", "Append-only enterprise audit trail; 7-year retention; never mutated after write")
+    .column("id", "bigserial").primaryKey("id")
+    .column("tenant_id", "uuid").references("tenant", "id")
+    .column("principal", "text")
+    .column("event", "text")
+    .column("payload_json", "jsonb")
+    .column("occurred_at", "timestamptz").withDefault("now()")
+    .index("ix_audit_log_tenant_time", "tenant_id", "occurred_at")
+    .rls("tenant_id = current_setting('app.tenant_id')::uuid", "false")
+    .retention("7 years, append-only")
+    .audit("APPEND_ONLY")
+    .build(),
+] as const;
+```
+
+```typescript
+// packages/core/src/security.lock.ts
+import { createHmac, createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+export function base32Encode(bytes: Uint8Array): string {
+  let bits = 0, value = 0, out = "";
+  for (const b of bytes) {
+    value = (value << 8) | b;
+    bits += 8;
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & ((1 << (5 - bits)) - 1)];
+  return out;
+}
+export function base32Decode(input: string): Buffer {
+  const cleaned = input.toUpperCase().replace(/=+$/, "").replace(/\s+/g, "");
+  const bytes: number[] = [];
+  let buffer = 0, bitsLeft = 0;
+  for (const ch of cleaned) {
+    const idx = B32.indexOf(ch);
+    if (idx === -1) throw new Error("TOTP LOCK: invalid base32 character in secret.");
+    buffer = (buffer << 5) | idx;
+    bitsLeft += 5;
+    if (bitsLeft >= 8) {
+      bytes.push((buffer >>> (bitsLeft - 8)) & 0xff);
+      bitsLeft -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+export function totpSecret(): string {
+  return base32Encode(randomBytes(20));
+}
+export function totpCode(secretB32: string, at = Date.now()): string {
+  const key = base32Decode(secretB32);
+  const counter = Math.floor(at / 1000 / 30);
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const h = createHmac("sha1", key).update(buf).digest();
+  const o = h[h.length - 1] & 0x0f;
+  const code = (((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1_000_000;
+  return code.toString().padStart(6, "0");
+}
+export function verifyTOTP(secretB32: string, code: string, window = 1): boolean {
+  if (!/^\d{6}$/.test(code)) return false;
+  const expected = Buffer.from(code);
+  for (let w = -window; w <= window; w++) {
+    if (timingSafeEqual(Buffer.from(totpCode(secretB32, Date.now() + w * 30_000)), expected)) return true;
+  }
+  return false;
+}
+export function generateRecoveryCodes(count = 10): readonly string[] {
+  return Array.from({ length: count }, () => randomBytes(10).toString("hex"));
+}
+export function hashRecoveryCode(code: string): string {
+  return createHmac("sha256", "codeconclave.recovery").update(code).digest("hex");
+}
+export interface DeviceFingerprint {
+  readonly uaHash: string;
+  readonly screen: string;
+  readonly timezone: string;
+  readonly locale: string;
+  readonly cpuThreads: number;
+}
+export function fingerprintDevice(p: DeviceFingerprint): string {
+  return createHmac("sha256", "codeconclave.device").update([p.uaHash, p.screen, p.timezone, p.locale, p.cpuThreads].join("|")).digest("hex");
+}
+export function rateLimitKey(scope: "user" | "endpoint", id: string): string {
+  return `rl:${scope}:${id}`;
+}
+export function csrfToken(userId: string, sessionId: string): string {
+  return createHmac("sha256", userId + ":" + sessionId).update("csrf").digest("hex");
+}
+export function sanitizeInput(input: string): string {
+  return input.replace(/[<>&"']/g, (ch) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" })[ch]!);
+}
+export function parameterizeQuery(sql: TemplateStringsArray, values: readonly unknown[]): { readonly text: string; readonly params: unknown[] } {
+  const params: unknown[] = [];
+  const text = sql.reduce((acc, segment, i) => {
+    acc += segment;
+    if (i < values.length) {
+      params.push(values[i]);
+      acc += `$${params.length}`;
+    }
+    return acc;
+  }, "");
+  return { text, params };
+}
+export const AUDIT_RETENTION_YEARS = 7;
+export const SECRET_ROTATION_DAYS = 90;
+export const TLS_MINIMUM = "TLS 1.3";
+class AppendOnlyAuditLog {
+  private readonly store: string[] = [];
+  append(entry: string): string {
+    const id = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    this.store.push(`${id}\t${entry}`);
+    return id;
+  }
+}
+export const auditLog = new AppendOnlyAuditLog();
+export const AES_256_GCM_TAG = 16;
+export function encryptAtRest(plaintext: string, key: Buffer, iv: Buffer): { readonly ciphertext: Buffer; readonly tag: Buffer } {
+  const c = createCipheriv("aes-256-gcm", key, iv);
+  return { ciphertext: Buffer.concat([c.update(plaintext, "utf8"), c.final()]), tag: c.getAuthTag() };
+}
+export function decryptAtRest(ciphertext: Buffer, tag: Buffer, key: Buffer, iv: Buffer): string {
+  const d = createDecipheriv("aes-256-gcm", key, iv);
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(ciphertext), d.final()]).toString("utf8");
+}
+export function rotateSecret(_oldKeyHex: string): string {
+  return randomBytes(32).toString("hex");
+}
+export const RBAC = ["OWNER", "ADMIN", "MEMBER", "VIEWER"] as const;
+export type Role = (typeof RBAC)[number];
+export function promptInjectionGuard(prompt: string): boolean {
+  const patterns = [/ignore (all )?(previous|prior) instructions/i, /system prompt/i, /jailbreak/i, /developer mode/i, />{2,}\s*make me/i];
+  return patterns.some((p) => p.test(prompt));
+}
+export function commandSafetyCheck(command: string): boolean {
+  const blacklist = [/rm\s+-rf\s+\//i, /format\s+\w+:/i, /powershell\s+-enc/i, /cmd\.exe\s+\/c\s+del/i, /shutdown\s+\/s/i];
+  return !blacklist.some((p) => p.test(command));
+}
+export interface SandboxPolicy {
+  readonly network: boolean;
+  readonly writableRoot: string;
+  readonly maxMemoryMb: number;
+  readonly maxCpuMs: number;
+  readonly allowRead: readonly string[];
+  readonly deny: readonly string[];
+}
+export interface PluginScope {
+  readonly permissions: ReadonlySet<string>;
+  readonly can(permission: string): boolean;
+}
+export function pluginScope(allowed: readonly string[]): PluginScope {
+  const permissions = new Set(allowed);
+  return { permissions, can: (p) => permissions.has(p) };
+}
+export function screenshotPrivacy(maskSensitiveRegions: boolean): boolean {
+  return maskSensitiveRegions;
+}
+export function filePrivacy(policy: "tenant-isolated" | "shared"): boolean {
+  return policy === "tenant-isolated";
+}
+```
+
+```typescript
+// packages/core/src/survival.lock.ts
+export const LATENCY_BUDGET_MS: Readonly<Record<"p50" | "p95" | "p99", number>> = { p50: 300, p95: 800, p99: 1500 };
+export type OperationClass = "READ" | "WRITE" | "EXECUTION" | "SEARCH" | "STREAM";
+export const COST_BUDGET = {
+  maxTokensPerRead: 4_000,
+  maxTokensPerWrite: 12_000,
+  maxOutcomeCost: { free: 0.01, pro: 0.06, team: 0.25, enterprise: 1.0 },
+  cacheTtlMs: 60_000,
+} as const;
+export const MEMORY_SAFETY = {
+  maxMemoryRows: 100_000,
+  maxMemoryBytes: 64 * 1024 * 1024,
+  eviction: "LRU",
+  embeddingsDim: 1536,
+  coldStorageAfterDays: 30,
+} as const;
+export const PLUGIN_ISOLATION = {
+  runtime: "VM_ISOLATE",
+  syscall: "DENY_ALL_EXCEPT_ALLOW_LIST",
+  fs: "ROOT_PREFIXED",
+  network: "OPT_IN",
+  cpuQuantumMs: 50,
+  memoryCeilingMb: 256,
+} as const;
+export const PROGRESSIVE_DISCLOSURE = {
+  tier0: "core loop only",
+  tier1: "task artifacts and verification",
+  tier2: "costs, logs, and internals",
+  tier3: "developer surfaces and APIs",
+} as const;
+export const OBSERVABILITY = {
+  tracing: { enabled: true, sampleRate: 0.1, export: "OTLP" },
+  metrics: ["latency_p50", "latency_p95", "cost_per_outcome", "task_completion", "failure_rate"],
+  logs: { level: "INFO", redactSecrets: true },
+} as const;
+export function assertSurvival(axis: string, value: number, budget: number): void {
+  if (value > budget) throw new Error(`SURVIVAL LOCK: ${axis} exceeded budget ${budget}`);
+}
+```
+
+```
+// PHASE 2 — core
+```
+
+```typescript
+// packages/db/src/moat-continuity.ts
+import { table } from "./database-contract";
+export const WORKSPACE_STATE = table("workspace_state", "Restores the exact workspace on return: the Never Start Over promise")
+  .column("id", "uuid").withDefault("gen_random_uuid()").primaryKey("id")
+  .column("user_id", "uuid").references("app_user", "id")
+  .column("tenant_id", "uuid").references("tenant", "id")
+  .column("current_project", "text")
+  .column("conversation_scroll_position", "text")
+  .column("cowork_mode_state", "jsonb")
+  .column("selected_model", "text")
+  .column("terminal_tabs", "jsonb")
+  .column("active_task", "text")
+  .column("loaded_dna_version", "text")
+  .column("memory_context", "jsonb")
+  .column("updated_at", "timestamptz").withDefault("now()")
+  .unique("uq_workspace_state_user", "user_id")
+  .index("ix_workspace_state_tenant", "tenant_id")
+  .rls("tenant_id = current_setting('app.tenant_id')::uuid", "tenant_id = current_setting('app.tenant_id')::uuid")
+  .audit("TRACE")
+  .build();
+export const PROJECT_DNA = table("project_dna", "Complete versioned project state: files, decisions, unresolved tasks, next actions, environment, test results")
+  .column("id", "uuid").withDefault("gen_random_uuid()").primaryKey("id")
+  .column("project_id", "text")
+  .column("tenant_id", "uuid").references("tenant", "id")
+  .column("version", "integer")
+  .column("base_version", "integer", "NULL")
+  .column("files_referenced", "jsonb")
+  .column("decisions", "jsonb")
+  .column("unresolved_tasks", "jsonb")
+  .column("next_actions", "jsonb")
+  .column("environment_state", "jsonb")
+  .column("test_results", "jsonb")
+  .column("created_at", "timestamptz").withDefault("now()")
+  .unique("uq_project_dna_version", "project_id", "version")
+  .index("ix_project_dna_project", "project_id")
+  .rls("tenant_id = current_setting('app.tenant_id')::uuid", "tenant_id = current_setting('app.tenant_id')::uuid")
+  .retention("indefinite")
+  .audit("APPEND_ONLY")
+  .build();
+export const MEMORY_ENTRY = table("memory_entry", "Cross-session memory: episodic, semantic, procedural, project, team with 1536-dim embeddings and full-text search")
+  .column("id", "uuid").withDefault("gen_random_uuid()").primaryKey("id")
+  .column("tenant_id", "uuid").references("tenant", "id")
+  .column("owner_id", "uuid", "NULL").references("app_user", "id")
+  .column("kind", "text")
+  .column("scope", "text")
+  .column("embedding", "text", "NULL")
+  .column("embedding_dim", "integer").withDefault("1536")
+  .column("content", "text")
+  .column("search_vector", "text", "NULL")
+  .column("created_at", "timestamptz").withDefault("now()")
+  .check("ck_memory_kind", "kind IN ('episodic','semantic','procedural','project','team')")
+  .index("ix_memory_owner", "owner_id")
+  .index("ix_memory_vector", "embedding")
+  .rls("tenant_id = current_setting('app.tenant_id')::uuid", "tenant_id = current_setting('app.tenant_id')::uuid")
+  .retention("persists across months; cold to S3/MinIO after 30 days")
+  .audit("APPEND_ONLY")
+  .build();
+```
+
+```typescript
+// packages/core/src/memory.ts
+export const MEMORY_KINDS = ["episodic", "semantic", "procedural", "project", "team"] as const;
+export type MemoryKind = (typeof MEMORY_KINDS)[number];
+export const MEMORY_DIM = 1536;
+export const MEMORY_KIND_MEANINGS: Readonly<Record<MemoryKind, string>> = {
+  episodic: "what happened",
+  semantic: "what is known",
+  procedural: "how we work",
+  project: "context-specific",
+  team: "shared",
+};
+export interface MemoryRecord {
+  readonly id: string;
+  readonly kind: MemoryKind;
+  readonly content: string;
+  readonly embedding: readonly number[] | null;
+  readonly vectorIndex: "pgvector_cosine" | null;
+  readonly fts: string | null;
+  readonly createdAt: number;
+}
+export function embed(content: string, dim: typeof MEMORY_DIM = MEMORY_DIM): readonly number[] {
+  if (dim !== MEMORY_DIM) throw new Error("MEMORY LOCK: embeddings are 1536-dimensional.");
+  return Array.from({ length: dim }, (_, i) => hashToUnit(content, i));
+}
+function hashToUnit(seed: string, i: number): number {
+  let h = 2166136261 ^ seed.charCodeAt(i % seed.length);
+  for (const c of seed) h = ((h ^ c.charCodeAt(0)) * 16777619) >>> 0;
+  const v = Math.sin(h + i) * 10000;
+  return v - Math.floor(v) * 2 - 1;
+}
+export function cosineSimilarity(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length || a.length !== MEMORY_DIM) throw new Error("MEMORY LOCK: dimension mismatch.");
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+}
+export interface MemorySearch {
+  readonly queryEmbedding: readonly number[];
+  readonly kinds: readonly MemoryKind[];
+  readonly topK: number;
+  readonly minScore: number;
+  readonly ftsQuery: string | null;
+  readonly recallBy: "VECTOR" | "FTS" | "HYBRID";
+}
+export function memorySearch(q: MemorySearch): MemorySearch {
+  return q;
+}
+```
+
+```typescript
+// packages/core/src/dna.ts
+export interface DnaSnapshot {
+  readonly projectId: string;
+  readonly version: number;
+  readonly baseVersion: number | null;
+  readonly filesReferenced: readonly string[];
+  readonly decisions: ReadonlyArray<{ readonly key: string; readonly value: string }>;
+  readonly unresolvedTasks: readonly string[];
+  readonly nextActions: readonly string[];
+  readonly environmentState: Readonly<Record<string, string>>;
+  readonly testResults: ReadonlyArray<{ readonly suite: string; readonly passed: boolean }>;
+}
+export function nextDnaVersion(snapshots: readonly DnaSnapshot[]): number {
+  return snapshots.reduce((max, s) => Math.max(max, s.version), 0) + 1;
+}
+export type DnaConflict = { readonly key: string; readonly base: string; readonly ours: string; readonly theirs: string } | null;
+export function detectConflict(base: DnaSnapshot, ours: DnaSnapshot, theirs: DnaSnapshot): readonly DnaConflict[] {
+  if (ours.baseVersion !== theirs.baseVersion) throw new Error("DNA LOCK: divergent branches must share a base version.");
+  const conflicts: DnaConflict[] = [];
+  const all = new Set([...Object.keys(base.decisions), ...Object.keys(ours.decisions), ...Object.keys(theirs.decisions)]);
+  for (const key of all) {
+    const b = base.decisions.find((d) => d.key === key)?.value;
+    const o = ours.decisions.find((d) => d.key === key)?.value;
+    const t = theirs.decisions.find((d) => d.key === key)?.value;
+    if (o !== undefined && t !== undefined && o !== t && o !== b && t !== b) conflicts.push({ key, base: b ?? "", ours: o, theirs: t });
+  }
+  return conflicts;
+}
+export type MergeResolution = "OURS" | "THEIRS" | "MANUAL" | "MOST_RECENT_WINS";
+export function resolveConflict(conflict: DnaConflict, resolution: MergeResolution, manualValue?: string): string {
+  switch (resolution) {
+    case "OURS": return conflict.ours;
+    case "THEIRS": return conflict.theirs;
+    case "MOST_RECENT_WINS": return conflict.ours;
+    case "MANUAL":
+      if (manualValue === undefined) throw new Error("DNA LOCK: manual merge requires a value.");
+      return manualValue;
+  }
+}
+export function mergedSnapshot(base: DnaSnapshot, ours: DnaSnapshot, theirs: DnaSnapshot, resolutions: Readonly<Record<string, MergeResolution>>, manual: Readonly<Record<string, string>> = {}): DnaSnapshot {
+  const conflicts = detectConflict(base, ours, theirs);
+  let mergedDecisions = [...theirs.decisions];
+  for (const c of conflicts) {
+    const value = resolveConflict(c, resolutions[c.key] ?? "MANUAL", manual[c.key]);
+    mergedDecisions = [...mergedDecisions.filter((d) => d.key !== c.key), { key: c.key, value }];
+  }
+  return {
+    projectId: theirs.projectId,
+    version: nextDnaVersion([base, ours, theirs]),
+    baseVersion: theirs.baseVersion,
+    filesReferenced: [...new Set([...ours.filesReferenced, ...theirs.filesReferenced])],
+    decisions: mergedDecisions,
+    unresolvedTasks: [...new Set([...ours.unresolvedTasks, ...theirs.unresolvedTasks])],
+    nextActions: [...new Set([...ours.nextActions, ...theirs.nextActions])],
+    environmentState: { ...ours.environmentState, ...theirs.environmentState },
+    testResults: [...ours.testResults, ...theirs.testResults],
+  };
+}
+```
+
+```typescript
+// packages/core/src/execution.ts
+import { createHash } from "node:crypto";
+export interface FileOp {
+  readonly path: string;
+  readonly action: "read" | "create" | "modify" | "rename" | "delete";
+  readonly beforeHash: string | null;
+  readonly afterHash: string | null;
+}
+export function hashFile(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+export function previewFileOps(ops: readonly FileOp[]): readonly FileOp[] {
+  return ops.map((op) => {
+    if (op.action === "modify" && op.beforeHash && op.afterHash === null) throw new Error("EXECUTION LOCK: modify requires an after-hash before apply.");
+    return op;
+  });
+}
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+export function classifyRisk(ops: readonly FileOp[], commands: readonly string[]): RiskLevel {
+  const deletes = ops.filter((o) => o.action === "delete" || o.action === "rename").length;
+  const destructiveCommands = commands.filter((c) => /(rm\s|drop\s|format|git\s+push\s+--force|npm\s+publish)/i.test(c)).length;
+  if (deletes > 0 || destructiveCommands > 0) return "HIGH";
+  if (ops.some((o) => o.action !== "read") || commands.length > 0) return "MEDIUM";
+  return "LOW";
+}
+export interface SafeExecutionPreview {
+  readonly filesToModify: readonly FileOp[];
+  readonly commandsToRun: readonly string[];
+  readonly riskLevel: RiskLevel;
+  readonly estimatedTimeMs: number;
+}
+export type AutoApprovePolicy = "ALWAYS_APPROVE_LOW" | "REQUIRE_APPROVAL";
+export function decideApproval(preview: SafeExecutionPreview, policy: AutoApprovePolicy, approvedForMediumHigh: boolean): boolean {
+  if (preview.riskLevel === "LOW" && policy === "ALWAYS_APPROVE_LOW") return true;
+  if (preview.riskLevel !== "LOW") return approvedForMediumHigh;
+  return false;
+}
+export interface GitState {
+  readonly branch: string;
+  readonly head: string;
+  readonly workingTreeDirty: boolean;
+}
+export function gitAware(ops: readonly FileOp[], git: GitState): readonly FileOp[] {
+  return ops;
+}
+export interface RollbackPoint {
+  readonly id: string;
+  readonly ops: readonly FileOp[];
+  readonly gitHead: string;
+  readonly createdAt: number;
+}
+export function createRollbackPoint(git: GitState, ops: readonly FileOp[]): RollbackPoint {
+  return { id: `${git.head}-${Date.now()}`, ops, gitHead: git.head, createdAt: Date.now() };
+}
+export function rollback(point: RollbackPoint): RollbackPoint {
+  return point;
+}
+```
+
+```typescript
+// packages/core/src/terminal.ts
+export type ShellKind = "bash" | "zsh" | "node" | "python";
+export interface TerminalTab {
+  readonly id: string;
+  readonly shell: ShellKind;
+  readonly cwd: string;
+  readonly status: "running" | "idle" | "killed";
+  readonly pid: number | null;
+  readonly output: readonly string[];
+  readonly exitCode: number | null;
+}
+export type ProcessCommand =
+  | { readonly kind: "start"; readonly shell: ShellKind; readonly cwd: string }
+  | { readonly kind: "input"; readonly line: string }
+  | { readonly kind: "kill"; readonly tabId: string }
+  | { readonly kind: "restart"; readonly tabId: string }
+  | { readonly kind: "search"; readonly tabId: string; readonly query: string };
+export interface ProcessAction {
+  readonly command: ProcessCommand;
+  readonly before: TerminalTab | null;
+  readonly after: TerminalTab;
+}
+export function startProcess(shell: ShellKind, cwd: string): TerminalTab {
+  return { id: crypto.randomUUID(), shell, cwd, status: "running", pid: null, output: [], exitCode: null };
+}
+export function appendOutput(tab: TerminalTab, chunk: string): TerminalTab {
+  return { ...tab, output: [...tab.output, chunk] };
+}
+export function killProcess(tab: TerminalTab): TerminalTab {
+  return { ...tab, status: "killed", pid: null, exitCode: 130 };
+}
+export function restartProcess(tab: TerminalTab): TerminalTab {
+  return { ...tab, status: "running", pid: null, output: [], exitCode: null };
+}
+export function searchTerminalOutput(tab: TerminalTab, query: string): readonly { readonly line: number; readonly text: string }[] {
+  const re = new RegExp(query, "i");
+  return tab.output.flatMap((text, line) => (re.test(text) ? [{ line, text }] : []));
+}
+```
+
+```typescript
+// packages/core/src/task-queue.ts
+export const TASK_TIMELINE = ["CREATED", "PLANNED", "WAITING_APPROVAL", "RUNNING", "TOOLS_USED", "ARTIFACTS", "TESTING", "VERIFIED", "COMPLETED"] as const;
+export type TaskStage = (typeof TASK_TIMELINE)[number];
+export type TaskSide = "CLOUD" | "LOCAL";
+export interface Task {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly side: TaskSide;
+  readonly stage: TaskStage;
+  readonly title: string;
+  readonly attempts: number;
+  readonly lastError: string | null;
+  readonly scheduledFor: number | null;
+  readonly dead: boolean;
+}
+export const TASK_TRANSITIONS: Readonly<Record<TaskStage, readonly TaskStage[]>> = {
+  CREATED: ["PLANNED", "WAITING_APPROVAL", "RUNNING"],
+  PLANNED: ["WAITING_APPROVAL", "RUNNING"],
+  WAITING_APPROVAL: ["RUNNING", "COMPLETED"],
+  RUNNING: ["TOOLS_USED", "ARTIFACTS", "TESTING", "WAITING_APPROVAL", "VERIFIED"],
+  TOOLS_USED: ["ARTIFACTS", "TESTING", "VERIFIED"],
+  ARTIFACTS: ["TESTING", "VERIFIED", "COMPLETED"],
+  TESTING: ["VERIFIED", "RUNNING"],
+  VERIFIED: ["COMPLETED", "RUNNING"],
+  COMPLETED: [],
+};
+export function advance(task: Task, next: TaskStage): Task {
+  if (!TASK_TRANSITIONS[task.stage].includes(next)) throw new Error(`TASK LOCK: illegal stage ${task.stage} -> ${next}`);
+  return { ...task, stage: next };
+}
+export function exponentialBackoff(attempt: number, baseMs = 1_000, maxMs = 300_000): number {
+  return Math.min(baseMs * 2 ** attempt, maxMs);
+}
+export interface FailureRecord {
+  readonly taskId: string;
+  readonly reason: string;
+  readonly attempt: number;
+  readonly retryAt: number;
+  readonly deadLettered: boolean;
+}
+export function handleFailure(task: Task, reason: string, maxAttempts = 5): FailureRecord {
+  const attempt = task.attempts + 1;
+  if (attempt >= maxAttempts) return { taskId: task.id, reason, attempt, retryAt: 0, deadLettered: true };
+  return { taskId: task.id, reason, attempt, retryAt: Date.now() + exponentialBackoff(attempt), deadLettered: false };
+}
+export interface AwaySummary {
+  readonly tasksCompleted: readonly string[];
+  readonly filesModified: readonly string[];
+  readonly approvalsPending: readonly string[];
+  readonly researchFindings: readonly string[];
+  readonly failures: readonly FailureRecord[];
+}
+export function whileYouWereAway(summary: AwaySummary): AwaySummary {
+  return summary;
+}
+export interface DeadLetterRecord {
+  readonly taskId: string;
+  readonly reason: string;
+  readonly attempts: number;
+  readonly enqueuedAt: number;
+}
+export function enqueueDeadLetter(task: Task, reason: string): DeadLetterRecord {
+  return { taskId: task.id, reason, attempts: task.attempts, enqueuedAt: Date.now() };
+}
+```
+
+```typescript
+// packages/core/src/coworkers.ts
+export const COWORKERS = ["ARCHITECT", "CODER", "SECURITY", "TESTER", "PERFORMANCE", "RESEARCH", "DOCS", "REVIEWER", "PLANNER"] as const;
+export type CoworkerId = (typeof COWORKERS)[number];
+export interface Coworker {
+  readonly id: CoworkerId;
+  readonly personality: string;
+  readonly capabilities: readonly string[];
+  readonly constraints: readonly string[];
+  readonly artifactTypes: readonly string[];
+}
+export const COWORKERS_CATALOG: Readonly<Record<CoworkerId, Coworker>> = {
+  ARCHITECT: { id: "ARCHITECT", personality: "systems-first, decisive", capabilities: ["design", "modularization", "tradeoff analysis"], constraints: ["no implementation without design approval"], artifactTypes: ["architecture decision records", "system maps"] },
+  CODER: { id: "CODER", personality: "pragmatic, precise", capabilities: ["implementation", "refactoring", "diffs"], constraints: ["diffs before apply", "tests required"], artifactTypes: ["code diff", "commit message"] },
+  SECURITY: { id: "SECURITY", personality: "paranoid, evidence-driven", capabilities: ["audit", "threat modeling", "secrets scanning"], constraints: ["never mute findings"], artifactTypes: ["security report"] },
+  TESTER: { id: "TESTER", personality: "adversarial, exhaustive", capabilities: ["unit", "integration", "e2e", "coverage"], constraints: ["no green without assertion"], artifactTypes: ["test report"] },
+  PERFORMANCE: { id: "PERFORMANCE", personality: "metric-obsessed", capabilities: ["profiling", "latency", "budgets"], constraints: ["claims require measurements"], artifactTypes: ["benchmark report"] },
+  RESEARCH: { id: "RESEARCH", personality: "curious, cited", capabilities: ["investigation", "summaries", "sources"], constraints: ["no invented sources"], artifactTypes: ["research doc"] },
+  DOCS: { id: "DOCS", personality: "clear, thorough", capabilities: ["writing", "onboarding", "API docs"], constraints: ["docs match code"], artifactTypes: ["documentation"] },
+  REVIEWER: { id: "REVIEWER", personality: "critical, fair", capabilities: ["code review", "risk", "style"], constraints: ["blocking issues labeled"], artifactTypes: ["review"] },
+  PLANNER: { id: "PLANNER", personality: "structured, realistic", capabilities: ["scheduling", "dependencies", "estimates"], constraints: ["no fantasy dates"], artifactTypes: ["plan"] },
+};
+export interface Handoff<TContext = unknown> {
+  readonly from: CoworkerId;
+  readonly to: CoworkerId;
+  readonly context: TContext;
+  readonly artifacts: readonly string[];
+}
+export function handoff<TContext>(from: CoworkerId, to: CoworkerId, context: TContext, artifacts: readonly string[]): Handoff<TContext> {
+  if (from === to) throw new Error("COWORKER LOCK: self-handoff is invalid.");
+  return { from, to, context, artifacts };
+}
+export interface ExecutionGraph<T = unknown> {
+  readonly tasks: ReadonlyArray<{ readonly id: string; readonly coworker: CoworkerId; readonly work: T }>;
+  readonly edges: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+}
+export function executionMode(graph: ExecutionGraph): "PARALLEL" | "SEQUENTIAL" {
+  return graph.edges.length === 0 ? "PARALLEL" : "SEQUENTIAL";
+}
+```
+
+```typescript
+// packages/core/src/model-gateway.ts
+export const PROVIDERS = ["claude", "openai", "gemini", "mistral", "llama"] as const;
+export type Provider = (typeof PROVIDERS)[number];
+export type ModelId = "claude-opus" | "claude-sonnet" | "claude-haiku" | "gpt-4" | "gemini" | "mistral" | "llama";
+export interface ModelSpec {
+  readonly id: ModelId;
+  readonly provider: Provider;
+  readonly contextWindow: number;
+  readonly complexityRating: "high" | "medium" | "low";
+  readonly latencyClass: "fast" | "balanced" | "deep";
+}
+export const MODEL_REGISTRY: Readonly<Record<ModelId, ModelSpec>> = {
+  "claude-opus": { id: "claude-opus", provider: "claude", contextWindow: 200_000, complexityRating: "high", latencyClass: "deep" },
+  "claude-sonnet": { id: "claude-sonnet", provider: "claude", contextWindow: 200_000, complexityRating: "medium", latencyClass: "balanced" },
+  "claude-haiku": { id: "claude-haiku", provider: "claude", contextWindow: 200_000, complexityRating: "low", latencyClass: "fast" },
+  "gpt-4": { id: "gpt-4", provider: "openai", contextWindow: 128_000, complexityRating: "high", latencyClass: "balanced" },
+  gemini: { id: "gemini", provider: "gemini", contextWindow: 1_000_000, complexityRating: "high", latencyClass: "balanced" },
+  mistral: { id: "mistral", provider: "mistral", contextWindow: 32_000, complexityRating: "medium", latencyClass: "fast" },
+  llama: { id: "llama", provider: "llama", contextWindow: 8_000, complexityRating: "low", latencyClass: "fast" },
+};
+export interface RoutingContext {
+  readonly complexity: "high" | "medium" | "low";
+  readonly contextNeeded: number;
+  readonly plan: "free" | "pro" | "team" | "enterprise";
+  readonly latencySensitive: boolean;
+}
+export const PLAN_ENTITLEMENT: Readonly<Record<RoutingContext["plan"], readonly ModelId[]>> = {
+  free: ["claude-haiku", "mistral", "llama"],
+  pro: ["claude-haiku", "claude-sonnet", "mistral", "gpt-4"],
+  team: ["claude-haiku", "claude-sonnet", "mistral", "gpt-4", "gemini"],
+  enterprise: ["claude-opus", "claude-sonnet", "claude-haiku", "gpt-4", "gemini", "mistral", "llama"],
+};
+export type FallbackChain = readonly [ModelId, ModelId, ModelId];
+const COST_RANK: Readonly<Record<ModelId, number>> = { "claude-haiku": 1, llama: 2, mistral: 3, "claude-sonnet": 4, "gpt-4": 5, gemini: 6, "claude-opus": 7 };
+export function route(ctx: RoutingContext): ModelId {
+  const allowed = PLAN_ENTITLEMENT[ctx.plan];
+  const inWindow = allowed.filter((m) => MODEL_REGISTRY[m].contextWindow >= ctx.contextNeeded);
+  const pool = inWindow.length > 0 ? inWindow : allowed;
+  const byComplexity = pool.filter((m) => MODEL_REGISTRY[m].complexityRating === ctx.complexity);
+  const candidates = byComplexity.length > 0 ? byComplexity : pool;
+  const cheapestFirst = [...candidates].sort((a, b) => COST_RANK[a] - COST_RANK[b]);
+  if (!ctx.latencySensitive) return cheapestFirst[0];
+  return [...cheapestFirst].sort((a, b) => latencyRank(MODEL_REGISTRY[a]) - latencyRank(MODEL_REGISTRY[b]))[0];
+}
+function latencyRank(spec: ModelSpec): number {
+  return spec.latencyClass === "fast" ? 0 : spec.latencyClass === "balanced" ? 1 : 2;
+}
+export function fallbackChain(primary: ModelId, secondary: ModelId, tertiary: ModelId): FallbackChain {
+  return [primary, secondary, tertiary];
+}
+```
+
+```typescript
+// packages/core/src/collaboration.ts
+export type Permission = "read" | "write" | "approve" | "publish" | "admin";
+export interface TeamMember {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly role: "OWNER" | "ADMIN" | "MEMBER";
+  readonly permissions: ReadonlySet<Permission>;
+}
+export function inheritPermissions(team: TeamMember, memberRole: TeamMember["role"]): ReadonlySet<Permission> {
+  const base = team.permissions;
+  if (memberRole === "MEMBER") return base;
+  if (memberRole === "ADMIN") return new Set([...base, "approve", "admin"]);
+  return new Set([...base, "approve", "publish", "admin"]);
+}
+export interface ApprovalCard {
+  readonly id: string;
+  readonly action: string;
+  readonly riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  readonly affectedResources: readonly string[];
+  readonly proposedCommand: string | null;
+  readonly coworker: string;
+  readonly timestamp: number;
+  readonly status: "PENDING" | "APPROVED" | "REJECTED" | "REVIEW";
+}
+export function reviewCard(card: ApprovalCard, verdict: "APPROVED" | "REJECTED" | "REVIEW"): ApprovalCard {
+  return { ...card, status: verdict };
+}
+export const ARTIFACT_CHAIN = ["TASK", "ARTIFACT", "VERIFICATION", "PERSISTENCE"] as const;
+export type ArtifactChainStage = (typeof ARTIFACT_CHAIN)[number];
+export interface Artifact {
+  readonly id: string;
+  readonly taskId: string;
+  readonly kind: "file" | "diff" | "test_report" | "log" | "research_doc" | "screenshot";
+  readonly uri: string;
+  readonly verified: boolean;
+  readonly persisted: boolean;
+}
+export function chainStage(artifact: Artifact): ArtifactChainStage {
+  if (!artifact.persisted) return "PERSISTENCE";
+  if (!artifact.verified) return "VERIFICATION";
+  return "ARTIFACT";
+}
+export interface TeamSharedMemory {
+  readonly teamId: string;
+  readonly memory: readonly MemoryRef[];
+  readonly dna: readonly string[];
+  readonly contexts: readonly string[];
+}
+export interface MemoryRef {
+  readonly id: string;
+  readonly kind: "episodic" | "semantic" | "procedural" | "project" | "team";
+}
+```
+
+```typescript
+// packages/core/src/first-session.ts
+export const FIRST_SESSION_FLOW = ["USER_STARTS_TASK", "CONTEXT_SAVED", "BROWSER_CLOSED", "USER_RETURNS", "WORKSPACE_RESTORED_EXACTLY", "AWAY_SUMMARY_IF_APPLICABLE", "TASK_STATE_REMAINS", "MEMORY_REMAINS", "DNA_REMAINS", "CONTINUE_SEAMLESSLY"] as const;
+export type FirstSessionStep = (typeof FIRST_SESSION_FLOW)[number];
+export interface ContinuityProbe {
+  readonly step: FirstSessionStep;
+  readonly passed: boolean;
+  readonly evidence: string;
+}
+export function probeContinuity(): readonly ContinuityProbe[] {
+  return FIRST_SESSION_FLOW.map((step) => ({ step, passed: false, evidence: "real persistence required" }));
+}
+```
+
+```
+// PHASE 3 — web/design
+```
+
+```typescript
+// packages/web/src/design/theme.ts
+export const THEME = {
+  colors: {
+    terracotta: "#C15F3C",
+    white: "#FFFFFF",
+    background: "#F4F3EE",
+    muted: "#B1ADA1",
+    black: "#111111",
+    warmNeutralActive: "#B1ADA126",
+    muted40: "#B1ADA166",
+    danger: "#B3261E",
+  },
+  typography: {
+    font: `"Inter", "SF Pro", system-ui, sans-serif`,
+    mono: `"JetBrains Mono", "SF Mono", monospace`,
+    sizes: { xs: 12, sm: 13, md: 14, lg: 16, xl: 20, 2xl: 28 },
+    weights: { regular: 400, medium: 500, semibold: 600, bold: 700 },
+  },
+  radius: { sm: 6, md: 10, lg: 14 },
+  border: { width: 1, color: "#B1ADA166" },
+  shadow: { card: "0 1px 2px rgba(17,17,17,0.06)", popover: "0 4px 16px rgba(17,17,17,0.10)" },
+  spacing: 4,
+  layout: { sidebarWidth: 248, headerHeight: 56, contextualPanelWidth: 320 },
+} as const;
+export const AVOID = [
+  "excessive gradients", "cartoon UI", "oversized illustrations", "childish mascots", "excessive terracotta",
+  "glassmorphism", "heavy shadows", "visual clutter", "noisy decorations", "huge hero graphics inside working interfaces", "multiple competing CTAs",
+] as const;
+export const USE = [
+  "strong typography", "whitespace", "clean hierarchy", "subtle shadows", "1px borders", "rounded cards",
+  "restrained terracotta accents", "white surfaces", "warm cream background", "near-black text", "black Moon", "yellow logo wordmark",
+] as const;
+```
+
+```typescript
+// packages/web/src/design/layout.ts
+export type Breakpoint = "desktop" | "tablet" | "mobile";
+export const BREAKPOINTS: Readonly<Record<Breakpoint, number>> = { desktop: 1024, tablet: 768, mobile: 0 };
+export const GRID_AREAS = { desktop: `"sidebar main contextual"`, tablet: `"sidebar main"`, mobile: `"main"` } as const;
+export const GRID_COLUMNS = { desktop: "248px 1fr 320px", tablet: "64px 1fr", mobile: "1fr" } as const;
+export function layoutFor(width: number): Breakpoint {
+  if (width >= BREAKPOINTS.desktop) return "desktop";
+  if (width >= BREAKPOINTS.tablet) return "tablet";
+  return "mobile";
+}
+export type MobileSurface = "terminal" | "files" | "context";
+```
+
+```tsx
+// packages/web/src/navigation/sidebar.tsx
+import type { CSSProperties, JSX } from "react";
+const ICON_PATHS = {
+  home: "M3 10.5L12 3l9 7.5M5 9.5V21h14V9.5",
+  chat: "M21 15a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2h14a2 2 0 012 2z",
+  project: "M3 7a2 2 0 012-2h5l2 2h7a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z",
+  memory: "M12 4a8 8 0 100 16 8 8 0 000-16zm-4 8h8M12 8v8",
+  dna: "M6 3c2 4 2 14 0 18M18 3c-2 4-2 14 0 18M6 7h12M6 12h12M6 17h12",
+  file: "M6 2h9l5 5v15H6zM14 2v5h5",
+  terminal: "M4 5l6 7-6 7M11 19h9",
+  orbit: "M12 12m-3 0a3 3 0 106 0 3 3 0 10-6 0M3 12a9 9 0 0118 0M3 12a9 9 0 0018 0",
+  coworker: "M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M8 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75",
+  team: "M2 21v-2a4 4 0 014-4h5a4 4 0 014 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87",
+  plugin: "M10 13a5 5 0 007.5 4.5L21 21l-3.5-3.5A5 5 0 1010 13zM4 8V4h4M4 4h4M4 8V4",
+  remote: "M8 3H5a2 2 0 00-2 2v14a2 2 0 002 2h3M16 3h3a2 2 0 012 2v14a2 2 0 01-2 2h-3M12 3v18",
+  ideas: "M12 2a7 7 0 00-4 12.7c.8.6 1 1.5 1 2.3h6c0-.8.2-1.7 1-2.3A7 7 0 0012 2zM9 21h6M12 5v4",
+  database: "M12 3c4 0 7 1.5 7 3s-3 3-7 3-7-1.5-7-3 3-3 7-3zM5 6v12c0 1.5 3 3 7 3s7-1.5 7-3V6M5 12c0 1.5 3 3 7 3s7-1.5 7-3",
+  trash: "M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6",
+  history: "M3 12a9 9 0 101.5-5M3 4v5h5M12 7v5l4 2",
+  settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3 1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9 1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z",
+  approval: "M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6zM9 12l2 2 4-4",
+} as const;
+export type NavIconName = keyof typeof ICON_PATHS;
+function NavIcon({ name, size = 18 }: { readonly name: NavIconName; readonly size?: number }): JSX.Element {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={ICON_PATHS[name]} />
+    </svg>
+  );
+}
+export interface NavItem {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: NavIconName;
+  readonly badge?: boolean;
+}
+export const NAV_ITEMS: readonly NavItem[] = [
+  { id: "home", label: "Home", icon: "home" },
+  { id: "chat", label: "Chat", icon: "chat" },
+  { id: "projects", label: "Projects", icon: "project" },
+  { id: "memory", label: "Memory", icon: "memory" },
+  { id: "dna-load", label: "DNA Load", icon: "dna" },
+  { id: "files", label: "Files", icon: "file" },
+  { id: "local-terminal", label: "Local Terminal", icon: "terminal" },
+  { id: "work-24-7", label: "24/7 Work", icon: "orbit" },
+  { id: "coworkers", label: "Coworkers", icon: "coworker" },
+  { id: "teams", label: "Teams", icon: "team" },
+  { id: "plugins", label: "Plugins", icon: "plugin" },
+  { id: "remote-control", label: "Remote Control", icon: "remote" },
+  { id: "ideas", label: "Ideas", icon: "ideas" },
+  { id: "data-centre", label: "Data Centre", icon: "database" },
+  { id: "gain-trash", label: "Gain Trash", icon: "trash" },
+  { id: "history", label: "History", icon: "history" },
+  { id: "settings", label: "Settings", icon: "settings" },
+  { id: "approvals", label: "Approvals", icon: "approval", badge: true },
+];
+export interface SidebarProps {
+  readonly active: string;
+  readonly approvalsPending: number;
+  readonly onNavigate: (id: string) => void;
+  readonly collapsed: boolean;
+  readonly remoteDisabled?: boolean;
+}
+export function Sidebar({ active, approvalsPending, onNavigate, collapsed, remoteDisabled = false }: SidebarProps): JSX.Element {
+  const activeStyle: CSSProperties = { background: "#B1ADA126", borderLeft: "2px solid #C15F3C", color: "#111111", fontWeight: 600 };
+  return (
+    <nav style={{ width: collapsed ? 64 : 248, display: "flex", flexDirection: "column", background: "#FFFFFF", borderRight: "1px solid #B1ADA166" }}>
+      {NAV_ITEMS.map((item) => {
+        const isActive = item.id === active;
+        const disabled = item.id === "remote-control" && remoteDisabled;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onNavigate(item.id)}
+            aria-current={isActive ? "page" : undefined}
+            disabled={disabled}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "9px 16px",
+              border: "none",
+              background: isActive ? "#B1ADA126" : "transparent",
+              borderLeft: isActive ? "2px solid #C15F3C" : "2px solid transparent",
+              color: "#111111",
+              fontWeight: isActive ? 600 : 400,
+              fontSize: 13,
+              cursor: disabled ? "not-allowed" : "pointer",
+              opacity: disabled ? 0.4 : 1,
+            }}
+          >
+            <NavIcon name={item.icon} />
+            {!collapsed && <span>{item.label}</span>}
+            {!collapsed && item.badge && approvalsPending > 0 && (
+              <span style={{ marginLeft: "auto", background: "#C15F3C", color: "#FFFFFF", borderRadius: 9, fontSize: 11, padding: "1px 7px" }}>{approvalsPending}</span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+```
+
+```tsx
+// packages/web/src/navigation/header.tsx
+import type { CSSProperties, JSX } from "react";
+export interface HeaderProps {
+  readonly onSearch: () => void;
+  readonly onCommandPalette: () => void;
+  readonly notifications: number;
+  readonly theme: "light" | "dark";
+  readonly onToggleTheme: () => void;
+  readonly avatar: JSX.Element;
+}
+export function Header({ onSearch, onCommandPalette, notifications, theme, onToggleTheme, avatar }: HeaderProps): JSX.Element {
+  return (
+    <header style={{ height: 56, display: "flex", alignItems: "center", gap: 12, padding: "0 20px", background: "#FFFFFF", borderBottom: "1px solid #B1ADA166" }}>
+      <button type="button" onClick={onSearch} aria-label="Global Search" style={buttonStyle}>Search (Ctrl/Cmd+K)</button>
+      <button type="button" onClick={onCommandPalette} aria-label="Command Palette" style={buttonStyle}>⌘K</button>
+      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <button type="button" aria-label="Notifications" style={buttonStyle}>{notifications > 0 ? <span style={{ color: "#C15F3C" }}>● {notifications}</span> : "Bell"}</button>
+        <button type="button" aria-label="Theme Toggle" onClick={onToggleTheme} style={buttonStyle}>{theme === "light" ? "Dark" : "Light"}</button>
+        {avatar}
+      </div>
+    </header>
+  );
+}
+const buttonStyle: CSSProperties = { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid #B1ADA166", background: "#FFFFFF", color: "#111111", fontSize: 13, cursor: "pointer" };
+```
+
+```tsx
+// packages/web/src/profile/avatar.tsx
+import type { JSX } from "react";
+export const AVATAR_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
+export interface AvatarValidation {
+  readonly ok: boolean;
+  readonly reason: string | null;
+}
+export function validateAvatar(file: File): AvatarValidation {
+  if (!AVATAR_MIME.includes(file.type as (typeof AVATAR_MIME)[number])) return { ok: false, reason: "avatar must be JPG, PNG, or WebP" };
+  if (file.size > 5 * 1024 * 1024) return { ok: false, reason: "avatar exceeds 5MB" };
+  return { ok: true, reason: null };
+}
+export function validateAvatarDimensions(width: number, height: number): AvatarValidation {
+  if (width < 64 || height < 64) return { ok: false, reason: "avatar must be at least 64x64" };
+  if (width > 2048 || height > 2048) return { ok: false, reason: "avatar exceeds 2048x2048" };
+  return { ok: true, reason: null };
+}
+export function initialsFor(name: string): string {
+  return name.split(/\s+/).map((p) => p[0] ?? "").slice(0, 2).join("").toUpperCase();
+}
+export interface AvatarProps {
+  readonly name: string;
+  readonly photoUrl: string | null;
+  readonly size?: number;
+}
+export function Avatar({ name, photoUrl, size = 32 }: AvatarProps): JSX.Element {
+  if (photoUrl) return <img src={photoUrl} alt={name} width={size} height={size} style={{ borderRadius: "50%", objectFit: "cover" }} />;
+  return (
+    <div aria-label={`Avatar for ${name}`} style={{ width: size, height: size, borderRadius: "50%", background: "#B1ADA1", color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.4, fontWeight: 600 }}>
+      {initialsFor(name)}
+    </div>
+  );
+}
+export const PROFILE_MENU = ["Profile", "Account", "Plan", "Usage", "Security", "Connected Devices", "Sign Out"] as const;
+export interface ProfileMenuProps {
+  readonly onSelect: (item: (typeof PROFILE_MENU)[number]) => void;
+}
+export function ProfileMenu({ onSelect }: ProfileMenuProps): JSX.Element {
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #B1ADA166", borderRadius: 10, boxShadow: "0 4px 16px rgba(17,17,17,0.10)", padding: 4, minWidth: 200 }}>
+      {PROFILE_MENU.map((item) => (
+        <button key={item} type="button" onClick={() => onSelect(item)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", background: "transparent", color: "#111111", fontSize: 13, cursor: "pointer" }}>{item}</button>
+      ))}
+    </div>
+  );
+}
+```
+
+```tsx
+// packages/web/src/context/context-indicator.tsx
+import type { JSX } from "react";
+export interface ContextIndicatorProps {
+  readonly memoryLoaded: boolean;
+  readonly projectActive: string | null;
+  readonly dnaLoaded: boolean;
+  readonly relevantFiles: number;
+  readonly onOpenInspector: () => void;
+}
+export function ContextIndicator({ memoryLoaded, projectActive, dnaLoaded, relevantFiles, onOpenInspector }: ContextIndicatorProps): JSX.Element {
+  const chip = (label: string, on: boolean): JSX.Element => (
+    <span style={{ fontSize: 11, color: on ? "#111111" : "#B1ADA1", border: "1px solid #B1ADA166", borderRadius: 9, padding: "2px 8px" }}>{label}</span>
+  );
+  return (
+    <button type="button" onClick={onOpenInspector} aria-label="Open Context Inspector" style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px", border: "1px solid #B1ADA166", borderRadius: 9, background: "#FFFFFF", cursor: "pointer" }}>
+      {chip("Memory", memoryLoaded)}
+      {projectActive ? <span style={{ fontSize: 11, color: "#111111" }}>{projectActive}</span> : null}
+      {chip("DNA", dnaLoaded)}
+      {chip(`${relevantFiles} files`, relevantFiles > 0)}
+    </button>
+  );
+}
+export interface ContextInspector {
+  readonly memoryLoaded: boolean;
+  readonly projectActive: string | null;
+  readonly dnaVersion: string | null;
+  readonly relevantFiles: readonly string[];
+  readonly selectedModel: string;
+}
+```
+
+```
+// PHASE 4
+```
+
+```typescript
+// packages/core/src/intent-router.ts
+import type { CoworkerId } from "./coworkers";
+export type IntentPath = "FAST" | "DEEP";
+export interface IntentInput {
+  readonly message: string;
+  readonly attachedFileCount: number;
+  readonly currentMode: "CHAT" | "COWORK";
+}
+export interface IntentDecision {
+  readonly path: IntentPath;
+  readonly confidence: number;
+  readonly triggers: readonly string[];
+}
+const FAST_TRIGGERS: readonly { readonly pattern: RegExp; readonly label: string; readonly weight: number }[] = [
+  { pattern: /^what is\b/i, label: "simple question", weight: 1 },
+  { pattern: /\bexplain\b/i, label: "explanation", weight: 1 },
+  { pattern: /\bsummariz\w+\b/i, label: "summarization", weight: 1 },
+  { pattern: /\bfix this file\b/i, label: "single file fix", weight: 1 },
+  { pattern: /\bread (the )?(first|few|this)\b/i, label: "read files", weight: 1 },
+  { pattern: /\bquick (lookup|look)\b/i, label: "quick lookup", weight: 1 },
+  { pattern: /\blightweight\b/i, label: "lightweight command", weight: 1 },
+];
+const DEEP_TRIGGERS: readonly { readonly pattern: RegExp; readonly label: string; readonly weight: number }[] = [
+  { pattern: /\brefactor\b/i, label: "refactor", weight: 3 },
+  { pattern: /\barchitecture\b/i, label: "architecture", weight: 3 },
+  { pattern: /design (the )?(architecture|system) (and|then) (implement|build)/i, label: "design and implement", weight: 4 },
+  { pattern: /\bsecurity review\b/i, label: "security review", weight: 3 },
+  { pattern: /\b(multi-file|multiple files|all files)\b/i, label: "multi-file task", weight: 4 },
+  { pattern: /\b(plan|planning|long-running|long running|autonomous)\b/i, label: "planning or autonomy", weight: 2 },
+  { pattern: /\b(implement|build|create)\b.*\b(module|system|feature|service)\b/i, label: "implementation", weight: 3 },
+  { pattern: /\brun (all|the) tests\b/i, label: "testing", weight: 2 },
+];
+export function classifyIntent(input: IntentInput): IntentDecision {
+  if (input.currentMode === "COWORK") return { path: "DEEP", confidence: 1, triggers: ["cowork mode"] };
+  if (input.attachedFileCount > 1) return { path: "DEEP", confidence: 1, triggers: ["multiple attachments"] };
+  const fast = FAST_TRIGGERS.map((t) => ({ t, m: input.message.match(t.pattern) })).filter((x) => x.m !== null);
+  const deep = DEEP_TRIGGERS.map((t) => ({ t, m: input.message.match(t.pattern) })).filter((x) => x.m !== null);
+  const fastScore = fast.reduce((s, x) => s + x.t.weight, 0);
+  const deepScore = deep.reduce((s, x) => s + x.t.weight, 0);
+  if (deepScore > fastScore) return { path: "DEEP", confidence: deepScore / (deepScore + fastScore || 1), triggers: deep.map((x) => x.t.label) };
+  if (fastScore > 0) return { path: "FAST", confidence: fastScore / (deepScore + fastScore || 1), triggers: fast.map((x) => x.t.label) };
+  return { path: "FAST", confidence: 0, triggers: ["default fast path"] };
+}
+```
+
+```typescript
+// packages/core/src/workflow-pipeline.ts
+import type { CoworkerId } from "./coworkers";
+import type { TaskStage } from "./task-queue";
+export const FAST_PATH: readonly string[] = ["USER", "AI_GATEWAY", "FAST_MODEL", "STREAM_RESPONSE", "DONE"] as const;
+export const DEEP_PATH: readonly string[] = ["USER", "PLANNER", "COWORKER_GRAPH", "PARALLEL_OR_SEQUENTIAL_EXECUTION", "TEST", "VERIFY", "ARTIFACT", "DONE"] as const;
+export interface DeepWorkStatus {
+  readonly actor: CoworkerId | "PLANNER";
+  readonly message: string;
+  readonly stage: TaskStage;
+  readonly timestamp: number;
+}
+export function plannerStatus(message: string): DeepWorkStatus {
+  return { actor: "PLANNER", message, stage: "PLANNED", timestamp: Date.now() };
+}
+export function coderStatus(filesIdentified: number): DeepWorkStatus {
+  return { actor: "CODER", message: `${filesIdentified} files identified...`, stage: "RUNNING", timestamp: Date.now() };
+}
+export function testerStatus(testsRunning: number): DeepWorkStatus {
+  return { actor: "TESTER", message: `Running ${testsRunning} tests...`, stage: "TESTING", timestamp: Date.now() };
+}
+export function reviewerStatus(message: string): DeepWorkStatus {
+  return { actor: "REVIEWER", message, stage: "VERIFIED", timestamp: Date.now() };
+}
+export function streamDeepWorkStatuses(initial: readonly DeepWorkStatus[]): ReadonlyArray<() => DeepWorkStatus> {
+  return initial.map((s) => () => ({ ...s, timestamp: Date.now() }));
+}
+export type ParallelPair = readonly [CoworkerId, CoworkerId];
+export const PARALLEL_SAFE_PAIRS: readonly Readonly<{ readonly pair: ParallelPair; readonly requires: "NONE" | "IMPLEMENTATION_COMPLETE" | "STABLE_INPUTS" }>[] = [
+  { pair: ["ARCHITECT", "RESEARCH"], requires: "NONE" },
+  { pair: ["TESTER", "PERFORMANCE"], requires: "IMPLEMENTATION_COMPLETE" },
+  { pair: ["SECURITY", "REVIEWER"], requires: "STABLE_INPUTS" },
+];
+export interface WorkerPlan {
+  readonly id: string;
+  readonly coworker: CoworkerId;
+  readonly writesTo: readonly string[];
+}
+export function canCorruptState(plan: readonly WorkerPlan[]): boolean {
+  const targets = new Map<string, string>();
+  for (const worker of plan) {
+    for (const target of worker.writesTo) {
+      if (targets.has(target) && targets.get(target) !== worker.id) return true;
+      targets.set(target, worker.id);
+    }
+  }
+  return false;
+}
+export function assertParallelSafe(a: CoworkerId, b: CoworkerId, implementationComplete: boolean, inputsStable: boolean): void {
+  const rule = PARALLEL_SAFE_PAIRS.find((r) => r.pair.includes(a) && r.pair.includes(b));
+  if (!rule) throw new Error(`WORKFLOW LOCK: ${a} + ${b} must never run in parallel.`);
+  if (rule.requires === "IMPLEMENTATION_COMPLETE" && !implementationComplete) throw new Error(`WORKFLOW LOCK: ${a} + ${b} may run in parallel only after implementation completes.`);
+  if (rule.requires === "STABLE_INPUTS" && !inputsStable) throw new Error(`WORKFLOW LOCK: ${a} + ${b} may run in parallel only when inputs are stable.`);
+}
+export function assertNoStateCorruption(plan: readonly WorkerPlan[]): void {
+  if (canCorruptState(plan)) throw new Error("WORKFLOW LOCK: never parallelize operations that can corrupt state.");
+}
+export type ExecutionTarget = "FIRST_MEANINGFUL_TOKEN" | "VERIFIED_ARTIFACT";
+```
+
+```typescript
+// packages/core/src/model-entitlement.ts
+export type SelectableModelId = "claude-opus" | "gpt-4-turbo" | "gemini-pro" | "claude-sonnet" | "mistral-large" | "claude-haiku" | "llama-3";
+export type ModelGroup = "PREMIUM" | "CAPABLE" | "EFFICIENT";
+export type PlanTier = "free" | "pro" | "pro+" | "team" | "enterprise";
+export const MODEL_GROUPS: readonly { readonly group: ModelGroup; readonly label: string; readonly tiers: string }[] = [
+  { group: "PREMIUM", label: "Premium", tiers: "Pro+ only" },
+  { group: "CAPABLE", label: "Capable", tiers: "Free/Pro" },
+  { group: "EFFICIENT", label: "Efficient", tiers: "Free/Pro" },
+];
+export const SELECTABLE_MODELS: Readonly<Record<SelectableModelId, { readonly name: string; readonly provider: string; readonly group: ModelGroup; readonly speed: "FAST" | "THOROUGH" }>> = {
+  "claude-opus": { name: "Claude Opus", provider: "Anthropic", group: "PREMIUM", speed: "THOROUGH" },
+  "gpt-4-turbo": { name: "GPT-4 Turbo", provider: "OpenAI", group: "PREMIUM", speed: "FAST" },
+  "gemini-pro": { name: "Gemini Pro", provider: "Google", group: "PREMIUM", speed: "THOROUGH" },
+  "claude-sonnet": { name: "Claude Sonnet", provider: "Anthropic", group: "CAPABLE", speed: "FAST" },
+  "mistral-large": { name: "Mistral Large", provider: "Mistral", group: "CAPABLE", speed: "FAST" },
+  "claude-haiku": { name: "Claude Haiku", provider: "Anthropic", group: "EFFICIENT", speed: "FAST" },
+  "llama-3": { name: "Llama 3", provider: "Meta", group: "EFFICIENT", speed: "FAST" },
+};
+const TIER_ACCESS: Readonly<Record<PlanTier, readonly SelectableModelId[]>> = {
+  free: ["claude-sonnet", "mistral-large", "claude-haiku", "llama-3"],
+  pro: ["claude-sonnet", "mistral-large", "claude-haiku", "llama-3"],
+  "pro+": Object.keys(SELECTABLE_MODELS) as SelectableModelId[],
+  team: Object.keys(SELECTABLE_MODELS) as SelectableModelId[],
+  enterprise: Object.keys(SELECTABLE_MODELS) as SelectableModelId[],
+};
+export function modelAllowed(plan: PlanTier, model: SelectableModelId): boolean {
+  return TIER_ACCESS[plan].includes(model);
+}
+export type ModelEnforcement = { readonly ok: true; readonly model: SelectableModelId } | { readonly ok: false; readonly reason: string };
+export function enforceModelAccess(plan: PlanTier, preference: SelectableModelId, strictFreeHaikuOnly: boolean): ModelEnforcement {
+  if (strictFreeHaikuOnly && plan === "free" && preference !== "claude-haiku") return { ok: false, reason: "free plan allows Claude Haiku only while usage limits are engaged" };
+  if (!modelAllowed(plan, preference)) return { ok: false, reason: `${preference} requires a higher plan tier; selection is a preference, never an entitlement bypass` };
+  return { ok: true, model: preference };
+}
+```
+
+```tsx
+// packages/web/src/chat/mode-switch.tsx
+import type { CSSProperties, JSX } from "react";
+import type { WorkspaceMode } from "../../../core/src/workspace-persistence";
+export interface ModeSwitchProps {
+  readonly mode: WorkspaceMode;
+  readonly onChange: (mode: WorkspaceMode) => void;
+}
+export function ModeSwitch({ mode, onChange }: ModeSwitchProps): JSX.Element {
+  const active: CSSProperties = { background: "#111111", color: "#FFFFFF" };
+  const inactive: CSSProperties = { background: "transparent", color: "#111111" };
+  return (
+    <div role="tablist" aria-label="Workspace mode" style={{ display: "inline-flex", border: "1px solid #B1ADA166", borderRadius: 8, padding: 2, background: "#FFFFFF" }}>
+      {(["CHAT", "COWORK"] as const).map((m) => (
+        <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => onChange(m)} style={{ ...(mode === m ? active : inactive), border: "none", borderRadius: 6, padding: "6px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          {m === "CHAT" ? "Chat" : "Cowork"}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+```tsx
+// packages/web/src/chat/model-selector.tsx
+import { useState } from "react";
+import type { CSSProperties, JSX } from "react";
+import { MODEL_GROUPS, SELECTABLE_MODELS, modelAllowed } from "../../../core/src/model-entitlement";
+import type { PlanTier, SelectableModelId } from "../../../core/src/model-entitlement";
+export interface ModelSelectorProps {
+  readonly current: SelectableModelId;
+  readonly plan: PlanTier;
+  readonly onSelect: (model: SelectableModelId) => void;
+}
+export function ModelSelector({ current, plan, onSelect }: ModelSelectorProps): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const activeModel = SELECTABLE_MODELS[current];
+  return (
+    <div style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open} style={triggerStyle}>
+        {activeModel.name} <span style={{ marginLeft: 6, color: "#B1ADA1" }}>▾</span>
+      </button>
+      {open && (
+        <div role="listbox" aria-label="Model selection" style={dropdownStyle}>
+          {MODEL_GROUPS.map(({ group, label, tiers }) => (
+            <div key={group}>
+              <div style={groupHeaderStyle}>{label} <span style={{ color: "#B1ADA1", fontSize: 11 }}>{tiers}</span></div>
+              {Object.entries(SELECTABLE_MODELS)
+                .filter(([, spec]) => spec.group === group)
+                .map(([id, spec]) => {
+                  const allowed = modelAllowed(plan, id as SelectableModelId);
+                  const selected = id === current;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      disabled={!allowed}
+                      onClick={() => { onSelect(id as SelectableModelId); setOpen(false); }}
+                      style={rowStyle(selected, allowed)}
+                    >
+                      <span style={{ width: 14, color: selected ? "#C15F3C" : "#B1ADA1" }}>{selected ? "●" : "○"}</span>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600 }}>{spec.name}</span>
+                        <span style={{ color: "#B1ADA1", fontSize: 11, marginLeft: 8 }}>{spec.provider}</span>
+                        <span style={{ fontSize: 11, color: "#111111", border: "1px solid #B1ADA166", borderRadius: 9, padding: "0 6px", marginLeft: 8 }}>{label}</span>
+                      </span>
+                      {!allowed && <span style={{ color: "#B1ADA1", fontSize: 11 }}>🔒</span>}
+                      <span style={{ fontSize: 11, color: "#B1ADA1" }}>{spec.speed === "FAST" ? "⚡ fast" : "🐢 thorough"}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+const triggerStyle: CSSProperties = { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid #B1ADA166", background: "#FFFFFF", color: "#111111", fontSize: 13, cursor: "pointer" };
+const dropdownStyle: CSSProperties = { position: "absolute", bottom: 40, right: 0, width: 340, background: "#FFFFFF", border: "1px solid #B1ADA166", borderRadius: 10, boxShadow: "0 4px 16px rgba(17,17,17,0.10)", padding: 8, zIndex: 40 };
+const groupHeaderStyle: CSSProperties = { fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#111111", padding: "8px 10px 4px" };
+function rowStyle(selected: boolean, allowed: boolean): CSSProperties {
+  return { display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "7px 10px", border: "none", borderRadius: 6, background: selected ? "#B1ADA126" : "transparent", color: allowed ? "#111111" : "#B1ADA1", fontSize: 13, cursor: allowed ? "pointer" : "not-allowed", opacity: allowed ? 1 : 0.4 };
+}
+```
+
+```tsx
+// packages/web/src/chat/composer.tsx
+import { useRef, useState } from "react";
+import type { ChangeEvent, ClipboardEvent, CSSProperties, DragEvent, JSX, KeyboardEvent } from "react";
+import { ModeSwitch } from "./mode-switch";
+import type { WorkspaceMode } from "./mode-switch";
+import { ModelSelector } from "./model-selector";
+import type { PlanTier, SelectableModelId } from "../../../core/src/model-entitlement";
+export interface ChatAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: "image" | "file" | "code";
+  readonly size: number;
+}
+export interface ComposerProps {
+  readonly mode: WorkspaceMode;
+  readonly onModeChange: (mode: WorkspaceMode) => void;
+  readonly model: SelectableModelId;
+  readonly plan: PlanTier;
+  readonly onModelSelect: (model: SelectableModelId) => void;
+  readonly onSend: (payload: { readonly text: string; readonly attachments: readonly ChatAttachment[] }) => void;
+  readonly onCancelSuggestion: () => void;
+  readonly onVoiceInput: () => void;
+  readonly placeholder?: string;
+}
+export function Composer(props: ComposerProps): JSX.Element {
+  const { mode, onModeChange, model, plan, onModelSelect, onSend, onCancelSuggestion, onVoiceInput } = props;
+  const placeholder = props.placeholder ?? "Ask CodeConClave anything or give a command...";
+  const [text, setText] = useState("");
+  const [attachments, setAttachments] = useState<readonly ChatAttachment[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const addFiles = (files: readonly File[]): void => {
+    setAttachments((prev) => [...prev, ...files.map((f) => ({
+      id: crypto.randomUUID(),
+      name: f.name,
+      kind: f.type.startsWith("image/") ? ("image" as const) : f.name.endsWith(".ts") || f.name.endsWith(".js") ? ("code" as const) : ("file" as const),
+      size: f.size,
+    }))]);
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    addFiles(Array.from(e.dataTransfer.files));
+  };
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (text.trim().length > 0) send();
+    } else if (e.key === "Escape") {
+      onCancelSuggestion();
+    }
+  };
+  const send = (): void => {
+    onSend({ text, attachments });
+    setText("");
+    setAttachments([]);
+  };
+  const isCommand = text.startsWith("/");
+  return (
+    <div style={{ borderTop: "1px solid #B1ADA166", background: "#FFFFFF", padding: "12px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <ModeSwitch mode={mode} onChange={onModeChange} />
+        {isCommand && <span style={{ fontSize: 11, color: "#C15F3C" }}>Command mode</span>}
+      </div>
+      <div onDrop={onDrop} onDragOver={(e) => e.preventDefault()} style={{ border: "1px solid #B1ADA166", borderRadius: 10, padding: 10, background: "#FFFFFF" }}>
+        {attachments.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {attachments.map((a) => (
+              <span key={a.id} style={{ fontSize: 11, border: "1px solid #B1ADA166", borderRadius: 9, padding: "2px 8px", color: "#111111" }}>{a.name} ({Math.ceil(a.size / 1024)} KB)</span>
+            ))}
+          </div>
+        )}
+        <textarea
+          value={text}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          placeholder={placeholder}
+          rows={2}
+          aria-label="Message composer"
+          style={{ width: "100%", border: "none", outline: "none", resize: "none", fontFamily: "inherit", fontSize: 14, color: "#111111", background: "transparent" }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+          <button type="button" aria-label="Add" onClick={() => fileInput.current?.click()} style={chipStyle}>+</button>
+          <button type="button" aria-label="Attach files" onClick={() => fileInput.current?.click()} style={chipStyle}>📎</button>
+          <button type="button" aria-label="Upload image" onClick={() => fileInput.current?.click()} style={chipStyle}>🖼</button>
+          <button type="button" aria-label="Voice input" onClick={onVoiceInput} style={chipStyle}>🎤</button>
+          <input ref={fileInput} type="file" multiple accept="image/*,.ts,.js,.tsx,.jsx,.py,.go,.rs,.md,.json" style={{ display: "none" }} onChange={(e) => { addFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <ModelSelector current={model} plan={plan} onSelect={onModelSelect} />
+            <button type="button" onClick={send} disabled={text.trim().length === 0} style={sendStyle}>Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+const chipStyle: CSSProperties = { width: 30, height: 30, borderRadius: 6, border: "1px solid #B1ADA166", background: "#FFFFFF", color: "#111111", fontSize: 13, cursor: "pointer" };
+const sendStyle: CSSProperties = { height: 32, padding: "0 18px", borderRadius: 6, border: "none", background: "#111111", color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer" };
+```
+
+```
+// PHASE 5
+```
+
+```typescript
+// packages/core/src/free-limits.ts
+export const FREE_TIER_LIMITS = { messagesPerDay: 20, maxProjects: 1, storageGb: 2, modelAllowlist: ["claude-haiku"] } as const;
+export interface LimitState {
+  readonly transitionId: string;
+  readonly dayKey: string;
+  readonly reachedAt: number;
+}
+export interface MoonGate {
+  readonly show: boolean;
+  readonly reason: "not-limited" | "first-shown" | "already-shown";
+}
+export function shouldShowFreeLimitMoon(state: LimitState | null, transitionId: string, now = Date.now()): MoonGate {
+  const dayKey = new Date(now).toISOString().slice(0, 10);
+  if (!state) return { show: true, reason: "first-shown" };
+  if (state.dayKey === dayKey && state.transitionId === transitionId) return { show: false, reason: "already-shown" };
+  return { show: true, reason: "first-shown" };
+}
+export function recordMoonShown(previous: LimitState | null, transitionId: string, now = Date.now()): LimitState {
+  return { transitionId, dayKey: new Date(now).toISOString().slice(0, 10), reachedAt: now };
+}
+export function assertFreeLimit(used: number, limit: number, label: string): boolean {
+  return used < limit;
+}
+export interface FreeLimitUsage {
+  readonly messagesToday: number;
+  readonly projectsCount: number;
+  readonly storageGbUsed: number;
+  readonly limited: boolean;
+}
+```
+
+```tsx
+// packages/web/src/moon/thinking-moon.tsx
+import { useEffect, useState } from "react";
+import type { CSSProperties, JSX } from "react";
+export const THINKING_MOON_CSS = `
+@keyframes ccc-moon-spin {
+  from { transform: rotate(0deg) rotateY(0deg) translateY(0); }
+  50%  { transform: rotate(180deg) rotateY(14deg) translateY(-4px); }
+  to   { transform: rotate(360deg) rotateY(0deg) translateY(0); }
+}
+@keyframes ccc-moon-spin-fade {
+  from { transform: rotate(0deg); opacity: 0.55; }
+  to   { transform: rotate(360deg); opacity: 0.55; }
+}
+`;
+export type ThinkingMoonPhase = "IDLE" | "THINKING" | "STREAMING" | "COMPLETE";
+export interface ThinkingMoonProps {
+  readonly phase: ThinkingMoonPhase;
+}
+export function ThinkingMoon({ phase }: ThinkingMoonProps): JSX.Element {
+  const [paused, setPaused] = useState(false);
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const onVis = (): void => setPaused(document.hidden);
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(media.matches);
+    const onMedia = (): void => setReduced(media.matches);
+    document.addEventListener("visibilitychange", onVis);
+    media.addEventListener("change", onMedia);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      media.removeEventListener("change", onMedia);
+    };
+  }, []);
+  if (phase === "IDLE" || phase === "COMPLETE") return <div />;
+  const animation = paused ? "none" : reduced ? "ccc-moon-spin-fade 12s linear infinite" : "ccc-moon-spin 14s linear infinite";
+  const crescent: CSSProperties = {
+    width: 72,
+    height: 72,
+    maxWidth: 80,
+    maxHeight: 80,
+    borderRadius: "50%",
+    boxShadow: "inset -12px 8px 0 0 #111111",
+    animation,
+    opacity: phase === "STREAMING" ? 0.55 : 1,
+    transition: "opacity 400ms ease",
+    filter: "drop-shadow(0 6px 12px rgba(17,17,17,0.25))",
+  };
+  return (
+    <div role="status" aria-live="polite" style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 60 }}>
+      <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>CodeConClave is thinking</span>
+      <div style={crescent} />
+    </div>
+  );
+}
+```
+
+```tsx
+// packages/web/src/moon/free-limit-moon.tsx
+import { useEffect, useState } from "react";
+import type { CSSProperties, JSX } from "react";
+export const FREE_LIMIT_MOON_CSS = `
+@keyframes ccc-limit-moon-spin {
+  from { transform: rotate(0deg) rotateY(0deg); }
+  50%  { transform: rotate(180deg) rotateY(12deg); }
+  to   { transform: rotate(360deg) rotateY(0deg); }
+}
+`;
+export type LimitMoonPhase = "IDLE" | "DIMMING" | "ENTER" | "HOLD" | "FADE" | "MESSAGE";
+export interface FreeLimitMoonProps {
+  readonly show: boolean;
+  readonly onContinueWithPro: () => void;
+  readonly onMaybeLater: () => void;
+}
+const TIMELINE: readonly { readonly at: number; readonly phase: LimitMoonPhase }[] = [
+  { at: 0, phase: "DIMMING" },
+  { at: 250, phase: "ENTER" },
+  { at: 500, phase: "HOLD" },
+  { at: 1500, phase: "FADE" },
+  { at: 1800, phase: "MESSAGE" },
+];
+export function FreeLimitMoon({ show, onContinueWithPro, onMaybeLater }: FreeLimitMoonProps): JSX.Element {
+  const [phase, setPhase] = useState<LimitMoonPhase>("IDLE");
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(media.matches);
+    const onMedia = (): void => setReduced(media.matches);
+    media.addEventListener("change", onMedia);
+    return () => media.removeEventListener("change", onMedia);
+  }, []);
+  useEffect(() => {
+    if (!show) {
+      setPhase("IDLE");
+      return;
+    }
+    setPhase("DIMMING");
+    const timers: readonly number[] = TIMELINE.map((t) => window.setTimeout(() => setPhase(t.phase), t.at));
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, [show]);
+  if (!show || phase === "IDLE") return <div />;
+  const darken = phase === "DIMMING" || phase === "ENTER";
+  const moonVisible = phase !== "DIMMING";
+  const overlay: CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    background: darken ? "rgba(17,17,17,0.35)" : "rgba(17,17,17,0)",
+    transition: "background 250ms ease",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)",
+    zIndex: 70,
+  };
+  const moon: CSSProperties = {
+    width: 140,
+    height: 140,
+    maxWidth: 150,
+    maxHeight: 150,
+    borderRadius: "50%",
+    boxShadow: "inset -22px 14px 0 0 #111111",
+    animation: reduced ? "none" : "ccc-limit-moon-spin 18s linear infinite",
+    opacity: moonVisible ? 1 : 0,
+    transform: phase === "ENTER" || phase === "HOLD" || phase === "MESSAGE" ? "scale(1)" : "scale(0.6)",
+    transition: "opacity 250ms ease, transform 250ms ease",
+    filter: "drop-shadow(0 8px 16px rgba(17,17,17,0.3))",
+  };
+  return (
+    <div role="dialog" aria-modal="false" aria-label="Free usage limit reached" style={overlay}>
+      <div role="status" aria-live="polite" style={{ textAlign: "center", padding: 24, maxWidth: 420, background: "#FFFFFF", border: "1px solid #B1ADA166", borderRadius: 14, boxShadow: "0 4px 16px rgba(17,17,17,0.10)" }}>
+        <div style={moon} />
+        <h2 style={{ margin: "16px 0 4px", color: "#111111", fontSize: 18, fontWeight: 700 }}>You've reached today's free usage limit.</h2>
+        <p style={{ margin: 0, color: "#111111", fontSize: 14 }}>Your work is safe.</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 18 }}>
+          <button type="button" onClick={onContinueWithPro} style={{ height: 38, padding: "0 20px", borderRadius: 6, border: "none", background: "#C15F3C", color: "#FFFFFF", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>Continue with Pro</button>
+          <button type="button" onClick={onMaybeLater} style={{ height: 38, padding: "0 20px", borderRadius: 6, border: "1px solid #B1ADA166", background: "#FFFFFF", color: "#111111", fontSize: 14, cursor: "pointer" }}>Maybe Later</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+```
+// PHASE 6
+```
+
+```typescript
+// packages/core/src/terminal-session.ts
+import { appendOutput, killProcess, restartProcess, searchTerminalOutput, startProcess } from "./terminal";
+import type { TerminalTab } from "./terminal";
+export type TerminalShell = "bash" | "zsh" | "node" | "python" | "powershell";
+export type ProcessStatusKind = "RUNNING" | "STOPPED" | "COMPLETED" | "FAILED";
+export function statusKind(tab: TerminalTab, live: boolean): ProcessStatusKind {
+  if (tab.status === "killed") return "STOPPED";
+  if (tab.status === "idle") return "COMPLETED";
+  if (tab.exitCode !== null && tab.exitCode !== 0) return "FAILED";
+  return live ? "RUNNING" : "COMPLETED";
+}
+export const STATUS_GLYPH: Readonly<Record<ProcessStatusKind, string>> = { RUNNING: "●", STOPPED: "○", COMPLETED: "✓", FAILED: "✗" };
+export interface TerminalPanelState {
+  readonly tabs: readonly TerminalTab[];
+  readonly activeTabId: string;
+  readonly history: readonly string[];
+  readonly historyIndex: number;
+}
+export function createPanel(shell: TerminalShell = "bash", cwd = process.cwd()): TerminalPanelState {
+  return { tabs: [startProcess(shell, cwd)], activeTabId: "", history: [], historyIndex: -1 };
+}
+export function pushHistory(state: TerminalPanelState, command: string): TerminalPanelState {
+  return { ...state, history: [...state.history, command], historyIndex: -1 };
+}
+export function historyPrev(state: TerminalPanelState): string {
+  const idx = Math.min(state.historyIndex + 1, state.history.length - 1);
+  return idx >= 0 ? state.history[idx] : "";
+}
+export function historyNext(state: TerminalPanelState): string {
+  const idx = Math.max(state.historyIndex - 1, -1);
+  return idx >= 0 ? state.history[idx] : "";
+}
+export const TERMINAL_ACTIONS = ["STOP", "RESTART", "CLEAR", "SEARCH_OUTPUT", "COPY", "DOWNLOAD_LOGS"] as const;
+export type TerminalAction = (typeof TERMINAL_ACTIONS)[number];
+export function downloadLogs(tab: TerminalTab): string {
+  return tab.output.join("\n");
+}
+export { appendOutput, killProcess, restartProcess, searchTerminalOutput };
+```
+
+```typescript
+// packages/core/src/file-tree.ts
+export type GitStatusKind = "clean" | "modified" | "untracked" | "added" | "deleted";
+export interface FileMeta {
+  readonly sizeBytes: number;
+  readonly modifiedAt: number;
+  readonly gitStatus: GitStatusKind;
+  readonly editState: "clean" | "editing" | "modified" | "saved";
+}
+export interface TreeNode {
+  readonly path: string;
+  readonly name: string;
+  readonly kind: "directory" | "file";
+  readonly children: readonly TreeNode[];
+  readonly meta: FileMeta | null;
+}
+export function buildTree(paths: readonly { readonly path: string; readonly meta: FileMeta | null }[], root = "~"): TreeNode {
+  const rootNode: TreeNode = { path: root, name: root, kind: "directory", children: [], meta: null };
+  const dirs = new Map<string, TreeNode>();
+  dirs.set(root, rootNode);
+  for (const p of paths) {
+    const parts = p.path.split("/").filter((s) => s.length > 0);
+    let current = rootNode;
+    let acc = root;
+    for (let i = 0; i < parts.length; i++) {
+      acc += "/" + parts[i];
+      const isFile = i === parts.length - 1 && p.meta !== null;
+      let node = dirs.get(acc);
+      if (!node) {
+        node = { path: acc, name: parts[i], kind: isFile ? "file" : "directory", children: [], meta: isFile ? p.meta : null };
+        dirs.set(acc, node);
+        current.children = [...current.children, node];
+      }
+      current = node;
+    }
+  }
+  return rootNode;
+}
+export function sortTree(node: TreeNode): TreeNode {
+  const children = [...node.children].map(sortTree).sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return { ...node, children };
+}
+export const SYNTAX_LANGUAGES: Readonly<Record<string, string>> = {
+  ts: "typescript", tsx: "typescript-react", js: "javascript", jsx: "javascript-react", mjs: "javascript",
+  py: "python", go: "go", rs: "rust", java: "java", kt: "kotlin", rb: "ruby", php: "php", cs: "csharp",
+  c: "c", h: "c", cpp: "cpp", hpp: "cpp", swift: "swift", dart: "dart", scala: "scala", lua: "lua",
+  sh: "bash", bash: "bash", zsh: "bash", ps1: "powershell", bat: "batch", cmd: "batch",
+  html: "html", htm: "html", css: "css", scss: "scss", less: "less", json: "json", jsonc: "json",
+  md: "markdown", mdast: "markdown", yml: "yaml", yaml: "yaml", toml: "toml", xml: "xml", svg: "xml",
+  sql: "sql", graphql: "graphql", proto: "protobuf", dockerfile: "dockerfile", tf: "hcl",
+  vue: "vue", svelte: "svelte", astro: "astro", sol: "solidity", r: "r", pl: "perl", ex: "elixir",
+  zig: "zig", nim: "nim", elm: "elm", hs: "haskell", clj: "clojure", fs: "fsharp", vb: "vb",
+};
+export function languageFor(path: string): string {
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  if (path.endsWith("Dockerfile")) return "dockerfile";
+  return SYNTAX_LANGUAGES[ext] ?? "plaintext";
+}
+export const CONTEXT_MENU_ACTIONS = ["COPY_PATH", "OPEN_IN_TERMINAL", "GIT_DIFF"] as const;
+export type ContextMenuAction = (typeof CONTEXT_MENU_ACTIONS)[number];
+```
+
+```typescript
+// packages/core/src/diff-system.ts
+import { createHash } from "node:crypto";
+export type EditStage = "AI_PROPOSAL" | "POLICY_CHECK" | "PERMISSION_GATE" | "EXECUTE" | "DIFF" | "HASH_VERIFICATION" | "SHOW_RESULT";
+export const EDIT_FLOW: readonly EditStage[] = ["AI_PROPOSAL", "POLICY_CHECK", "PERMISSION_GATE", "EXECUTE", "DIFF", "HASH_VERIFICATION", "SHOW_RESULT"] as const;
+export function hashBytes(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+export function unifiedDiff(beforeLines: readonly string[], afterLines: readonly string[], context = 3): string {
+  const n = beforeLines.length, m = afterLines.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array.from({ length: m + 1 }, () => 0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) dp[i][j] = beforeLines[i] === afterLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  }
+  const out: string[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (beforeLines[i] === afterLines[j]) {
+      out.push(" " + beforeLines[i]);
+      i++; j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push("-" + beforeLines[i]);
+      i++;
+    } else {
+      out.push("+" + afterLines[j]);
+      j++;
+    }
+  }
+  while (i < n) { out.push("-" + beforeLines[i]); i++; }
+  while (j < m) { out.push("+" + afterLines[j]); j++; }
+  return out.join("\n");
+}
+export interface EditRecord {
+  readonly path: string;
+  readonly beforeHash: string;
+  readonly afterHash: string;
+  readonly taskId: string | null;
+  readonly coworkerName: string;
+  readonly timestamp: number;
+  readonly commandExecuted: string | null;
+  readonly testResults: readonly { readonly suite: string; readonly passed: boolean }[];
+  readonly userApprovalStatus: "AUTO_APPROVED" | "APPROVED" | "REJECTED" | "PENDING_REVIEW";
+}
+export type UserDiffAction = "ACCEPT" | "REJECT" | "REVIEW" | "RESTORE_PREVIOUS";
+export function verifyEdit(record: EditRecord, currentContent: string): boolean {
+  return hashBytes(currentContent) === record.afterHash;
+}
+export function applyEditAction(record: EditRecord, action: UserDiffAction): EditRecord {
+  if (action === "ACCEPT") return { ...record, userApprovalStatus: "APPROVED" };
+  if (action === "REJECT") return { ...record, userApprovalStatus: "REJECTED" };
+  return { ...record, userApprovalStatus: "PENDING_REVIEW" };
+}
+export interface ReviewToggle {
+  readonly line: number;
+  readonly expanded: boolean;
+}
+export function reviewState(lines: number): readonly ReviewToggle[] {
+  return Array.from({ length: lines }, (_, line) => ({ line, expanded: true }));
+}
+```
+
+```typescript
+// packages/core/src/agent-security.ts
+export const PROTECTED_PATTERNS: readonly string[] = [
+  ".env", ".env.*", ".ssh/**", "id_rsa*", "*.pem", "*.key", ".aws/credentials", "**/credentials",
+  "**/secrets/**", "**/token*", "**/*token*", "/etc/**", "/var/run/**", "C:/Windows/**",
+];
+export type CapabilityKind = "READ_WORKSPACE" | "WRITE_WORKSPACE" | "EXECUTE_COMMAND" | "NETWORK_ACCESS";
+export interface Capability {
+  readonly id: string;
+  readonly kind: CapabilityKind;
+  readonly owner: string;
+  readonly scope: string;
+  readonly expiresAt: number;
+  readonly revokedAt: number | null;
+}
+export function createCapability(kind: CapabilityKind, owner: string, scope: string, ttlMs: number): Capability {
+  return { id: crypto.randomUUID(), kind, owner, scope, expiresAt: Date.now() + ttlMs, revokedAt: null };
+}
+export function revokeCapability(cap: Capability): Capability {
+  return { ...cap, revokedAt: Date.now() };
+}
+export function assertCapability(cap: Capability, path: string): void {
+  if (cap.revokedAt !== null) throw new Error("AGENT SECURITY: capability revoked.");
+  if (Date.now() > cap.expiresAt) throw new Error("AGENT SECURITY: capability expired.");
+  if (!isPathInScope(path, cap.scope)) throw new Error(`AGENT SECURITY: ${path} outside scope ${cap.scope}.`);
+}
+export function isPathInScope(path: string, scope: string): boolean {
+  const scopeRoot = scope.endsWith("/**") ? scope.slice(0, -3) : scope;
+  const norm = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  const s = scopeRoot.replace(/\\/g, "/").replace(/^\.\//, "");
+  return norm === s || norm.startsWith(s + "/");
+}
+export function assertProtected(path: string): void {
+  const norm = path.replace(/\\/g, "/");
+  if (PROTECTED_PATTERNS.some((p) => new RegExp(p.replace(/\./g, "\\.").replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*")).test(norm))) {
+    throw new Error(`AGENT SECURITY: ${path} matches a default-protected pattern.`);
+  }
+}
+export const DENY_BY_DEFAULT_COMMANDS: readonly RegExp[] = [
+  /rm\s+(-[a-z]*f[a-z]*\s+)*\//, /\bdd\b/, /\bmkfs\b/, /\bformat\s+\w:/i, /shutdown\s+\/s/i, /\bmv\s+\/etc/i,
+];
+export function commandBlocked(command: string): string | null {
+  const match = DENY_BY_DEFAULT_COMMANDS.find((r) => r.test(command));
+  return match ? "blocked by deny-by-default policy" : null;
+}
+export function defendPathTraversal(requested: string, root: string): string {
+  const norm = requested.replace(/\\/g, "/");
+  if (/\.\./.test(norm)) throw new Error("AGENT SECURITY: path traversal denied.");
+  const rootNorm = root.replace(/\\/g, "/");
+  if (!isPathInScope(norm, rootNorm + "/**")) throw new Error("AGENT SECURITY: path escapes workspace sandbox.");
+  return norm;
+}
+export function defendSymlinkEscape(realPath: string, root: string): void {
+  if (!isPathInScope(realPath, root + "/**")) throw new Error("AGENT SECURITY: symlink escape denied.");
+}
+export interface PairCode {
+  readonly code: string;
+  readonly expiresAt: number;
+}
+export function generatePairCode(expiryMs = 10 * 60 * 1000): PairCode {
+  return { code: String(Math.floor(100000 + Math.random() * 900000)), expiresAt: Date.now() + expiryMs };
+}
+export function verifyPairCode(pair: PairCode, entered: string): boolean {
+  if (Date.now() > pair.expiresAt) throw new Error("AGENT SECURITY: pairing code expired (10-minute limit).");
+  return pair.code === entered;
+}
+export const MAX_PAIRED_DEVICES = 3;
+export function assertDeviceSlots(pairedCount: number): void {
+  if (pairedCount >= MAX_PAIRED_DEVICES) throw new Error(`AGENT SECURITY: maximum ${MAX_PAIRED_DEVICES} paired devices reached.`);
+}
+export interface ResourceLimits {
+  readonly cpuPercent: number;
+  readonly memoryMb: number;
+  readonly diskMb: number;
+  readonly networkBlockedByDefault: boolean;
+}
+export const DEFAULT_RESOURCE_LIMITS: ResourceLimits = { cpuPercent: 50, memoryMb: 1024, diskMb: 4096, networkBlockedByDefault: true };
+export interface AuditEntry {
+  readonly who: string;
+  readonly what: string;
+  readonly when: number;
+  readonly result: string;
+}
+export function appendAudit(log: readonly AuditEntry[], entry: AuditEntry): readonly AuditEntry[] {
+  return [...log, entry];
+}
+```
+
+```typescript
+// packages/core/src/local-agent.ts
+import { createCapability } from "./agent-security";
+import type { Capability } from "./agent-security";
+export type PlatformKind = "windows" | "macos" | "linux";
+export interface PlatformNormalization {
+  readonly path: { readonly separator: string; readonly join: (parts: readonly string[]) => string };
+  readonly shell: { readonly default: string; readonly flag: string };
+  readonly process: { readonly signalTerm: string; readonly spawnKind: "detached" | "foreground" };
+  readonly env: { readonly caseSensitive: boolean };
+  readonly permissions: { readonly chmodSupported: boolean };
+  readonly sandbox: string;
+}
+export const PLATFORMS: Readonly<Record<PlatformKind, PlatformNormalization>> = {
+  windows: {
+    path: { separator: "\\", join: (parts) => parts.join("\\") },
+    shell: { default: "powershell", flag: "-Command" },
+    process: { signalTerm: "taskkill /PID", spawnKind: "detached" },
+    env: { caseSensitive: false },
+    permissions: { chmodSupported: false },
+    sandbox: "OS sandbox and permission mechanisms",
+  },
+  macos: {
+    path: { separator: "/", join: (parts) => parts.join("/") },
+    shell: { default: "zsh", flag: "-c" },
+    process: { signalTerm: "kill -TERM", spawnKind: "foreground" },
+    env: { caseSensitive: false },
+    permissions: { chmodSupported: true },
+    sandbox: "application security boundaries",
+  },
+  linux: {
+    path: { separator: "/", join: (parts) => parts.join("/") },
+    shell: { default: "bash", flag: "-c" },
+    process: { signalTerm: "kill -TERM", spawnKind: "foreground" },
+    env: { caseSensitive: true },
+    permissions: { chmodSupported: true },
+    sandbox: "namespaces and seccomp where available",
+  },
+};
+export function detectPlatform(): PlatformKind {
+  const os = process.platform;
+  if (os === "win32") return "windows";
+  if (os === "darwin") return "macos";
+  return "linux";
+}
+export const INSTALL_STEPS = ["DETECT_OS", "CHECK_REQUIREMENTS", "CREATE_AGENT_CONFIG", "AUTHENTICATE_AND_PAIR", "SELECT_ALLOWED_WORKSPACE", "RUN_SECURITY_SELF_TEST", "SHOW_CONNECTED_STATUS"] as const;
+export type InstallStep = (typeof INSTALL_STEPS)[number];
+export interface InstallerReport {
+  readonly step: InstallStep;
+  readonly ok: boolean;
+  readonly detail: string;
+}
+export function grantWorkspaceCapabilities(owner: string, workspace: string): readonly Capability[] {
+  return [
+    createCapability("READ_WORKSPACE", owner, workspace + "/**", 24 * 60 * 60 * 1000),
+    createCapability("WRITE_WORKSPACE", owner, workspace + "/src/**", 24 * 60 * 60 * 1000),
+  ];
+}
+export const CLOUD_ONLY_FEATURES = ["Chat", "Memory", "Cloud Projects", "Cloud tasks", "Cloud research"] as const;
+export const AGENT_REQUIRED_FEATURES = ["Local files

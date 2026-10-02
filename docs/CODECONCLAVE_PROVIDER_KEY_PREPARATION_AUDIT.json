@@ -1,0 +1,128 @@
+{
+  "gate": "CODECONCLAVE_PROVIDER_KEY_PREPARATION_GATE",
+  "phase": "Pre-Prompt 3 Provider Configuration Gate",
+  "date": "2026-09-08",
+  "verdict": "PASS",
+  "stopped": true,
+  "prompt3_started": false,
+  "featureDenominator": 336,
+  "featuresRemoved": 0,
+  "featuresUnmapped": 0,
+  "providers": {
+    "ox_alpha": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "OX_ALPHA_API_KEY",
+      "apiKeySource": "OpenRouter keys page (sk-or-v1-...); no first-party Ox Alpha dashboard",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "modelId": "stealth/ox-alpha",
+      "revealedArchitecture": "ZAI GLM-5.3-Flash",
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "google": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "GEMINI_API_KEY",
+      "apiKeySource": "Google AI Studio / Google Cloud Vertex",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "modelId": "gemini-3.7-flash",
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "manus": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "MANUS_API_KEY",
+      "apiKeySource": "Manus developer platform (manus.ai) v2 task API",
+      "baseUrl": "https://api.manus.ai",
+      "modelId": "manus-1.6",
+      "capabilityCategory": "EXTERNAL_AGENT",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "big_pickle": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "OPENCODE_ZEN_API_KEY",
+      "doNotAddYet": true,
+      "notes": "OpenCode Zen gateway free smoke-test tier, NOT intended for production; aggregators list it disabled since 2026-08-14",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "modelId": "big-pickle",
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "qwen": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "QWEN_API_KEY",
+      "apiKeySource": "Alibaba Model Studio / DashScope Intl (sk- bearer)",
+      "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "modelId": ["qwen3.7-plus", "qwen3.8-max", "qwen3-coder-next", "qwen3.6-plus", "qwen3.5-flash"],
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "gemma": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "GEMINI_API_KEY",
+      "apiKeySource": "Same as Google Gemini (no separate GEMMA_API_KEY)",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "modelId": "gemma-3-27b-it",
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    },
+    "z_code_5_3": {
+      "status": "ENVIRONMENT_BLOCKED",
+      "apiKeyVariable": "Z_AI_API_KEY",
+      "apiKeySource": "Z.ai platform + GLM Coding Plan",
+      "baseUrl": "https://api.z.ai/api/v1",
+      "modelId": "glm-5.3",
+      "seededModelIdMismatch": "registry row uses z-code-5-3; vendor id is glm-5.3 (disabled row, align at Prompt 3)",
+      "capabilityCategory": "MODEL",
+      "realCall": false,
+      "environmentBlocked": true
+    }
+  },
+  "existingProvidersPreserved": true,
+  "routingCompatibility": {
+    "contract": "server-authoritative /api/v1/ai/models + /api/v1/ai/providers shared by web and desktop",
+    "sharedPredicate": "computeModelAvailability (unit-tested)",
+    "enabledAllowList": "anthropic,openai,grok,nemotron",
+    "unchanged": true
+  },
+  "secretHygiene": {
+    "gitignoreCoversEnv": true,
+    "placeholdersAllEmpty": true,
+    "openCodeZenInEnv": false,
+    "repoScanFindings": 0,
+    "openrouterPatternAdded": true
+  },
+  "paymentRegression": {
+    "files": 8,
+    "tests": 182,
+    "passed": true,
+    "architectureTouched": false
+  },
+  "verification": {
+    "backend": { "typecheck": "PASS", "tests": "151 files / 2786 passed / 8 skipped / 0 failed" },
+    "payment": { "tests": "8 files / 182 passed" },
+    "frontend": { "typecheck": "PASS", "tests": "73 files / 401 passed / 0 failed", "build": "PASS" },
+    "desktop": { "typecheck": "PASS", "tests": "5 files / 58 passed", "build": "PASS" },
+    "secretScan": { "files": 844, "findings": 0 },
+    "migration": "untouched (baseline preserved)"
+  },
+  "findings": [
+    { "severity": "LOW", "detail": "typo 'AdaptErs' in env.ts comment", "action": "fix at Prompt 3" },
+    { "severity": "LOW", "detail": "typo 'effectivelhy' in providerKeySpec.ts ox_alpha note", "action": "fix at Prompt 3" },
+    { "severity": "LOW", "detail": "duplicate LOG_LEVEL key in backend/vitest.config.ts env block (startup warning)", "action": "fix at Prompt 3" },
+    { "severity": "NOTE", "detail": "Big Pickle is a free smoke-test tier; OPENCODE_ZEN_API_KEY intentionally not added", "action": "founder decides later" },
+    { "severity": "NOTE", "detail": "seeded z-code-5-3 model_id != vendor glm-5.3; row disabled", "action": "Prompt 3 adapter alignment" },
+    { "severity": "NOTE", "detail": "3 transient frontend test failures during parallel build+test; isolated re-run 401/401 green", "action": "resource contention, no code defect" }
+  ],
+  "founderActionsAfterGate": [
+    "Funded keys: GEMINI_API_KEY, QWEN_API_KEY, MANUS_API_KEY, OX_ALPHA_API_KEY (OpenRouter key), Z_AI_API_KEY — insert into .env or deploy secret store, never into chat",
+    "DO NOT add OPENCODE_ZEN_API_KEY (Big Pickle) until production viability confirmed",
+    "Restart backend and run AI health sweep; real-call VERIFICATION follows once keys exist",
+    "Prompt 3: wire ox_alpha/manus/big_pickle/z_code_5_3 adapters, align z-code-5-3 -> glm-5.3, map capabilities, auto-enable providers, then verify with real calls"
+  ]
+}

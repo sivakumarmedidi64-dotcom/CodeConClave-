@@ -1,0 +1,42 @@
+{
+  "name": "codeconclave",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeConClave — MEMORY + EXECUTION + CONTINUITY + TEAM + CONTROL. AI Operating System for software development and knowledge work.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "backend",
+    "frontend",
+    "local-agent",
+    "shared",
+    "desktop"
+  ],
+  "scripts": {
+    "prebuild": "npm ci",
+    "build": "npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/local-agent && npm run build --workspace @codeconclave/desktop",
+    "build:desktop": "npm run build --workspace @codeconclave/desktop",
+    "start": "npm run start --workspace @codeconclave/backend",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "dev:backend": "npm run dev --workspace @codeconclave/backend",
+    "dev:frontend": "npm run dev --workspace @codeconclave/frontend",
+    "build:frontend": "npm run build --workspace @codeconclave/frontend",
+    "build:ci": "npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/frontend",
+    "db:migrate": "npm run db:migrate --workspace @codeconclave/backend",
+    "db:migrate:down": "npm run db:migrate:down --workspace @codeconclave/backend",
+    "secret:scan": "npm run secret:scan --workspace @codeconclave/backend",
+    "watchtower:run": "npm run watchtower:run --workspace @codeconclave/backend"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "electron@44.2.0": true
+  },
+  "devDependencies": {
+    "wrangler": "^4.140.0"
+  }
+}

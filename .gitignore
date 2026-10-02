@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Desktop packaging output (very large)
+desktop/release*/
+desktop/out/
+
+# Environment — NEVER commit real secrets
+.env
+.env.*
+!.env.example
+!.env.test.example
+
+# Local credentials — provider keys, tokens, service-account dumps
+credentials*.json
+*.credentials.json
+service-account*.json
+*.pem
+*.key
+secrets.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+data/
+*.pid
+*.seed
+
+# Local object storage (MinIO dev)
+minio-data/
+s3-local/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# Local agent runtime state (private to each machine)
+local-agent/.agent/
+agent-state.json
+
+# Backup / duplicate copies
+CodeConClave-Complete/
+CodeConClave-Complete.zip
+
+# Scratch notes / stray text files at root
+*.txt
+GitHub URL*.md
+Kimi*.md
+```.txt

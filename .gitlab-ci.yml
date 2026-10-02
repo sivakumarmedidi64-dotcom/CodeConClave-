@@ -1,0 +1,161 @@
+# CodeConClave â€” GitLab CI
+#
+# Canonical pipeline for https://gitlab.com/coders3305634/codeconclave-pro
+#
+# Design rules this file follows:
+#
+#   1. No secrets. Not as masked variables, not as placeholders, not as
+#      "temporary" connection strings. Every job below runs with an empty
+#      environment. The test suite injects its own non-secret fixtures via
+#      backend/vitest.config.ts, and `secret:scan` was deliberately decoupled
+#      from backend/src/config/env.ts so that scanning the repo does not demand
+#      a DATABASE_URL. If a future job ever needs a credential, add the
+#      variable NAME here as documentation and inject the value through GitLab
+#      CI/CD variables â€” never inline a value in this file.
+#
+#   2. No deployment. Render owns deployment and auto-deploys from GitLab on
+#      main. This pipeline is a gate only: it never builds a Docker image,
+#      never calls a hosting provider's API, and never mutates infrastructure.
+#      Adding a deploy step here would create a second, conflicting release
+#      path.
+#
+#   3. GitHub Actions are not part of this flow. The single pre-existing
+#      .github/workflows/secret-scan.yml is retained as a convenience
+#      mirror for the GitHub fork and is not a merge gate; `npm run
+#      secret:scan` in the quality stage is the authoritative check.
+#
+# Correctness is never traded for speed: no job reuses a previous job's
+# node_modules as an artifact, and every job resolves the full dependency
+# tree with `npm ci`, so a stale or partially-written tree can never make a
+# broken commit look green. The npm tarball cache below only avoids
+# re-downloading; `npm ci` still deletes node_modules and reinstalls from
+# package-lock.json on every single run.
+
+stages:
+  - test
+  - quality
+  - build
+
+variables:
+  # Keep npm's download cache inside the project so the cache: paths below can
+  # actually reach it, and so CI never writes to a shared HOME.
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  # Surface full Vitest output in the job log for triage.
+  CI: "true"
+
+# ---------------------------------------------------------------------------
+# Shared defaults
+# ---------------------------------------------------------------------------
+
+default:
+  image: node:20-bookworm
+  interruptible: true
+
+  before_script:
+    # --prefer-offline uses the cache when warm but still hits the network on a
+    # miss, so a cold or poisoned cache cannot produce a false green.
+    - npm ci --prefer-offline --no-audit --no-fund
+
+  cache:
+    key:
+      # Scoped to the lockfile: any dependency change invalidates it.
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull-push
+
+# ---------------------------------------------------------------------------
+# test
+# ---------------------------------------------------------------------------
+#
+# The backend suite is split across three jobs that run in parallel on separate
+# runners. This is a correctness decision, not a speed one.
+#
+# backend/vitest.config.ts defines two Vitest projects. `unit` keeps normal
+# parallelism across ~226 files; `serial` holds only the nine suites that pay the
+# scrypt cost centre (N=65536, ~1.7s of deliberate CPU per hash) or that boot the
+# full application graph. perf-17 is excluded from both and runs from its own
+# config. Nothing is skipped: 226 + 9 + 1 = 236 backend test files.
+#
+# Those suites cannot share a runner with the parallel project. Measured on the
+# development host, `confirmMfa` takes ~6.3s against a 15s deadline — only 2.4x
+# headroom — so it times out under any real contention even though
+# maxWorkers=1 already gave it an uncontended *worker*, because the other
+# project still occupies the same cores. Vitest runs sibling projects
+# concurrently and offers no inter-project ordering, so the only way to give a
+# measurement an idle machine is to give it a runner.
+#
+# Nothing is skipped, retried, relaxed or made lenient. Scrypt stays at
+# N=65536, testTimeout stays 15000ms, and every assertion is unchanged; the only
+# thing that changed is how many other things are running at the same time.
+
+backend:unit:
+  stage: test
+  script:
+    - npm run test:parallel --workspace @codeconclave/backend
+  coverage: '/All files\s*\|\s*([\d.]+)/'
+
+# MFA / identity / OTP / pairing / founder-access / crypto — the scrypt cost
+# centre, one worker, nothing else on the runner.
+backend:serial:
+  stage: test
+  script:
+    - npm run test:serial --workspace @codeconclave/backend
+
+# perf-17 asserts on wall-clock time (Date.now deltas vs 2000/1000/50ms). It
+# measured ~1000ms on an idle machine and ~3800ms under any concurrent load, so
+# it gets a runner to itself rather than a loosened assertion. See
+# backend/vitest.perf.config.ts.
+backend:perf:
+  stage: test
+  script:
+    - npm run test:perf --workspace @codeconclave/backend
+
+# Remaining workspaces (shared, frontend, local-agent, desktop).
+workspaces:test:
+  stage: test
+  script:
+    - npm run test --workspace @codeconclave/shared
+    - npm run test --workspace @codeconclave/frontend
+    - npm run test --workspace @codeconclave/local-agent
+    - npm run test --workspace @codeconclave/desktop
+
+# ---------------------------------------------------------------------------
+# quality
+# ---------------------------------------------------------------------------
+
+# Workspace typecheck, with an empty environment. This job plus `secret-scan` is
+# exactly equivalent to the root `npm run lint` script, split into two reports so
+# a typecheck failure is not buried under a large scanner log.
+typecheck:
+  stage: quality
+  script:
+    - npm run typecheck --workspaces --if-present
+
+# Scans the repository for committed secrets. Authoritative gate; reports
+# path + kind + count only and never prints a discovered value.
+secret-scan:
+  stage: quality
+  script:
+    - npm run secret:scan
+
+# ---------------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------------
+
+# Production build. TypeScript is a build dependency, so --include=dev is
+# required here even though the install is otherwise production-shaped.
+build:
+  stage: build
+  before_script:
+    - npm ci --include=dev --prefer-offline --no-audit --no-fund
+  script:
+    - npm run build:ci
+  artifacts:
+    paths:
+      - shared/dist/
+      - backend/dist/
+      - frontend/dist/
+    expire_in: 1 week
+    when: on_success

@@ -1,0 +1,174 @@
+{
+  "audit": {
+    "name": "CODECONCLAVE_FINAL_INDEPENDENT_AUDIT",
+    "date": "2026-09-04",
+    "auditor": "opencode",
+    "mode": "independent-adversarial-readonly",
+    "scope": "C:\\Users\\sride\\CodeConClave-\\"
+  },
+  "verdict": {
+    "AUDIT_VERDICT": "NOT_READY_FOR_HEALING",
+    "AUDIT_VERDICT_POST_HEALING": "READY_FOR_HEALING_DONE_SINGLE_BLOCKER_REMOVED",
+    "CANONICAL_FEATURE_COUNT_FROZEN": 336,
+    "REGISTRY_ARITHMETIC_STATUS": "MISMATCH",
+    "arithmetic_gap": 6,
+    "arithmetic_note": "Registry declares TOTAL approx 342; frozen sum of declared group totals is 336. Gap is the registry's declared 'other approved clauses carried forward as open-ended'."
+  },
+  "dominant_status": "PASS",
+  "blockers": [],
+  "healing_evidence": {
+    "id": "UI_EX_01",
+    "status": "PASS",
+    "healed_on": "2026-09-04",
+    "notes": [
+      "Single pre-deployment blocker (unstyled Admin UI + ErrorBoundary, Tailwind classes with no Tailwind installed).",
+      "Project intentionally uses the .cc-* token system in global.css (no tailwindcss dep, no tailwind/postcss config).",
+      "Re-skinned AdminLayout, AdminDashboard, AdminUsers, AdminAIUsage, ErrorBoundary to .cc-* classes on --cc-* tokens.",
+      "Hoisted useMemo hooks above admin-guard early returns in AdminDashboard + AdminAIUsage (fixed latent 'Rendered more hooks' crash on first admin load).",
+      "No payment/backend/security files touched; no new packages; no Tailwind installed."
+    ],
+    "verification": {
+      "frontend_typecheck": "PASS",
+      "frontend_build": "PASS",
+      "affected_tests": {"file": "src/pages/AdminUiHeal.test.tsx", "passed": 4, "failed": 0},
+      "full_frontend_suite": {"files": 71, "passed": 395, "failed": 1, "note": "single failure is pre-existing ReviewListPage (TEST_01), unrelated to this healing"},
+      "served_result": "PASS",
+      "served_note": "vite preview HTTP 200; served CSS index-pcvKGoes.css (200) contains all .cc-admin-* and .cc-error-* selectors; built JS references rendered admin class names",
+      "new_regressions": 0
+    },
+    "files_changed": [
+      "frontend/src/styles/global.css",
+      "frontend/src/components/ErrorBoundary.tsx",
+      "frontend/src/pages/admin/AdminLayout.tsx",
+      "frontend/src/pages/admin/AdminDashboard.tsx",
+      "frontend/src/pages/admin/AdminUsers.tsx",
+      "frontend/src/pages/admin/AdminAIUsage.tsx",
+      "frontend/src/pages/AdminUiHeal.test.tsx"
+    ]
+  },
+  "payments": {
+    "PAYMENT_LOGIC_VERIFIED": "PASS",
+    "REAL_RAZORPAY_LIVE_VERIFIED": "ENVIRONMENT_BLOCKED",
+    "items": [
+      {"item": 1, "label": "PaymentIntents lifecycle + UNIQUE ref", "verdict": "PASS"},
+      {"item": 2, "label": "Provider evidence verification source-gated", "verdict": "PASS"},
+      {"item": 3, "label": "No fake success", "verdict": "PASS"},
+      {"item": 4, "label": "Webhook HMAC", "verdict": "PASS"},
+      {"item": 5, "label": "Refund path", "verdict": "PASS"},
+      {"item": 6, "label": "Admin grant/revoke", "verdict": "PASS"},
+      {"item": 7, "label": "Demo payment labelled", "verdict": "PASS"},
+      {"item": 8, "label": "Billing lint", "verdict": "PASS"},
+      {"item": 9, "label": "Usage gating on PRO_VERIFIED", "verdict": "PASS"},
+      {"item": 10, "label": "Entitlement duality plan_id + state", "verdict": "PASS"},
+      {"item": 11, "label": "Receipts + founder digest", "verdict": "PASS"},
+      {"item": 12, "label": "Fraud/spoof guard 6 checks", "verdict": "PASS"}
+    ]
+  },
+  "autonomy": {
+    "LOGIC_VERIFIED": "PASS",
+    "REAL_INFRA_VERIFIED": "ENVIRONMENT_BLOCKED",
+    "items": [
+      {"item": 1, "label": "24/7 agent creation + persistence", "verdict": "PASS"},
+      {"item": 2, "label": "Agent status/aggregator", "verdict": "PASS"},
+      {"item": 3, "label": "Atomic claim FOR UPDATE SKIP LOCKED", "verdict": "PASS"},
+      {"item": 4, "label": "Disconnect continuity", "verdict": "PASS"},
+      {"item": 5, "label": "Retry/backoff", "verdict": "PASS"},
+      {"item": 6, "label": "Restart/checkpoint/recovery", "verdict": "PASS"},
+      {"item": 7, "label": "DLQ", "verdict": "PASS"},
+      {"item": 8, "label": "Recurring scheduled jobs", "verdict": "PASS"},
+      {"item": 9, "label": "Watchdog/scheduler/isolation", "verdict": "PASS"}
+    ]
+  },
+  "security": {
+    "VERDICT": "PASS",
+    "latent_risks": [
+      {"id": "SEC_01", "severity": "LATENT", "title": "SSRF + missing ownership in postDeployVerify.ts (deployment-wizard)", "exploitable_today": false, "detail": "postDeployVerify.ts:246 SELECT 1 FROM projects WHERE id=$1 (no owner filter); blind fetches to user-supplied URLs. Module unmounted in app.ts; postDeployVerify imported by nothing."},
+      {"id": "SEC_02", "severity": "LATENT", "title": "RLS incomplete", "exploitable_today": false, "detail": "194 CREATE TABLE, 128 ENABLE RLS, 66 tables uncovered, 0 FORCE RLS."},
+      {"id": "SEC_03", "severity": "LATENT", "title": "No DDoS/WAF verification, MFA not forced by default", "exploitable_today": false, "detail": "F99 matrix PARTIAL; deploy-level hardening not verifiable."}
+    ],
+    "items": [
+      {"item": 1, "label": "Secrets handling", "verdict": "PASS"},
+      {"item": 2, "label": "Session/auth", "verdict": "PASS"},
+      {"item": 3, "label": "CSRF", "verdict": "PASS"},
+      {"item": 4, "label": "Rate limiting", "verdict": "PARTIAL"},
+      {"item": 5, "label": "Security headers/CSP", "verdict": "PARTIAL"},
+      {"item": 6, "label": "RBAC/ownership (assertProjectAccess x226)", "verdict": "PASS"},
+      {"item": 7, "label": "RLS", "verdict": "PARTIAL"},
+      {"item": 8, "label": "SSRF", "verdict": "LATENT"},
+      {"item": 9, "label": "SSRF redirect", "verdict": "LATENT"},
+      {"item": 10, "label": "Post-deploy fake verification", "verdict": "LATENT"},
+      {"item": 11, "label": "MFA enforcement", "verdict": "PARTIAL"},
+      {"item": 12, "label": "Audit trail", "verdict": "PASS"},
+      {"item": 13, "label": "SQLi protection", "verdict": "PASS"},
+      {"item": 14, "label": "Path traversal", "verdict": "PASS"},
+      {"item": 15, "label": "Container isolation", "verdict": "PASS"},
+      {"item": 16, "label": "XSS", "verdict": "PASS"}
+    ]
+  },
+  "uiux": {
+    "VERDICT": "PASS",
+    "AUDIT_TIME_VERDICT": "FAIL",
+    "areas": {
+      "states_truth": "PASS",
+      "consistency": "PASS",
+      "branding": "PARTIAL",
+      "routing": "PARTIAL",
+      "accessibility": "PARTIAL",
+      "responsive": "PARTIAL",
+      "design_tokens": "PARTIAL",
+      "error_surface": "PASS"
+    }
+  },
+  "architecture": {
+    "VERDICT": "PASS",
+    "duplicate_engines": "PASS",
+    "duplicate_memory": "PASS",
+    "conflicting_sources_of_truth": "PASS",
+    "dead_code": "FOUND",
+    "feature_flags": "PASS",
+    "fake_prod_paths": "PASS",
+    "dead_layers": [
+      {"module": "modules/deployment-wizard/routes.ts", "mounted": false, "note": "fully dead end-to-end"},
+      {"module": "modules/developer-productivity/routes.ts", "mounted": false, "note": "route dead; services live"},
+      {"module": "modules/engineering-intelligence/routes.ts", "mounted": false, "note": "route dead; services live"},
+      {"module": "modules/production-intelligence/routes.ts", "mounted": false, "note": "route dead; services live"},
+      {"module": "modules/security-intelligence/routes.ts", "mounted": false, "note": "route dead; services live"},
+      {"module": "frontend IntelligencePage.tsx", "mounted": false, "note": "orphan page, never imported"},
+      {"module": "frontend DeploymentPage.tsx", "mounted": false, "note": "orphan page, never imported"},
+      {"module": "frontend ProductionPage.tsx", "mounted": false, "note": "orphan page, never imported"}
+    ]
+  },
+  "build": {
+    "backend_typecheck": "PASS",
+    "backend_build": "PASS",
+    "frontend_typecheck": "PASS",
+    "frontend_build": "PASS",
+    "frontend_bundle": "991.01 kB (274.74 kB gzip) warning >500kB"
+  },
+  "test": {
+    "backend": {"files": 141, "passed": 2632, "failed": 4, "skipped": 8, "type": "flaky-load-timeouts gmail-claim (passes 16/16 standalone)"},
+    "frontend": {"files": 71, "passed": 395, "failed": 1, "type": "pre-existing ReviewListPage failure (reproduces standalone)"}
+  },
+  "groups": [
+    {"group": "A", "name": "Core Platform", "declared_total": 100, "source": "FINAL_FEATURE_MATRIX.md (legacy)", "counting_method": "row-per-ID; 108 rows / 96 unique IDs; gap IDs F36,F86,F87,F93 declared-but-no-row; frozen count=100"},
+    {"group": "B", "name": "Advanced Platform", "declared_total": 25, "source": "CODECONCLAVE_FINAL_MASTER_FEATURE_REGISTRY.md", "counting_method": "declared group total (registry not row-per-ID)"},
+    {"group": "C", "name": "Intelligence V4", "declared_total": 50, "source": "registry", "counting_method": "declared group total"},
+    {"group": "D", "name": "Local Agent", "declared_total": 12, "source": "registry", "counting_method": "declared group total"},
+    {"group": "E", "name": "Payment System", "declared_total": 12, "source": "registry", "counting_method": "declared group total (item-level audit PASS)"},
+    {"group": "F", "name": "Frontend UX", "declared_total": 12, "source": "registry", "counting_method": "declared group total (page-level audit)"},
+    {"group": "G", "name": "Autonomy & 24-7", "declared_total": 63, "source": "registry", "counting_method": "declared group total (subsystem audit PASS)"},
+    {"group": "H", "name": "Security", "declared_total": 28, "source": "registry", "counting_method": "declared group total (subsystem audit)"},
+    {"group": "I", "name": "AI & Signals", "declared_total": 12, "source": "registry", "counting_method": "declared group total"},
+    {"group": "J", "name": "Integrations", "declared_total": 7, "source": "registry", "counting_method": "declared group total (PKG-26 module audit PASS)"},
+    {"group": "K", "name": "Packaging & Ops", "declared_total": 13, "source": "registry", "counting_method": "declared group total"},
+    {"group": "L", "name": "Legacy", "declared_total": 2, "source": "registry", "counting_method": "declared group total"}
+  ],
+  "group_a_manifest": {
+    "GROUP_A_CANONICAL_COUNT": 100,
+    "unique_ids_with_rows": 96,
+    "gap_ids_no_row": ["F36", "F86", "F87", "F93"],
+    "duplicate_ids": ["F34", "F38", "F39", "F40", "F49", "F50", "F55", "F84", "F85", "F91", "F97"],
+    "duplicate_names": ["Team DNA", "Provider Status Dashboard"],
+    "row_status_summary": {"PASS": 95, "PARTIAL": 1}
+  }
+}

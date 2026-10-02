@@ -1,0 +1,2432 @@
+[
+ {
+  "file": "database\\migrate.ts",
+  "line": 212,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "schema_migrations",
+  "sql": "SELECT name FROM schema_migrations"
+ },
+ {
+  "file": "database\\migrate.ts",
+  "line": 233,
+  "class": "C",
+  "firstParam": "logged",
+  "rls": "",
+  "all": "schema_migrations",
+  "sql": "SELECT name, sha256 FROM schema_migrations"
+ },
+ {
+  "file": "foundation\\memory-25.test.ts",
+  "line": 82,
+  "class": "D",
+  "firstParam": "fetchMock",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 75,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 82,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 real project') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 88,
+  "class": "D",
+  "firstParam": "PROJECT_A",
+  "rls": "",
+  "all": "workspaces",
+  "sql": "INSERT INTO workspaces (id, user_id, project_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 94,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "entitlements",
+  "all": "entitlements",
+  "sql": "INSERT INTO entitlements (id, user_id, plan_id, state) VALUES ($1, $2, $3, 'PRO_VERIFIED') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 104,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "",
+  "all": "workspace_shares",
+  "sql": "DELETE FROM workspace_shares WHERE owner_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 105,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "",
+  "all": "workspaces",
+  "sql": "DELETE FROM workspaces WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 106,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "entitlements",
+  "all": "entitlements",
+  "sql": "DELETE FROM entitlements WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 107,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "DELETE FROM projects WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 108,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "workspace_state",
+  "all": "workspace_state",
+  "sql": "DELETE FROM workspace_state WHERE owner_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 109,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "audit_logs",
+  "all": "audit_logs",
+  "sql": "DELETE FROM audit_logs WHERE actor_user_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 110,
+  "class": "D",
+  "firstParam": "createdApiKeyIds",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "DELETE FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 111,
+  "class": "D",
+  "firstParam": "createdApiKeyIds",
+  "rls": "users",
+  "all": "users",
+  "sql": "DELETE FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 124,
+  "class": "D",
+  "firstParam": "createdShares",
+  "rls": "",
+  "all": "workspace_shares",
+  "sql": "DELETE FROM workspace_shares WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 130,
+  "class": "D",
+  "firstParam": "pool",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 159,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "SELECT revoked_at FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 196,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "",
+  "all": "workspace_shares",
+  "sql": "SELECT revoked_at FROM workspace_shares WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant-real.test.ts",
+  "line": 201,
+  "class": "D",
+  "firstParam": "only",
+  "rls": "",
+  "all": "pg_class,pg_namespace",
+  "sql": "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 69,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 76,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "INSERT INTO projects (id, user_id, name) VALUES ($1, $2, 'p02 project') ON CONFLICT (id) DO NOTHING RETURNING id"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 84,
+  "class": "D",
+  "firstParam": "0",
+  "rls": "",
+  "all": "workspaces",
+  "sql": "INSERT INTO workspaces (id, user_id, project_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING id"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 95,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "",
+  "all": "workspaces",
+  "sql": "DELETE FROM workspaces WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 96,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "DELETE FROM projects WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 98,
+  "class": "D",
+  "firstParam": "createdApiKeyIds",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "DELETE FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 100,
+  "class": "D",
+  "firstParam": "createdApiKeyIds",
+  "rls": "users",
+  "all": "users",
+  "sql": "DELETE FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 149,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "SELECT revoked_at FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 163,
+  "class": "D",
+  "firstParam": "only",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "SELECT owner_id FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 172,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "",
+  "all": "user_api_keys",
+  "sql": "SELECT owner_id FROM user_api_keys WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 190,
+  "class": "D",
+  "firstParam": "pool",
+  "rls": "",
+  "all": "pg_class,pg_namespace",
+  "sql": "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-cross-tenant.test.ts",
+  "line": 205,
+  "class": "D",
+  "firstParam": "false",
+  "rls": "",
+  "all": "workspaces",
+  "sql": "SELECT count(*)::int AS n FROM workspaces WHERE user_id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 72,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 79,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 files project') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 86,
+  "class": "D",
+  "firstParam": "64",
+  "rls": "files",
+  "all": "files",
+  "sql": "INSERT INTO files (id, project_id, owner_id, path, size_bytes, sha256, storage_key, is_directory) VALUES ($1, $2, $3, 'src/main.ts', 100, $4, NULL, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 96,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "files",
+  "all": "files",
+  "sql": "DELETE FROM files WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 97,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "DELETE FROM projects WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 98,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "audit_logs",
+  "all": "audit_logs",
+  "sql": "DELETE FROM audit_logs WHERE actor_user_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 99,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "DELETE FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 115,
+  "class": "D",
+  "firstParam": "rows",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-files-real.test.ts",
+  "line": 117,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "files",
+  "all": "files",
+  "sql": "SELECT owner_id, project_id FROM files WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 81,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 88,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "INSERT INTO projects (id, owner_id, name) VALUES ($1, $2, 'p02 reviews project') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 94,
+  "class": "D",
+  "firstParam": "PROJECT_A",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "INSERT INTO tasks (id, project_id, owner_id, title, status, execution_mode) VALUES ($1, $2, $3, 'p02 reviews task', 'COMPLETED', 'CLOUD') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 101,
+  "class": "D",
+  "firstParam": "64",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "INSERT INTO cowork_reviews (id, task_id, project_id, owner_id, title, status, test_status, commit_status, diff_text, files_changed, additions, deletions) VALUES ($1, $2, $3, $4, 'real review', 'READY_FOR_REVIEW', 'NOT_RUN', 'NOT_COMMITTED', 'diff --git a/x.ts b/x.ts', 1, 1, 1) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 110,
+  "class": "D",
+  "firstParam": "PROJECT_A",
+  "rls": "",
+  "all": "cowork_review_files",
+  "sql": "INSERT INTO cowork_review_files (id, review_id, path, base_sha256, base_content, proposed_sha256, proposed_content, status, file_order) VALUES ($1, $2, 'x.ts', $3, 'old', $4, 'old\\nnew', 'PENDING', 0) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 117,
+  "class": "D",
+  "firstParam": "sha",
+  "rls": "",
+  "all": "cowork_review_hunks",
+  "sql": "INSERT INTO cowork_review_hunks (id, review_id, file_id, hunk_order, status, old_start, old_lines, new_start, new_lines, original_sha, proposed_sha, additions, deletions, context_lines, ins_lines, diff_text) VALUES ($1, $2, $3, 0, 'PENDING', 1, 1, 1, 2, $4, $5, 1, 1, '[]', '[\"new\"]', '@@ -1 +1,2 @@') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 129,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "DELETE FROM cowork_reviews WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 130,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "DELETE FROM tasks WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 131,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "DELETE FROM projects WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 132,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "audit_logs",
+  "all": "audit_logs",
+  "sql": "DELETE FROM audit_logs WHERE actor_user_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 133,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "DELETE FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 149,
+  "class": "D",
+  "firstParam": "rows",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 151,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "SELECT owner_id, status FROM cowork_reviews WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 181,
+  "class": "D",
+  "firstParam": "HUNK_A",
+  "rls": "",
+  "all": "cowork_review_hunks",
+  "sql": "SELECT status FROM cowork_review_hunks WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 187,
+  "class": "D",
+  "firstParam": "status",
+  "rls": "",
+  "all": "cowork_review_hunks",
+  "sql": "SELECT status FROM cowork_review_hunks WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 189,
+  "class": "D",
+  "firstParam": "status",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "SELECT status FROM cowork_reviews WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 197,
+  "class": "D",
+  "firstParam": "status",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "SELECT status FROM cowork_reviews WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-reviews-real.test.ts",
+  "line": 205,
+  "class": "D",
+  "firstParam": "status",
+  "rls": "",
+  "all": "cowork_reviews",
+  "sql": "SELECT status FROM cowork_reviews WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 80,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, is_founder) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 87,
+  "class": "D",
+  "firstParam": "id",
+  "rls": "teams",
+  "all": "teams",
+  "sql": "INSERT INTO teams (id, owner_id, name) VALUES ($1, $2, 'p02 teams') ON CONFLICT (id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 93,
+  "class": "D",
+  "firstParam": "TEAM_A",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "INSERT INTO team_members (id, team_id, user_id, role, status, invited_by, joined_at) VALUES ($1, $2, $3, 'owner', 'ACTIVE', $3, now()) ON CONFLICT (team_id, user_id) DO NOTHING"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 103,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "team_activity",
+  "all": "team_activity",
+  "sql": "DELETE FROM team_activity WHERE team_id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 104,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "team_invitations",
+  "all": "team_invitations",
+  "sql": "DELETE FROM team_invitations WHERE team_id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 105,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "DELETE FROM team_members WHERE team_id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 106,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "teams",
+  "all": "teams",
+  "sql": "DELETE FROM teams WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 107,
+  "class": "D",
+  "firstParam": "Pool",
+  "rls": "notifications",
+  "all": "notifications",
+  "sql": "DELETE FROM notifications WHERE recipient_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 108,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "audit_logs",
+  "all": "audit_logs",
+  "sql": "DELETE FROM audit_logs WHERE actor_user_id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 109,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "users",
+  "all": "users",
+  "sql": "DELETE FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 125,
+  "class": "D",
+  "firstParam": "rows",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE id = ANY($1)"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 127,
+  "class": "D",
+  "firstParam": "TENANT_A",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "SELECT role, status FROM team_members WHERE team_id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 158,
+  "class": "D",
+  "firstParam": "PENDING",
+  "rls": "team_invitations",
+  "all": "team_invitations",
+  "sql": "SELECT state, invitee_user_id, role FROM team_invitations WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 167,
+  "class": "D",
+  "firstParam": "TENANT_B",
+  "rls": "team_invitations",
+  "all": "team_invitations",
+  "sql": "SELECT expires_at > now() AS future FROM team_invitations WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 179,
+  "class": "D",
+  "firstParam": "TEAM_A",
+  "rls": "team_invitations",
+  "all": "team_invitations",
+  "sql": "SELECT id FROM team_invitations WHERE team_id = $1 AND state = $2 ORDER BY created_at LIMIT 1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 188,
+  "class": "D",
+  "firstParam": "ACCEPTED",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "SELECT role, status FROM team_members WHERE team_id = $1 AND user_id = $2"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 193,
+  "class": "D",
+  "firstParam": "TENANT_B",
+  "rls": "team_invitations",
+  "all": "team_invitations",
+  "sql": "SELECT state FROM team_invitations WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 202,
+  "class": "D",
+  "firstParam": "TEAM_A",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "SELECT id FROM team_members WHERE team_id = $1 AND user_id = $2"
+ },
+ {
+  "file": "foundation\\p0-2-teams-real.test.ts",
+  "line": 205,
+  "class": "D",
+  "firstParam": "TENANT_B",
+  "rls": "team_members",
+  "all": "team_members",
+  "sql": "SELECT status FROM team_members WHERE id = $1"
+ },
+ {
+  "file": "foundation\\p0-2-tenant-baseline.test.ts",
+  "line": 10,
+  "class": "D",
+  "firstParam": "withSystem",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-autopilot-route.test.ts",
+  "line": 434,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-autopilot-route.test.ts",
+  "line": 436,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-claims-route.test.ts",
+  "line": 198,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-claims-route.test.ts",
+  "line": 200,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-evidence-route.test.ts",
+  "line": 72,
+  "class": "D",
+  "firstParam": "pool",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-evidence-route.test.ts",
+  "line": 75,
+  "class": "D",
+  "firstParam": "null",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-evidence-route.test.ts",
+  "line": 75,
+  "class": "D",
+  "firstParam": "null",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-evidence-route.test.ts",
+  "line": 76,
+  "class": "D",
+  "firstParam": "null",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "foundation\\payments-evidence-route.test.ts",
+  "line": 76,
+  "class": "D",
+  "firstParam": "null",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "middleware\\api-key-auth.test.ts",
+  "line": 216,
+  "class": "D",
+  "firstParam": "resolve",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "middleware\\api-key-auth.ts",
+  "line": 50,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id, email, email_verified, display_name, avatar_url, google_sub, role, primary_use_case, mfa_enabled, rbac_role, plan_id, entitlement_state FROM users WHERE id = $1"
+ },
+ {
+  "file": "middleware\\auth.ts",
+  "line": 38,
+  "class": "B",
+  "firstParam": "token",
+  "rls": "sessions,users",
+  "all": "sessions,users",
+  "sql": "SELECT s.id, s.state, s.expires_at, u.id AS user_id, u.email, u.email_verified, u.display_name, u.avatar_url, u.google_sub, u.role, u.primary_use_case, u.mfa_enabled, u.rbac_role, u.plan_id, u.entitlement_state FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 36,
+  "class": "B",
+  "firstParam": "revenue",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT COUNT(*) as count FROM users"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 37,
+  "class": "B",
+  "firstParam": "revenue",
+  "rls": "projects",
+  "all": "projects",
+  "sql": "SELECT COUNT(*) as count FROM projects"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 38,
+  "class": "B",
+  "firstParam": "revenue",
+  "rls": "messages",
+  "all": "messages",
+  "sql": "SELECT COUNT(*) as count FROM messages WHERE created_at >= CURRENT_DATE"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 39,
+  "class": "B",
+  "firstParam": "revenue",
+  "rls": "messages",
+  "all": "messages",
+  "sql": "SELECT COUNT(DISTINCT user_id) as count FROM messages WHERE created_at >= CURRENT_DATE"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 40,
+  "class": "B",
+  "firstParam": "user_id",
+  "rls": "payments",
+  "all": "payments",
+  "sql": "SELECT COALESCE(SUM(amount_usd), 0) as total FROM payments WHERE created_at >= CURRENT_DATE AND state = 'VERIFIED'"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 41,
+  "class": "B",
+  "firstParam": "0",
+  "rls": "",
+  "all": "ai_usage",
+  "sql": "SELECT provider, COUNT(*) as requests, COALESCE(SUM(cost_usd), 0) as cost FROM ai_usage WHERE created_at >= CURRENT_DATE GROUP BY provider"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 80,
+  "class": "B",
+  "firstParam": "totalResult",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT COUNT(*) as count FROM users ${whereClause}"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 84,
+  "class": "B",
+  "firstParam": "params",
+  "rls": "messages,projects,users",
+  "all": "messages,projects,users",
+  "sql": "SELECT id, email, display_name, rbac_role, created_at, (SELECT MAX(created_at) FROM messages WHERE user_id = users.id) as last_active, (SELECT COUNT(*) FROM projects WHERE owner_id = users.id) as project_count FROM users ${whereClause} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}"
+ },
+ {
+  "file": "modules\\admin\\service.ts",
+  "line": 114,
+  "class": "B",
+  "firstParam": "30",
+  "rls": "",
+  "all": "ai_usage",
+  "sql": "SELECT provider, DATE(created_at) as date, COUNT(*) as requests, COALESCE(SUM(cost_usd), 0) as cost FROM ai_usage WHERE created_at >= CURRENT_DATE - INTERVAL '${days} days' GROUP BY provider, DATE(created_at) ORDER BY date DESC, provider"
+ },
+ {
+  "file": "modules\\agent\\browser.ts",
+  "line": 236,
+  "class": "A",
+  "firstParam": "raw",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "SELECT s.user_id FROM sessions s WHERE s.token_hash = $1 AND s.state = 'ACTIVE' AND s.expires_at > now()"
+ },
+ {
+  "file": "modules\\agent\\routes.ts",
+  "line": 59,
+  "class": "A",
+  "firstParam": "string",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT user_id FROM devices WHERE id = $1"
+ },
+ {
+  "file": "modules\\agent\\ws.ts",
+  "line": 128,
+  "class": "A",
+  "firstParam": "type",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "UPDATE devices SET last_seen_at = now() WHERE id = $1"
+ },
+ {
+  "file": "modules\\agent\\ws.ts",
+  "line": 205,
+  "class": "A",
+  "firstParam": "false",
+  "rls": "tool_calls",
+  "all": "tool_calls",
+  "sql": "UPDATE tool_calls SET output = $2::jsonb, status = $3, completed_at = now() WHERE id = $1 AND status = 'PROPOSED'"
+ },
+ {
+  "file": "modules\\agent\\ws.ts",
+  "line": 409,
+  "class": "A",
+  "firstParam": "string",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT id, user_id, token_hash, state, capabilities FROM devices WHERE id = $1"
+ },
+ {
+  "file": "modules\\ai\\gateway.ts",
+  "line": 191,
+  "class": "C",
+  "firstParam": "AI_PREMIUM_BUDGET_USD_PER_DAY",
+  "rls": "",
+  "all": "compute_policy",
+  "sql": "SELECT class, description, max_tier, premium_budget_usd_per_day, enabled FROM compute_policy WHERE class = $1"
+ },
+ {
+  "file": "modules\\ai\\gateway.ts",
+  "line": 388,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "provider_health",
+  "sql": "SELECT state FROM provider_health WHERE provider_id = $1"
+ },
+ {
+  "file": "modules\\ai\\gateway.ts",
+  "line": 546,
+  "class": "C",
+  "firstParam": "undefined",
+  "rls": "",
+  "all": "provider_health",
+  "sql": "UPDATE provider_health SET state = 'QUOTA_EXHAUSTED', last_check_at = now(), last_error = $1 WHERE provider_id = $2 AND state NOT IN ('QUOTA_EXHAUSTED', 'BLOCKED')"
+ },
+ {
+  "file": "modules\\ai\\status.ts",
+  "line": 60,
+  "class": "C",
+  "firstParam": "configured",
+  "rls": "",
+  "all": "provider_health",
+  "sql": "SELECT provider_id, state, last_check_at, last_error, success_count, failure_count, consecutive_failures, avg_latency_ms FROM provider_health"
+ },
+ {
+  "file": "modules\\audit\\service.ts",
+  "line": 77,
+  "class": "A",
+  "firstParam": "0",
+  "rls": "audit_logs",
+  "all": "audit_logs",
+  "sql": "SELECT id, actor_user_id, tenant_scope, tenant_id, action, resource_type, resource_id, detail, ip, correlation_id, created_at FROM audit_logs ${whereSql} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}"
+ },
+ {
+  "file": "modules\\auth\\google.ts",
+  "line": 182,
+  "class": "B",
+  "firstParam": "email",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE google_sub = $1"
+ },
+ {
+  "file": "modules\\auth\\google.ts",
+  "line": 190,
+  "class": "B",
+  "firstParam": "32",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "INSERT INTO sessions (id, user_id, token_hash, ip, user_agent, expires_at) VALUES ($1,$2,$3,$4,$5, now() + interval '30 days')"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 117,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT user_id, handle, keyword_hash, security_key_hash, security_key_enabled, preferred_mfa FROM user_auth_identities WHERE user_id = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 146,
+  "class": "B",
+  "firstParam": "keyword",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT 1 FROM user_auth_identities WHERE lower(handle) = $1 AND deleted_at IS NULL AND user_id <> $2"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 153,
+  "class": "B",
+  "firstParam": "keyword",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities,set",
+  "sql": "INSERT INTO user_auth_identities (id, user_id, handle, keyword_hash, preferred_mfa, keyword_changed_at) VALUES ($1,$2,$3,$4,'none', now()) ON CONFLICT (user_id) DO UPDATE SET handle = EXCLUDED.handle, keyword_hash = EXCLUDED.keyword_hash, keyword_changed_at = now(), updated_at = now()"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 215,
+  "class": "B",
+  "firstParam": "20",
+  "rls": "user_auth_identities,users",
+  "all": "user_auth_identities,users",
+  "sql": "SELECT i.user_id, i.keyword_hash, i.security_key_enabled, i.security_key_hash, i.preferred_mfa, u.mfa_enabled FROM user_auth_identities i JOIN users u ON u.id = i.user_id AND u.deleted_at IS NULL WHERE lower(i.handle) = $1 AND i.deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 372,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT id FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 375,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET security_key_hash = $1, security_key_enabled = false, security_key_created_at = now(), preferred_mfa = $2, updated_at = now() WHERE user_id = $3"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 391,
+  "class": "B",
+  "firstParam": "normalized",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT security_key_hash FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 396,
+  "class": "B",
+  "firstParam": "normalized",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET security_key_enabled = true, security_key_revoked_at = NULL, updated_at = now() WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 414,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT mfa_enabled FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 416,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET security_key_enabled = false, security_key_hash = NULL, security_key_revoked_at = now(), preferred_mfa = CASE WHEN $2 THEN 'totp' ELSE 'none' END, updated_at = now() WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 459,
+  "class": "B",
+  "firstParam": "10",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id, email, mfa_enabled, mfa_secret_encrypted FROM users WHERE id = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 472,
+  "class": "B",
+  "firstParam": "recoveryCode",
+  "rls": "recovery_codes",
+  "all": "recovery_codes",
+  "sql": "SELECT id, code_hash FROM recovery_codes WHERE user_id = $1 AND used_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 480,
+  "class": "B",
+  "firstParam": "normalized",
+  "rls": "recovery_codes",
+  "all": "recovery_codes",
+  "sql": "UPDATE recovery_codes SET used_at = now() WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 535,
+  "class": "B",
+  "firstParam": "10",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT security_key_hash, security_key_enabled FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 578,
+  "class": "B",
+  "firstParam": "8",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT user_id, security_key_hash, security_key_enabled FROM user_auth_identities WHERE lower(handle) = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 639,
+  "class": "B",
+  "firstParam": "statement",
+  "rls": "auth_recovery_tokens",
+  "all": "auth_recovery_tokens",
+  "sql": "UPDATE auth_recovery_tokens SET attempts = attempts + 1, status = 'USED', used_at = now() WHERE token_hash = $1 AND status = 'PENDING' AND expires_at > now() AND attempts < 5 RETURNING id, user_id"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 649,
+  "class": "B",
+  "firstParam": "token",
+  "rls": "auth_recovery_tokens",
+  "all": "auth_recovery_tokens",
+  "sql": "UPDATE auth_recovery_tokens SET status = 'REVOKED', used_at = now() WHERE token_hash = $1 AND status = 'PENDING' AND attempts >= 5"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 659,
+  "class": "B",
+  "firstParam": "keyword",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET keyword_hash = $1, keyword_changed_at = now(), updated_at = now() WHERE user_id = $2"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 689,
+  "class": "B",
+  "firstParam": "newKeyword",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT keyword_hash FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 697,
+  "class": "B",
+  "firstParam": "currentKeyword",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET keyword_hash = $1, keyword_changed_at = now(), updated_at = now() WHERE user_id = $2"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 722,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT security_key_hash, security_key_enabled FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 731,
+  "class": "B",
+  "firstParam": "stored",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET security_key_hash = $1, security_key_enabled = false, security_key_created_at = now(), preferred_mfa = $2, updated_at = now() WHERE user_id = $3"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 757,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT keyword_hash FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 763,
+  "class": "B",
+  "firstParam": "userId",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT security_key_enabled FROM user_auth_identities WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 767,
+  "class": "B",
+  "firstParam": "userId",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "UPDATE user_auth_identities SET security_key_enabled = false, security_key_hash = NULL, security_key_revoked_at = now(), updated_at = now() WHERE user_id = $1"
+ },
+ {
+  "file": "modules\\auth\\identity.ts",
+  "line": 789,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE user_id = $1 AND state = 'ACTIVE'"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 110,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 140,
+  "class": "B",
+  "firstParam": "email",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "UPDATE email_otps SET status = 'REVOKED', used_at = now() WHERE lower(email) = $1 AND status = 'PENDING'"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 146,
+  "class": "B",
+  "firstParam": "email",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "INSERT INTO email_otps (id, email, code_hash, expires_at) VALUES ($1,$2,$3, now() + ($4 || ' milliseconds')::interval)"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 178,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "UPDATE email_otps SET status = 'REVOKED', used_at = now() WHERE id = $1 AND status = 'PENDING'"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 197,
+  "class": "B",
+  "firstParam": "email",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "SELECT * FROM email_otps WHERE lower(email) = $1 AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 214,
+  "class": "B",
+  "firstParam": "id",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "UPDATE email_otps SET attempts = $2 WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 219,
+  "class": "B",
+  "firstParam": "safe",
+  "rls": "email_otps",
+  "all": "email_otps",
+  "sql": "UPDATE email_otps SET status = 'USED', used_at = now() WHERE id = $1 AND status = 'PENDING' RETURNING id"
+ },
+ {
+  "file": "modules\\auth\\otp.ts",
+  "line": 241,
+  "class": "B",
+  "firstParam": "PREFERENCE",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET email_verified = true WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\rbac.ts",
+  "line": 19,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "projects,project_members",
+  "all": "projects,project_members",
+  "sql": "SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1 AND owner_id = $2) AS is_owner, (SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2) AS member_role"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 49,
+  "class": "B",
+  "firstParam": "needsRehash",
+  "rls": "",
+  "all": "",
+  "sql": "SELECT ${column} AS hash FROM ${table} WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 56,
+  "class": "B",
+  "firstParam": "1",
+  "rls": "",
+  "all": "",
+  "sql": "UPDATE ${table} SET ${column} = $1 WHERE id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 139,
+  "class": "B",
+  "firstParam": "token",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT id FROM devices WHERE user_id = $1 AND state = 'PAIRED' AND token_hash = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 154,
+  "class": "B",
+  "firstParam": "SESSION",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "INSERT INTO sessions (id, user_id, token_hash, ip, user_agent, device_id, expires_at) VALUES ($1,$2,$3,$4,$5,$6, now() + ($7 || ' days')::interval)"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 169,
+  "class": "B",
+  "firstParam": "ip",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "SELECT ip FROM ( SELECT DISTINCT ON (ip) ip, last_seen_at FROM sessions WHERE user_id = $1 AND ip IS NOT NULL AND id <> $2 AND created_at > now() - interval '90 days' ORDER BY ip, last_seen_at DESC ) recent_ips ORDER BY last_seen_at DESC LIMIT 10"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 182,
+  "class": "B",
+  "firstParam": "ip",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET risk_flags = risk_flags || $2::jsonb WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 200,
+  "class": "B",
+  "firstParam": "null",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'EXPIRED', revoked_at = now() WHERE state = 'ACTIVE' AND expires_at <= now()"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 218,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE user_id = $1 AND state = 'ACTIVE' AND id <> $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 294,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id FROM users WHERE lower(email) = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 298,
+  "class": "B",
+  "firstParam": "identity",
+  "rls": "user_auth_identities",
+  "all": "user_auth_identities",
+  "sql": "SELECT 1 FROM user_auth_identities WHERE lower(handle) = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 387,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 442,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT * FROM users WHERE lower(email) = $1 AND deleted_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 496,
+  "class": "B",
+  "firstParam": "MFA_MAX_ATTEMPTS",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT * FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 507,
+  "class": "B",
+  "firstParam": "recoveryCode",
+  "rls": "recovery_codes",
+  "all": "recovery_codes",
+  "sql": "SELECT id, code_hash FROM recovery_codes WHERE user_id = $1 AND used_at IS NULL"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 515,
+  "class": "B",
+  "firstParam": "normalized",
+  "rls": "recovery_codes",
+  "all": "recovery_codes",
+  "sql": "UPDATE recovery_codes SET used_at = now() WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 551,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE id = $1 AND user_id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 567,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT * FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 602,
+  "class": "B",
+  "firstParam": "userId",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length}"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 608,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "SELECT id, ip, user_agent, state, created_at, last_seen_at, expires_at FROM sessions WHERE user_id = $1 ORDER BY last_seen_at DESC"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 617,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE id = $1 AND user_id = $2 RETURNING id"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 639,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT email FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 641,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET mfa_secret_encrypted = $1 WHERE id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 652,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT mfa_secret_encrypted FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 660,
+  "class": "B",
+  "firstParam": "16",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET mfa_enabled = true, recovery_codes_hash = $1 WHERE id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 685,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT mfa_secret_encrypted FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 690,
+  "class": "B",
+  "firstParam": "code",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET mfa_enabled = false, mfa_secret_encrypted = NULL, recovery_codes_hash = NULL WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 713,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT mfa_secret_encrypted FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 730,
+  "class": "B",
+  "firstParam": "16",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET recovery_codes_hash = $1 WHERE id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 751,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT count(*)::int AS n FROM devices WHERE user_id = $1 AND state = 'PAIRED'"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 761,
+  "class": "B",
+  "firstParam": "DEVICE",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "INSERT INTO devices (id, user_id, name, pairing_code_hash, state) VALUES ($1,$2,$3,$4,'PENDING_PAIRING')"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 774,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT pairing_code_hash, state, failed_pairing_attempts FROM devices WHERE id = $1 AND user_id = $2"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 791,
+  "class": "B",
+  "firstParam": "code",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "UPDATE devices SET failed_pairing_attempts = failed_pairing_attempts + 1 WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 795,
+  "class": "B",
+  "firstParam": "32",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "UPDATE devices SET state = 'PAIRED', paired_at = now(), pairing_code_hash = NULL, failed_pairing_attempts = 0, last_seen_at = now(), token_hash = $2 WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 813,
+  "class": "B",
+  "firstParam": "string",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "SELECT id, name, state, paired_at, last_seen_at, created_at, capabilities FROM devices WHERE user_id = $1 ORDER BY created_at DESC"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 822,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "devices",
+  "all": "devices",
+  "sql": "UPDATE devices SET state = 'REVOKED', revoked_at = now(), pairing_code_hash = NULL, token_hash = NULL WHERE id = $1 AND user_id = $2 RETURNING id"
+ },
+ {
+  "file": "modules\\auth\\service.ts",
+  "line": 829,
+  "class": "B",
+  "firstParam": "deviceId",
+  "rls": "sessions",
+  "all": "sessions",
+  "sql": "UPDATE sessions SET state = 'REVOKED', revoked_at = now() WHERE device_id = $1 AND state = 'ACTIVE'"
+ },
+ {
+  "file": "modules\\auth\\verification.ts",
+  "line": 35,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT email, email_verified FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\verification.ts",
+  "line": 58,
+  "class": "B",
+  "firstParam": "32",
+  "rls": "email_verifications",
+  "all": "email_verifications",
+  "sql": "INSERT INTO email_verifications (id, user_id, token_hash, expires_at) VALUES ($1,$2,$3, now() + ($4 || ' milliseconds')::interval)"
+ },
+ {
+  "file": "modules\\auth\\verification.ts",
+  "line": 114,
+  "class": "B",
+  "firstParam": "Request",
+  "rls": "email_verifications",
+  "all": "email_verifications",
+  "sql": "SELECT id, user_id, status, expires_at FROM email_verifications WHERE token_hash = $1"
+ },
+ {
+  "file": "modules\\auth\\verification.ts",
+  "line": 167,
+  "class": "B",
+  "firstParam": "user",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT email_verified FROM users WHERE id = $1"
+ },
+ {
+  "file": "modules\\auth\\verification.ts",
+  "line": 168,
+  "class": "B",
+  "firstParam": "user",
+  "rls": "email_verifications",
+  "all": "email_verifications",
+  "sql": "SELECT created_at, expires_at FROM email_verifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1"
+ },
+ {
+  "file": "modules\\autonomy\\service.ts",
+  "line": 75,
+  "class": "C",
+  "firstParam": "ok",
+  "rls": "",
+  "all": "",
+  "sql": "SELECT 1"
+ },
+ {
+  "file": "modules\\autonomy\\truth.ts",
+  "line": 59,
+  "class": "C",
+  "firstParam": "TRUTH_KEYS",
+  "rls": "",
+  "all": "",
+  "sql": "SELECT 1"
+ },
+ {
+  "file": "modules\\deployment-wizard\\deploymentDiscovery.ts",
+  "line": 723,
+  "class": "C",
+  "firstParam": "packageJson",
+  "rls": "",
+  "all": "deployment_profiles",
+  "sql": "INSERT INTO deployment_profiles (id, project_id, repository_url, branch, package_manager, runtime, language, components, env_analysis, docker_analysis, deployment_configs, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\deploymentPlan.ts",
+  "line": 412,
+  "class": "C",
+  "firstParam": "previousCommit",
+  "rls": "",
+  "all": "deployment_plans",
+  "sql": "INSERT INTO deployment_plans (id, profile_id, readiness_id, project_id, strategy, steps, estimated_duration_sec, required_approvals, rollback_plan, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\deploymentReadiness.ts",
+  "line": 459,
+  "class": "C",
+  "firstParam": "estimatedDeployTime",
+  "rls": "",
+  "all": "deployment_readiness",
+  "sql": "INSERT INTO deployment_readiness (id, profile_id, project_id, overall_status, score, items, summary, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\deploymentReport.ts",
+  "line": 246,
+  "class": "C",
+  "firstParam": "markdown",
+  "rls": "",
+  "all": "deployment_reports",
+  "sql": "INSERT INTO deployment_reports (id, project_id, markdown, created_at) VALUES ($1, $2, $3, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\deploymentStrategy.ts",
+  "line": 186,
+  "class": "C",
+  "firstParam": "canaryConfig",
+  "rls": "",
+  "all": "deployment_strategies",
+  "sql": "INSERT INTO deployment_strategies (id, project_id, strategy, config, target_provider, previous_deployment_id, canary_config, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 107,
+  "class": "C",
+  "firstParam": "expiresAt",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "INSERT INTO deployment_approvals (id, project_id, type, status, requested_by, message, details, risk_level, requested_at, expires_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 139,
+  "class": "C",
+  "firstParam": "projectId",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "SELECT * FROM deployment_approvals WHERE id = $1 AND project_id = $2"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 152,
+  "class": "C",
+  "firstParam": "expires_at",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "UPDATE deployment_approvals SET status = 'EXPIRED', resolved_at = now() WHERE id = $1"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 162,
+  "class": "C",
+  "firstParam": "expires_at",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "UPDATE deployment_approvals SET status = $1, resolved_at = $2, ${newStatus === 'APPROVED' ? 'approved_by' : 'rejected_by'} = $3 WHERE id = $4"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 201,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "SELECT * FROM deployment_approvals WHERE id = $1 AND project_id = $2"
+ },
+ {
+  "file": "modules\\deployment-wizard\\humanApproval.ts",
+  "line": 230,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "deployment_approvals",
+  "sql": "SELECT * FROM deployment_approvals WHERE project_id = $1 AND status = 'PENDING' ORDER BY requested_at DESC"
+ },
+ {
+  "file": "modules\\deployment-wizard\\postDeployVerify.ts",
+  "line": 286,
+  "class": "C",
+  "firstParam": "summary",
+  "rls": "",
+  "all": "post_deploy_verifications",
+  "sql": "INSERT INTO post_deploy_verifications (id, project_id, deployment_id, checks, overall_status, summary, created_at) VALUES ($1, $2, $3, $4, $5, $6, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\preDeployCheck.ts",
+  "line": 240,
+  "class": "C",
+  "firstParam": "error",
+  "rls": "",
+  "all": "schema_migrations",
+  "sql": "SELECT name, sha256 FROM schema_migrations"
+ },
+ {
+  "file": "modules\\deployment-wizard\\preDeployCheck.ts",
+  "line": 262,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "tracked_files",
+  "sql": "SELECT count(*)::int as count FROM tracked_files WHERE path LIKE '%.env%' AND path NOT LIKE '%.env.example'"
+ },
+ {
+  "file": "modules\\deployment-wizard\\preDeployCheck.ts",
+  "line": 274,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "deployment_profiles",
+  "sql": "SELECT * FROM deployment_profiles WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1"
+ },
+ {
+  "file": "modules\\deployment-wizard\\preDeployCheck.ts",
+  "line": 329,
+  "class": "C",
+  "firstParam": "criticalFailures",
+  "rls": "",
+  "all": "pre_deploy_checks",
+  "sql": "INSERT INTO pre_deploy_checks (id, project_id, checks, passed, summary, critical_failures, created_at) VALUES ($1, $2, $3, $4, $5, $6, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\rollbackPlanner.ts",
+  "line": 144,
+  "class": "C",
+  "firstParam": "manualSteps",
+  "rls": "",
+  "all": "rollback_plans",
+  "sql": "INSERT INTO rollback_plans (id, project_id, plan_id, available, reason, steps, estimated_time_sec, database_backup_required, manual_intervention_required, manual_steps, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\secretHandling.ts",
+  "line": 171,
+  "class": "C",
+  "firstParam": "totalOptional",
+  "rls": "",
+  "all": "secret_inventories",
+  "sql": "INSERT INTO secret_inventories (id, project_id, secrets, summary, created_at) VALUES ($1, $2, $3, $4, now())"
+ },
+ {
+  "file": "modules\\deployment-wizard\\secretHandling.ts",
+  "line": 239,
+  "class": "C",
+  "firstParam": "projectId",
+  "rls": "",
+  "all": "secret_entries",
+  "sql": "INSERT INTO secret_entries (id, project_id, variable_name, target_service, entered_by, created_at) VALUES ($1, $2, $3, $4, $5, now())"
+ },
+ {
+  "file": "modules\\developer-productivity\\flowDiagram.ts",
+  "line": 456,
+  "class": "C",
+  "firstParam": "DiagramOptions",
+  "rls": "",
+  "all": "information_schema",
+  "sql": "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
+ },
+ {
+  "file": "modules\\developer-productivity\\flowDiagram.ts",
+  "line": 467,
+  "class": "C",
+  "firstParam": "30",
+  "rls": "",
+  "all": "information_schema",
+  "sql": "SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position"
+ },
+ {
+  "file": "modules\\developer-productivity\\flowDiagram.ts",
+  "line": 483,
+  "class": "C",
+  "firstParam": "rows",
+  "rls": "",
+  "all": "information_schema",
+  "sql": "SELECT kcu.column_name, ccu.table_name AS foreign_table, ccu.column_name AS foreign_column FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = $1"
+ },
+ {
+  "file": "modules\\developer-productivity\\workspaceContext.ts",
+  "line": 181,
+  "class": "A",
+  "firstParam": "retentionDays",
+  "rls": "workspace_state",
+  "all": "workspace_state",
+  "sql": "DELETE FROM workspace_state WHERE key = $1 AND updated_at < $2"
+ },
+ {
+  "file": "modules\\engineering-intelligence\\contextFlowAnalyzer.ts",
+  "line": 487,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\engineering-intelligence\\debtSlayer.ts",
+  "line": 378,
+  "class": "C",
+  "firstParam": "projectId",
+  "rls": "",
+  "all": "technical_debt_log",
+  "sql": "SELECT date_trunc('day', created_at)::date AS day, count(*)::int AS count FROM technical_debt_log WHERE project_id = $1 AND created_at > now() - interval '${days} days' GROUP BY day ORDER BY day"
+ },
+ {
+  "file": "modules\\engineering-intelligence\\debtSlayer.ts",
+  "line": 399,
+  "class": "C",
+  "firstParam": "5",
+  "rls": "",
+  "all": "technical_debt_log",
+  "sql": "SELECT count(*)::int AS n FROM technical_debt_log WHERE project_id = $1 AND created_at > now() - interval '${days} days'"
+ },
+ {
+  "file": "modules\\engineering-intelligence\\debtSlayer.ts",
+  "line": 405,
+  "class": "C",
+  "firstParam": "5",
+  "rls": "",
+  "all": "technical_debt_log",
+  "sql": "SELECT count(*)::int AS n FROM technical_debt_log WHERE project_id = $1 AND resolved_at IS NOT NULL AND resolved_at > now() - interval '${days} days'"
+ },
+ {
+  "file": "modules\\idempotency\\service.ts",
+  "line": 92,
+  "class": "C",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "idempotency_keys",
+  "sql": "UPDATE idempotency_keys SET status = 'COMPLETED', response = $3::jsonb, completed_at = now() WHERE user_id = $1 AND key = $2"
+ },
+ {
+  "file": "modules\\idempotency\\service.ts",
+  "line": 102,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "idempotency_keys",
+  "sql": "UPDATE idempotency_keys SET status = 'FAILED', completed_at = now() WHERE user_id = $1 AND key = $2"
+ },
+ {
+  "file": "modules\\idempotency\\service.ts",
+  "line": 111,
+  "class": "C",
+  "firstParam": "growth",
+  "rls": "",
+  "all": "idempotency_keys",
+  "sql": "DELETE FROM idempotency_keys WHERE created_at < now() - ($1 || ' milliseconds')::interval"
+ },
+ {
+  "file": "modules\\integration-hub\\integration-hub.security.test.ts",
+  "line": 331,
+  "class": "D",
+  "firstParam": "event_id",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\memorycoding\\lifecycle.ts",
+  "line": 26,
+  "class": "C",
+  "firstParam": "bug",
+  "rls": "",
+  "all": "dev_preferences",
+  "sql": "SELECT count(*)::int AS n FROM dev_preferences WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}"
+ },
+ {
+  "file": "modules\\memorycoding\\lifecycle.ts",
+  "line": 30,
+  "class": "C",
+  "firstParam": "userId",
+  "rls": "",
+  "all": "dev_patterns",
+  "sql": "SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'ACTIVE')::int AS active FROM dev_patterns WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}"
+ },
+ {
+  "file": "modules\\memorycoding\\lifecycle.ts",
+  "line": 35,
+  "class": "C",
+  "firstParam": "userId",
+  "rls": "",
+  "all": "dev_bug_incidents",
+  "sql": "SELECT count(*)::int AS n, count(*) FILTER (WHERE status = 'OPEN')::int AS open FROM dev_bug_incidents WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}"
+ },
+ {
+  "file": "modules\\memorycoding\\lifecycle.ts",
+  "line": 40,
+  "class": "C",
+  "firstParam": "userId",
+  "rls": "",
+  "all": "memorycoding_links",
+  "sql": "SELECT count(*)::int AS n FROM memorycoding_links WHERE owner_id = $1 ${projectId ? 'AND project_id = $2' : ''}"
+ },
+ {
+  "file": "modules\\optimization-intelligence\\optimization-intelligence.test.ts",
+  "line": 159,
+  "class": "D",
+  "firstParam": "posts",
+  "rls": "",
+  "all": "authors",
+  "sql": "SELECT * FROM authors WHERE id=$1"
+ },
+ {
+  "file": "modules\\payments\\autopilot\\autopilot.test.ts",
+  "line": 106,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\payments\\autopilot\\autopilot.test.ts",
+  "line": 108,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\payments\\imap-unlock\\service.ts",
+  "line": 115,
+  "class": "A",
+  "firstParam": "null",
+  "rls": "payment_intents,users",
+  "all": "payment_intents,users",
+  "sql": "SELECT i.id, i.owner_id, i.plan_id, i.amount_inr, i.reference, i.status, i.created_at, u.email AS owner_email FROM payment_intents i LEFT JOIN users u ON u.id = i.owner_id WHERE i.amount_inr = $1 AND i.status IN ('PENDING','REVIEW') AND i.created_at <= $2 AND i.expires_at >= $2 ORDER BY i.created_at DESC LIMIT 50"
+ },
+ {
+  "file": "modules\\payments\\pool\\seeder.test.ts",
+  "line": 185,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\payments\\pool\\seeder.test.ts",
+  "line": 186,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 95,
+  "class": "C",
+  "firstParam": "allowed",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 109,
+  "class": "C",
+  "firstParam": "usable",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 121,
+  "class": "C",
+  "firstParam": "firstToken",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, blocked, error, output, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,'',$8,$9)"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 131,
+  "class": "C",
+  "firstParam": "projectId",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "INSERT INTO runtime_executions (id, owner_id, project_id, kind, command, status, started_at, environment, cwd) VALUES ($1,$2,$3,$4,$5,$6,now(),$7,$8)"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 137,
+  "class": "C",
+  "firstParam": "projectId",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "UPDATE runtime_executions SET status = 'RUNNING' WHERE id = $1"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 161,
+  "class": "C",
+  "firstParam": "200_000",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "UPDATE runtime_executions SET status = $2, exit_code = $3, timed_out = $4, cancelled = $5, output = $6, ended_at = now(), duration_ms = $7, error = $8 WHERE id = $1"
+ },
+ {
+  "file": "modules\\runtime\\executions.ts",
+  "line": 168,
+  "class": "C",
+  "firstParam": "Error",
+  "rls": "",
+  "all": "runtime_executions",
+  "sql": "UPDATE runtime_executions SET status = 'FAILED', ended_at = now(), error = $2, output = $3 WHERE id = $1"
+ },
+ {
+  "file": "modules\\runtime\\smoke.ts",
+  "line": 84,
+  "class": "C",
+  "firstParam": "SmokeStatus",
+  "rls": "",
+  "all": "runtime_smoke_results",
+  "sql": "INSERT INTO runtime_smoke_results (id, owner_id, project_id, run_id, name, method, url, expected_status, status, duration_ms, evidence, failure_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)"
+ },
+ {
+  "file": "modules\\runtime\\smoke.ts",
+  "line": 116,
+  "class": "C",
+  "firstParam": "r",
+  "rls": "",
+  "all": "runtime_smoke_runs",
+  "sql": "INSERT INTO runtime_smoke_runs (id, owner_id, project_id, name, status, total, passed, failed, unavailable, started_at, ended_at) VALUES ($1,$2,$3,'smoke',$4,$5,$6,$7,$8,$9,now())"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 374,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "vulnerability_findings",
+  "sql": "SELECT count(*)::int AS total, count(*) FILTER (WHERE severity IN ('CRITICAL','HIGH') AND status IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS'))::int AS criticalHigh FROM vulnerability_findings WHERE project_id = $1"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 378,
+  "class": "C",
+  "firstParam": "total",
+  "rls": "",
+  "all": "secret_exposures",
+  "sql": "SELECT count(*)::int AS total FROM secret_exposures WHERE project_id = $1 AND resolved = false"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 380,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "supply_chain_scans",
+  "sql": "SELECT count(*)::int AS total FROM supply_chain_scans WHERE project_id = $1"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 381,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "api_security_scans",
+  "sql": "SELECT count(*)::int AS total FROM api_security_scans WHERE project_id = $1"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 382,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "security_scans",
+  "sql": "SELECT count(*)::int AS total FROM security_scans WHERE project_id = $1"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 383,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "secret_rotations",
+  "sql": "SELECT count(*)::int AS total FROM secret_rotations WHERE rotated_by = $1"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 384,
+  "class": "C",
+  "firstParam": "q",
+  "rls": "",
+  "all": "secret_rotation_policies",
+  "sql": "SELECT count(*)::int AS total FROM secret_rotation_policies"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 646,
+  "class": "C",
+  "firstParam": "false",
+  "rls": "",
+  "all": "security_posture_cache",
+  "sql": "SELECT * FROM security_posture_cache WHERE project_id = $1 AND expires_at > now()"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 776,
+  "class": "C",
+  "firstParam": "SecurityPosture",
+  "rls": "",
+  "all": "security_posture_history,set",
+  "sql": "INSERT INTO security_posture_history (id, project_id, overall_score, overall_level, categories, assessed_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (project_id, assessed_at) DO UPDATE SET overall_score = EXCLUDED.overall_score, overall_level = EXCLUDED.overall_level, categories = EXCLUDED.categories"
+ },
+ {
+  "file": "modules\\security-intelligence\\securityPosture.ts",
+  "line": 794,
+  "class": "C",
+  "firstParam": "lastAssessed",
+  "rls": "",
+  "all": "security_posture_cache,set",
+  "sql": "INSERT INTO security_posture_cache (project_id, overall_score, overall_level, categories, expires_at) VALUES ($1,$2,$3,$4,now() + interval '1 hour') ON CONFLICT (project_id) DO UPDATE SET overall_score = EXCLUDED.overall_score, overall_level = EXCLUDED.overall_level, categories = EXCLUDED.categories, expires_at = EXCLUDED.expires_at"
+ },
+ {
+  "file": "modules\\security-operations-intelligence\\compliance.ts",
+  "line": 44,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "secops_compliance_reports",
+  "sql": "INSERT INTO secops_compliance_reports (id, project_id, overall_score, overall_status, posture_score, posture_level, categories, items, created_by, generated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"
+ },
+ {
+  "file": "modules\\security-operations-intelligence\\compliance.ts",
+  "line": 63,
+  "class": "C",
+  "firstParam": "generatedAt",
+  "rls": "",
+  "all": "secops_compliance_reports",
+  "sql": "DELETE FROM secops_compliance_reports WHERE project_id = $1 AND id NOT IN ( SELECT id FROM secops_compliance_reports WHERE project_id = $1 ORDER BY generated_at DESC LIMIT $2 )"
+ },
+ {
+  "file": "modules\\security-operations-intelligence\\security-operations-intelligence.test.ts",
+  "line": 78,
+  "class": "D",
+  "firstParam": "queryMany",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "modules\\workspace\\service.ts",
+  "line": 479,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "free_usage_windows,set",
+  "sql": "INSERT INTO free_usage_windows (owner_id, window_start, used, updated_at) VALUES ($1, now(), 1, now()) ON CONFLICT (owner_id) DO UPDATE SET used = CASE WHEN free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) THEN 1 ELSE free_usage_windows.used + 1 END, window_start = CASE WHEN free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) THEN now() ELSE free_usage_windows.window_start END, updated_at = now() WHERE free_usage_windows.window_start IS NULL OR now() - free_usage_windows.window_start >= make_interval(hours => $2) OR free_usage_windows.used < $3 RETURNING used, window_start"
+ },
+ {
+  "file": "scripts\\acceptance-preflight.ts",
+  "line": 145,
+  "class": "D",
+  "firstParam": "payment",
+  "rls": "payment_link_reservations",
+  "all": "payment_link_reservations",
+  "sql": "SELECT COUNT(*)::int AS n FROM payment_link_reservations WHERE status = 'RESERVED'"
+ },
+ {
+  "file": "scripts\\prove-payment.test.ts",
+  "line": 279,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "scripts\\prove-payment.test.ts",
+  "line": 280,
+  "class": "D",
+  "firstParam": "unknown",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "scripts\\provision-founder.ts",
+  "line": 75,
+  "class": "D",
+  "firstParam": "keyword",
+  "rls": "users",
+  "all": "users",
+  "sql": "SELECT id, is_founder, email_verified, password_hash FROM users WHERE lower(email) = $1"
+ },
+ {
+  "file": "scripts\\provision-founder.ts",
+  "line": 107,
+  "class": "D",
+  "firstParam": "markVerified",
+  "rls": "entitlements",
+  "all": "entitlements,set",
+  "sql": "INSERT INTO entitlements (id, user_id, plan_id, state, verified_at) VALUES ($1,$2,'team','PRO_VERIFIED', now()) ON CONFLICT (user_id, plan_id) DO UPDATE SET state = 'PRO_VERIFIED', verified_at = now(), expires_at = NULL, updated_at = now()"
+ },
+ {
+  "file": "scripts\\provision-founder.ts",
+  "line": 117,
+  "class": "D",
+  "firstParam": "12",
+  "rls": "entitlements",
+  "all": "entitlements",
+  "sql": "UPDATE entitlements SET state = 'FREE', verified_at = NULL, updated_at = now() WHERE user_id = $1 AND plan_id = 'team' AND state = 'PRO_VERIFIED'"
+ },
+ {
+  "file": "scripts\\provision-founder.ts",
+  "line": 126,
+  "class": "D",
+  "firstParam": "12",
+  "rls": "users",
+  "all": "users",
+  "sql": "INSERT INTO users (id, email, password_hash, display_name, email_verified, is_founder, plan_id, entitlement_state) VALUES ($1,$2,$3,'Founder',$4,true,$5,$6)"
+ },
+ {
+  "file": "scripts\\provision-founder.ts",
+  "line": 137,
+  "class": "D",
+  "firstParam": "squat",
+  "rls": "users",
+  "all": "users",
+  "sql": "UPDATE users SET password_hash = $1, is_founder = true, email_verified = $2, plan_id = $3, entitlement_state = $4 WHERE id = $5"
+ },
+ {
+  "file": "shared\\db.ts",
+  "line": 113,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "shared\\db.ts",
+  "line": 121,
+  "class": "C",
+  "firstParam": "string",
+  "rls": "",
+  "all": "",
+  "sql": ""
+ },
+ {
+  "file": "shared\\db.ts",
+  "line": 127,
+  "class": "C",
+  "firstParam": "params",
+  "rls": "",
+  "all": "",
+  "sql": "SELECT 1"
+ },
+ {
+  "file": "shared\\queue.ts",
+  "line": 34,
+  "class": "B",
+  "firstParam": "1",
+  "rls": "tasks,task_dependencies",
+  "all": "tasks,task_dependencies,skip",
+  "sql": "UPDATE tasks SET status = 'RUNNING', last_heartbeat_at = now(), updated_at = now(), -- Stamp started_at at claim time so the timeout sweep -- (failTimedOutTasks, gated on started_at IS NOT NULL) can bound a -- task even if the worker crashes before beginAttempt runs. started_at = COALESCE(started_at, now()) WHERE id IN ( SELECT id FROM tasks WHERE status IN ('CREATED','PLANNED','CHANGED') AND paused_at IS NULL AND (required_approval = false OR approval_id IS NOT NULL) AND execution_mode IN ('CLOUD','HYBRID') AND attempt_count < max_attempts AND (next_attempt_at IS NULL OR next_attempt_at <= now()) AND NOT EXISTS ( SELECT 1 FROM task_dependencies td JOIN tasks dep ON dep.id = td.depends_on_task_id WHERE td.task_id = tasks.id AND dep.status <> 'COMPLETED' ) ORDER BY priority DESC, created_at LIMIT $1 FOR UPDATE SKIP LOCKED ) RETURNING id, project_id, owner_id, title, risk_level, execution_mode, created_at"
+ },
+ {
+  "file": "shared\\queue.ts",
+  "line": 72,
+  "class": "B",
+  "firstParam": "number",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "UPDATE tasks SET status = 'CREATED', error_code = 'recovered_heartbeat_timeout', updated_at = now() WHERE status = 'RUNNING' AND last_heartbeat_at < now() - ($1 || ' milliseconds')::interval RETURNING id"
+ },
+ {
+  "file": "shared\\queue.ts",
+  "line": 85,
+  "class": "B",
+  "firstParam": "number",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "UPDATE tasks SET status = 'TIMED_OUT', error_code = 'task_timeout', failed_at = now(), updated_at = now() WHERE status IN ('CREATED','PLANNED','RUNNING','TESTING','VERIFIED','REQUIRES_REVIEW','BLOCKED') AND started_at IS NOT NULL AND started_at + (timeout_ms || ' milliseconds')::interval < now() RETURNING id"
+ },
+ {
+  "file": "shared\\queue.ts",
+  "line": 98,
+  "class": "B",
+  "firstParam": "2h",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "UPDATE tasks SET status = 'CANCELLED', error_code = 'approval_not_answered', updated_at = now() WHERE status = 'WAITING_APPROVAL' AND created_at < now() - interval '2 hours' RETURNING id"
+ },
+ {
+  "file": "shared\\queue.ts",
+  "line": 108,
+  "class": "B",
+  "firstParam": "2h",
+  "rls": "tasks",
+  "all": "tasks",
+  "sql": "SELECT COUNT(*)::int AS n FROM tasks WHERE status IN ('CREATED','PLANNED','CHANGED') AND paused_at IS NULL AND (required_approval = false OR approval_id IS NOT NULL) AND execution_mode IN ('CLOUD','HYBRID') AND attempt_count < max_attempts AND (next_attempt_at IS NULL OR next_attempt_at <= now())"
+ }
+]

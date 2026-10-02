@@ -1,0 +1,109 @@
+{
+  "generatedAt": "2026-09-10T00:00:00.000Z",
+  "kind": "FINAL_RELEASE_AUDIT",
+  "RELEASE_CANDIDATE": "0.1.0",
+  "AUTOMATED_RELEASE_CHECKS": "PASS",
+  "HUMAN_ACCEPTANCE_GATES": "0/9",
+  "RELEASE_READY": "NO",
+  "WEB_ACCEPTANCE": "NOT_PERFORMED",
+  "DESKTOP_ACCEPTANCE": "NOT_PERFORMED",
+  "AI_CHAT_ACCEPTANCE": "NOT_PERFORMED",
+  "IMAGE_ACCEPTANCE": "NOT_PERFORMED",
+  "IMAGE_GENERATION": "ENVIRONMENT_BLOCKED",
+  "EXTERNAL_AGENT_ACCEPTANCE": "NOT_PERFORMED",
+  "GOOGLE_SIGNIN_ACCEPTANCE": "NOT_PERFORMED",
+  "ONBOARDING_ACCEPTANCE": "NOT_PERFORMED",
+  "USAGE_LIMIT_ACCEPTANCE": "NOT_PERFORMED",
+  "UX_ACCESSIBILITY_ACCEPTANCE": "NOT_PERFORMED",
+  "PROVIDER_STATUS": {
+    "google": "HEALTHY",
+    "qwen": "HEALTHY",
+    "nemotron": "HEALTHY",
+    "openai": "QUOTA_EXHAUSTED",
+    "deepseek": "QUOTA_EXHAUSTED",
+    "anthropic": "OFFLINE",
+    "gemma": "OFFLINE",
+    "grok": "REQUIRES_REAUTH",
+    "kimi": "REQUIRES_REAUTH",
+    "mistral": "NOT_CONFIGURED",
+    "north": "NOT_CONFIGURED",
+    "ox_alpha": "NOT_CONFIGURED",
+    "z_code_5_3": "NOT_CONFIGURED",
+    "manus": "NEVER_AUTORUN",
+    "devin": "NEVER_AUTORUN",
+    "big_pickle": "NOT_INTEGRATED"
+  },
+  "PROVIDER_REAL_CALLS": {
+    "google": "successful",
+    "qwen": "successful",
+    "nemotron": "successful",
+    "openai": "errored_429",
+    "deepseek": "errored_quota",
+    "anthropic": "errored_bad_request",
+    "gemma": "errored_unavailable",
+    "grok": "errored_invalid_credentials",
+    "kimi": "errored_invalid_credentials",
+    "REAL_EXTERNAL_AGENT_RUNS": "NONE",
+    "REAL_IMAGE_GENERATION_CALLS": "NONE"
+  },
+  "PAYMENT_STATUS": {
+    "payment_proof": "16/16 PASS",
+    "payment_regression": "15 files / 294 passed / 0 failed",
+    "live_automatic_activation": "NOT_VERIFIED",
+    "payment_code": "FROZEN",
+    "live_charge_this_gate": "NONE"
+  },
+  "SECURITY_STATUS": {
+    "secret_scan": "files=855 skipped=0 findings=0",
+    "credentials_in_frontend": "none",
+    "credentials_in_desktop_bundle": "none",
+    "credentials_in_installer_asar": "none",
+    "credentials_in_logs_docs_env": "none",
+    "env_gitignored": true,
+    "NO_REAL_KEYS_LEAKED": true,
+    "electron_contextIsolation": true,
+    "electron_nodeIntegration": false,
+    "electron_sandbox": true,
+    "electron_webSecurity": true,
+    "penetration_test": "NOT_PERFORMED"
+  },
+  "FEATURES_REMOVED": 0,
+  "FEATURES_UNMAPPED": 0,
+  "FEATURE_DENOMINATOR": 336,
+  "CRITICAL_FINDINGS": 0,
+  "HIGH_FINDINGS": 0,
+  "MEDIUM_FINDINGS": [
+    {
+      "severity": "MEDIUM",
+      "scope": "environment",
+      "summary": "Residual environmental risk: files/artifacts twice lost from disk on 2026-09-10 (11 release docs; installer exe + app.asar). Recovered by regeneration. No code impact.",
+      "status": "RESIDUAL"
+    }
+  ],
+  "LOW_FINDINGS": [
+    { "severity": "LOW", "summary": "Frontend chunk ~1.0 MB size warning", "status": "OPEN" },
+    { "severity": "LOW", "summary": "Production-origin env values pending deployment (google redirect URI, cors origins, auth cookie domain, secure cookie)", "status": "OPEN" },
+    { "severity": "LOW", "summary": "openai/deepseek quota and grok/kimi credentials pending founder action", "status": "OPEN" }
+  ],
+  "AUTOMATED_EVIDENCE": {
+    "backend": "156 files / 2853 passed / 8 skipped / 0 failed",
+    "frontend": "74 / 408 / 0",
+    "desktop": "5 / 58 / 0",
+    "targeted_smokes": "19 / 411 / 0",
+    "typecheck_and_build": "PASS",
+    "migrations": "76 applied / 0 pending",
+    "rl_tenant_checks": "PASS",
+    "installer_exists": true,
+    "installer_size_mb": 106.3,
+    "installer_sha256": "52AF5BF2C8E2E8850120973555DA1F929CAE21A5239475ECECF24B0EBDDD6332",
+    "installer_hash_matches_docs": true
+  },
+  "HUMAN_EVIDENCE": {
+    "pass": 0,
+    "not_performed": 9,
+    "fail": 0,
+    "blocked": 0,
+    "detail": "Recorded in docs/CODECONCLAVE_HUMAN_ACCEPTANCE_EVIDENCE.json; acceptance-status reads only real evidence."
+  },
+  "DECISION": "RELEASE_READY = NO. All mandatory human gates are outstanding. Freeze in force. No deployment, no feature expansion."
+}

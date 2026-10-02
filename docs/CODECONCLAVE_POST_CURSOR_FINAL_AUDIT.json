@@ -1,0 +1,155 @@
+{
+  "audit": "CODECONCLAVE_POST_CURSOR_INDEPENDENT_FINAL_AUDIT",
+  "date": "2026-09-07",
+  "auditor": "independent-opencode",
+  "verdict": "CONDITIONAL_PASS",
+  "summary": {
+    "blockers": 0,
+    "criticals_fixed": 1,
+    "highs": 2,
+    "mediums": 5,
+    "lows": 2,
+    "total_checks": 22,
+    "pass": 14,
+    "partial": 6,
+    "fail": 0
+  },
+  "gates": {
+    "REGISTRY": { "result": "PASS", "detail": "336 features frozen, 0 removed, docs unmodified" },
+    "PAYMENT": { "result": "PASS", "detail": "16/16 invariants, module untouched" },
+    "DATABASE": { "result": "PASS", "detail": "68/68 migrations, 0 pending" },
+    "CRITICAL_FIX": { "result": "PASS", "detail": "HomePage.tsx restored" },
+    "AUTH": { "result": "PASS", "detail": "34 tests, PATCH /profile works" },
+    "AI_CHAT": { "result": "PASS", "detail": "Real provider (nemotron), streaming SSE, cost $0.000037" },
+    "BACKEND_TEST": { "result": "PASS", "detail": "2708 passed / 8 skipped" },
+    "FRONTEND_TEST": { "result": "PASS", "detail": "401 passed" },
+    "MULTI_CHAT": { "result": "PASS", "detail": "Full lifecycle verified" },
+    "FREE_USAGE": { "result": "PASS", "detail": "Server-authoritative rolling window" },
+    "GOOGLE_SIGNIN": { "result": "PARTIAL", "detail": "7/9 checks", "defects": ["redirect_uri_default_mismatch", "no_pkce", "no_oidc_nonce"] },
+    "CONTROL_PLANE": { "result": "PARTIAL", "detail": "Real DB data; auth mismatch (any role)" },
+    "COWORKERS": { "result": "PARTIAL", "detail": "Real backend; frontend contract bugs" },
+    "UI_UX": { "result": "PASS", "detail": "No forbidden elements" },
+    "DESIGN": { "result": "PASS", "detail": "#000/#FFF/#8A3FFC, Inter font" },
+    "BRAND": { "result": "PASS", "detail": "Canonical logos preserved" },
+    "LOGO": { "result": "PASS", "detail": "SVG files intact" },
+    "ACCESSIBILITY": { "result": "PARTIAL", "detail": "95 aria-labels; missing skip-to-content" },
+    "ELECTRON": { "result": "PASS", "detail": "All 11 security checks hardened" },
+    "SECURITY": { "result": "PASS", "detail": "SQLi, path traversal, SSRF, auth, CORS clean" },
+    "SECRET_SCAN": { "result": "PASS", "detail": "No secrets in source" },
+    "REALNESS": { "result": "PARTIAL", "detail": "4/5; hardcoded openai health status" }
+  },
+  "critical_fixes": [
+    {
+      "id": "CRIT-001",
+      "title": "HomePage.tsx missing from frontend/src/pages/",
+      "severity": "CRITICAL",
+      "status": "FIXED",
+      "impact": "Frontend tsc FAIL, build FAIL, HomePage.test.tsx FAIL",
+      "fix": "Restored faithful to test contract + CSS + design report",
+      "verification": "tsc EXIT:0, build success, 9/9 HomePage tests pass, full 401 frontend tests pass"
+    }
+  ],
+  "findings": [
+    {
+      "id": "HIGH-001",
+      "title": "Control Plane authorization mismatch",
+      "severity": "HIGH",
+      "gate": "CONTROL_PLANE",
+      "file": "backend/src/modules/control/routes.ts:34",
+      "detail": "requireAuth only; no role check. Any authenticated user can toggle kill switch, edit policies."
+    },
+    {
+      "id": "HIGH-002",
+      "title": "Google redirect URI default mismatch",
+      "severity": "HIGH",
+      "gate": "GOOGLE_SIGNIN",
+      "file": "backend/src/config/env.ts:45",
+      "detail": "Default localhost:4000 contradicts .env.example localhost:5173. Silent cookie failure in local dev."
+    },
+    {
+      "id": "MED-001",
+      "title": "No PKCE in Google OAuth",
+      "severity": "MEDIUM",
+      "gate": "GOOGLE_SIGNIN",
+      "file": "backend/src/modules/auth/google.ts",
+      "detail": "No code_verifier/code_challenge. Google recommends PKCE for all OAuth clients."
+    },
+    {
+      "id": "MED-002",
+      "title": "No OIDC nonce parameter",
+      "severity": "MEDIUM",
+      "gate": "GOOGLE_SIGNIN",
+      "file": "backend/src/modules/auth/google.ts:27-39",
+      "detail": "authorizeUrl() does not include nonce parameter for replay protection."
+    },
+    {
+      "id": "MED-003",
+      "title": "Coworkers frontend contract drift",
+      "severity": "MEDIUM",
+      "gate": "COWORKERS",
+      "files": ["frontend/src/pages/CoworkersPage.tsx", "frontend/src/lib/types.ts:457-467"],
+      "detail": "Backend returns snake_case (coworker_type, task_id), frontend expects camelCase. Runs always empty (no projectId query)."
+    },
+    {
+      "id": "MED-004",
+      "title": "Hardcoded OpenAI health status",
+      "severity": "MEDIUM",
+      "gate": "REALNESS",
+      "file": "backend/src/health/routes.ts:39",
+      "detail": "openai: { status: 'ok' } hardcoded instead of checking real provider health."
+    },
+    {
+      "id": "MED-005",
+      "title": "Missing skip-to-content link",
+      "severity": "MEDIUM",
+      "gate": "ACCESSIBILITY",
+      "file": "frontend/src/App.tsx",
+      "detail": "WCAG 2.4.1 violation. cc-sr-only class exists in global.css."
+    },
+    {
+      "id": "LOW-001",
+      "title": "Free usage 'daily' wording vs rolling window",
+      "severity": "LOW",
+      "gate": "FREE_USAGE",
+      "files": ["frontend/src/pages/ChatPage.tsx:382", "frontend/src/components/HomeChat.tsx:57"],
+      "detail": "SSE messages say 'daily limit' but system is 24h rolling window. Cosmetic."
+    },
+    {
+      "id": "LOW-002",
+      "title": "SESSION_COOKIE_SECURE defaults to false",
+      "severity": "LOW",
+      "gate": "SECURITY",
+      "file": "backend/src/config/env.ts:195",
+      "detail": "Production guard enforces true, but staging without NODE_ENV=production could use HTTP cookies."
+    }
+  ],
+  "test_results": {
+    "backend": { "files": 147, "passed": 2708, "skipped": 8, "failed": 0 },
+    "frontend": { "files": 73, "passed": 401, "skipped": 0, "failed": 0 },
+    "payment_proof": { "invariants": 16, "passed": 16, "exit": 0 },
+    "ai_chat": { "provider": "nemotron", "model": "nvidia/nemotron-3.5-lightning-30b-a3b", "inputTokens": 188, "outputTokens": 14, "costUsd": 0.000037, "durationMs": 15058 },
+    "db": { "migrations": 68, "applied": 68, "pending": 0 },
+    "registry": { "total_features": 336, "removed": 0 }
+  },
+  "electron": {
+    "contextIsolation": true,
+    "nodeIntegration": false,
+    "sandbox": true,
+    "webSecurity": true,
+    "csp": "strict",
+    "preload": "minimal-allowlisted",
+    "ipc": "channel-validated",
+    "installer": "CodeConClave Setup 0.1.0.exe (NSIS)",
+    "unpacked": "win-unpacked/CodeConClave.exe"
+  },
+  "recommendations": [
+    "Add admin/owner role gate to /api/v1/control routes (HIGH)",
+    "Fix GOOGLE_REDIRECT_URI default to match .env.example (HIGH)",
+    "Implement PKCE for Google OAuth flow (MEDIUM)",
+    "Add OIDC nonce to Google authorize URL (MEDIUM)",
+    "Fix Coworkers frontend types to match backend snake_case payload (MEDIUM)",
+    "Replace hardcoded openai health with dynamic check (MEDIUM)",
+    "Add skip-to-content link in App.tsx (MEDIUM)",
+    "Update 'daily' wording to 'rolling' in free limit messages (LOW)"
+  ]
+}

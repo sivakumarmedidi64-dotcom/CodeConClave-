@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-label="CodeConClave">
+  <!-- PRIMARY LOCKUP (vector master) — recomposed from the founder's written
+       specification (2026-09-11) after the original raster was lost from
+       disk: pure black (#000000) full canvas; symmetrical vertical almond/eye
+       of ~22 thin white (#FFFFFF) lines per side, equal spacing, slight
+       central vertical gap, converging toward lower center; gold (#FFD700)
+       bold geometric "CODECONCLAVE" centered over the eye, solid fill. -->
+  <rect x="0" y="0" width="1200" height="1200" fill="#000000"/>
+  <g id="eye-symbol">
+    <path d="M 599.78 878.40 Q 595.72 607.21 595.68 336.02" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 598.70 878.40 Q 574.18 607.55 573.97 336.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 597.62 878.40 Q 552.74 608.36 552.35 338.32" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 596.55 878.40 Q 531.48 609.65 530.90 340.91" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 595.49 878.40 Q 510.46 611.42 509.71 344.44" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 594.44 878.40 Q 489.77 613.65 488.84 348.90" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 593.42 878.40 Q 469.48 616.34 468.38 354.28" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 592.42 878.40 Q 449.66 619.47 448.40 360.55" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 591.45 878.40 Q 430.40 623.05 428.97 367.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 590.51 878.40 Q 411.75 627.04 410.17 375.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 589.60 878.40 Q 393.79 631.45 392.06 384.50" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 588.74 878.40 Q 376.58 636.24 374.70 394.09" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 587.91 878.40 Q 360.18 641.42 358.17 404.44" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 587.13 878.40 Q 344.66 646.95 342.52 415.49" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 586.39 878.40 Q 330.07 652.81 327.80 427.22" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 585.70 878.40 Q 316.47 658.99 314.08 439.58" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 585.07 878.40 Q 303.89 665.46 301.40 452.53" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 584.49 878.40 Q 292.40 672.21 289.81 466.01" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 583.97 878.40 Q 282.02 679.19 279.35 479.98" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 583.50 878.40 Q 272.81 686.39 270.06 494.39" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 583.10 878.40 Q 264.79 693.79 261.97 509.18" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 582.76 878.40 Q 257.99 701.35 255.11 524.31" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 600.22 878.40 Q 604.28 607.21 604.32 336.02" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 601.30 878.40 Q 625.82 607.55 626.03 336.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 602.38 878.40 Q 647.26 608.36 647.65 338.32" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 603.45 878.40 Q 668.52 609.65 669.10 340.91" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 604.51 878.40 Q 689.54 611.42 690.29 344.44" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 605.56 878.40 Q 710.23 613.65 711.16 348.90" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 606.58 878.40 Q 730.52 616.34 731.62 354.28" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 607.58 878.40 Q 750.34 619.47 751.60 360.55" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 608.55 878.40 Q 769.60 623.05 771.03 367.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 609.49 878.40 Q 788.25 627.04 789.83 375.69" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 610.40 878.40 Q 806.21 631.45 807.94 384.50" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 611.26 878.40 Q 823.42 636.24 825.30 394.09" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 612.09 878.40 Q 839.82 641.42 841.83 404.44" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 612.87 878.40 Q 855.34 646.95 857.48 415.49" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 613.61 878.40 Q 869.93 652.81 872.20 427.22" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 614.30 878.40 Q 883.53 658.99 885.92 439.58" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 614.93 878.40 Q 896.11 665.46 898.60 452.53" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 615.51 878.40 Q 907.60 672.21 910.19 466.01" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 616.03 878.40 Q 917.98 679.19 920.65 479.98" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 616.50 878.40 Q 927.19 686.39 929.94 494.39" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 616.90 878.40 Q 935.21 693.79 938.03 509.18" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+    <path d="M 617.24 878.40 Q 942.01 701.35 944.89 524.31" fill="none" stroke="#ffffff" stroke-width="13.2" stroke-linecap="round"/>
+  </g>
+  <text x="600" y="640" text-anchor="middle" dominant-baseline="central" font-family="'Arial Black','Arial Nova',Arial,'Segoe UI',sans-serif" font-size="118" font-weight="800" letter-spacing="6" fill="#FFD700">CODECONCLAVE</text>
+</svg>

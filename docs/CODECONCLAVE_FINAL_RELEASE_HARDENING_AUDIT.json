@@ -1,0 +1,104 @@
+{
+  "document": "CODECONCLAVE_FINAL_RELEASE_HARDENING_AUDIT",
+  "prompt": "5/5",
+  "system_status": {
+    "FINAL_RELEASE_HARDENING": "CONDITIONAL_PASS",
+    "RELEASE_READY": "NO",
+    "DEPLOYMENT": "NOT_ALLOWED"
+  },
+  "auth": {
+    "GOOGLE_OAUTH": "PARTIAL",
+    "CROSS_BROWSER_AUTH": "PARTIAL",
+    "OWNER_AUTHORIZATION": "PASS",
+    "CONTROL_PLANE_AUTH": "PASS",
+    "IDOR_PROTECTION": "PASS",
+    "cross_browser_root_cause": "No browser-binding defect. Server-side sessions keyed by token-hash of cc_session cookie only; device_id NULL for browser logins; user-agent metadata only; no fingerprint/localStorage token. Field causes environmental: origin mismatch (localhost vs 127.0.0.1) with host-scoped cookies, Google redirect URI not set to deployment origin, strict privacy/Secure-cookie mismatch.",
+    "cross_browser_fix": "Regression test added in backend/src/foundation/auth.test.ts proving two independent per-browser server-side sessions for one account keyed by token hash only."
+  },
+  "payment": {
+    "PAYMENT_PROOF": "PASS",
+    "PAYMENT_AUTO_UNLOCK": "NOT_VERIFIED",
+    "PAYMENT_LINK_BINDING": "PASS",
+    "PAYMENT_EXACTLY_ONCE": "PASS",
+    "PAYMENT_ENTITLEMENT": "PASS",
+    "MANUAL_ACTIVATION_USED": "NO"
+  },
+  "providers": [
+    { "name": "OpenAI", "configured": true, "health": "DEGRADED", "detail": "7x 429 QUOTA_EXHAUSTED" },
+    { "name": "Anthropic", "configured": true, "health": "DEGRADED", "detail": "7x 400" },
+    { "name": "Grok", "configured": true, "health": "DEGRADED", "detail": "11x creds rejected; avg 605ms" },
+    { "name": "Google/Gemini", "configured": true, "health": "AVAILABLE", "detail": "google 1 success; gemini image model enabled; image real call NOT_PERFORMED (429)" },
+    { "name": "Qwen", "configured": true, "health": "AVAILABLE", "detail": "1 success" },
+    { "name": "Gemma", "configured": true, "health": "DEGRADED", "detail": "1x 500; gemma-4-31b-it enabled, gemma-3-27b-it disabled" },
+    { "name": "Nemotron", "configured": true, "health": "DEGRADED", "detail": "single NVIDIA NIM 410; ~60s avg" },
+    { "name": "OxAlpha", "configured": true, "health": "KEY_INVALID", "detail": "key not OpenRouter-compatible; correct in key console" },
+    { "name": "ZCode-glm5.3", "configured": true, "health": "KEY_INVALID", "detail": "offline; key invalid for Z.ai; correct in key console" },
+    { "name": "Manus", "configured": true, "health": "ENVIRONMENT_BLOCKED", "detail": "task API; no safe read-only probe; never auto-run" },
+    { "name": "BigPickle", "configured": false, "health": "ENVIRONMENT_BLOCKED", "detail": "no key by design" },
+    { "name": "Devin", "configured": true, "health": "UNVERIFIED", "detail": "external agent; not auto-run" },
+    { "name": "Mistral", "configured": false, "health": "NOT_CONFIGURED" },
+    { "name": "DeepSeek", "configured": false, "health": "NOT_CONFIGURED" },
+    { "name": "Kimi", "configured": false, "health": "NOT_CONFIGURED" },
+    { "name": "North", "configured": false, "health": "NOT_CONFIGURED" }
+  ],
+  "application": {
+    "WEB_APP": "PASS (automated) / HUMAN_REQUIRED",
+    "DESKTOP_APP": "PASS (automated) / HUMAN_REQUIRED",
+    "WINDOWS_INSTALL": "HUMAN_REQUIRED",
+    "OFFLINE_RESUME": "HUMAN_REQUIRED",
+    "WEB_DESKTOP_PARITY": "HUMAN_REQUIRED (architecture AUTOMATED_VERIFIED)",
+    "FULL_PRODUCT_E2E": "HUMAN_REQUIRED"
+  },
+  "security": {
+    "SECRET_SCAN": "PASS (852 / 0 / 0)",
+    "SESSION_SECURITY": "PASS",
+    "AUTHORIZATION": "PASS",
+    "OWNER_ISOLATION": "PASS",
+    "WORKSPACE_ISOLATION": "PASS",
+    "ELECTRON_SECURITY": "PASS"
+  },
+  "database": {
+    "MIGRATIONS": 76,
+    "PENDING": 0,
+    "DRIFT": 0,
+    "RLS": "PASS"
+  },
+  "tests": {
+    "BACKEND": { "files": 156, "passed": 2853, "skipped": 8, "failed": 0, "total": 2861 },
+    "FRONTEND": { "files": 74, "passed": 408, "skipped": 0, "failed": 0 },
+    "DESKTOP": { "files": 5, "passed": 58, "skipped": 0, "failed": 0 },
+    "AI_CHAT": "PASS",
+    "AI_ROUTING": "PASS",
+    "PROVIDER_REGISTRY": "PASS",
+    "CONTROL_AUTHZ": { "passed": 91, "failed": 0 },
+    "PAYMENT": "16 / 16",
+    "TYPECHECKS": "backend PASS, frontend PASS, desktop PASS",
+    "BUILDS": "backend PASS, frontend PASS, desktop PASS"
+  },
+  "hardening_fixes": [
+    "Cross-browser auth regression test added (nonexistent browser binding proven absent).",
+    "Fixed time-of-day test bug in frontend greeting regex ('Good night' missing; suite failed only 22:00-06:00)."
+  ],
+  "human_acceptance": {
+    "GOOGLE_OAUTH": "NOT_PERFORMED",
+    "RAZORPAY_HOSTED_LINK": "NOT_PERFORMED",
+    "WINDOWS_NSIS_INSTALL": "NOT_PERFORMED",
+    "OFFLINE_RESUME": "NOT_PERFORMED",
+    "PRODUCTION_PROVIDER_REPROBE": "NOT_PERFORMED",
+    "WEB_APP_FULL_E2E": "NOT_PERFORMED",
+    "DESKTOP_APP_FULL_E2E": "NOT_PERFORMED",
+    "WEB_DESKTOP_PARITY": "NOT_PERFORMED",
+    "FULL_PRODUCT_E2E": "NOT_PERFORMED",
+    "HUMAN_ACCEPTANCE_COUNT": "0 / 9"
+  },
+  "feature_preservation": {
+    "FEATURE_DENOMINATOR": 336,
+    "FEATURES_REMOVED": 0,
+    "FEATURES_UNMAPPED": 0
+  },
+  "final_decision": {
+    "FINAL_GO_NO_GO": "NO-GO",
+    "DEPLOYMENT_ALLOWED": "NO",
+    "remaining": "All 9 human gates pending: GOOGLE_OAUTH, RAZORPAY_HOSTED_LINK, WINDOWS_NSIS_INSTALL, OFFLINE_RESUME, PRODUCTION_PROVIDER_REPROBE, WEB_APP_FULL_E2E, DESKTOP_APP_FULL_E2E, WEB_DESKTOP_PARITY, FULL_PRODUCT_E2E."
+  }
+}

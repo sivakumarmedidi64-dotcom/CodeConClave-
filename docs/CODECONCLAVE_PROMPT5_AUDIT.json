@@ -1,0 +1,59 @@
+{
+  "audit": "PROMPT_5_FINAL_AI_PROVIDER_AUDIT",
+  "gate": "PASS",
+  "auditor": "opencode",
+  "mode": "audit-only: no deploy, no prompt-6, no new engine, no payment change, no feature removal",
+  "date": "2026-09-08",
+  "feature_denominator_frozen": 336,
+  "features_removed": 0,
+  "features_unmapped": 0,
+  "migrations": { "applied": 73, "pending": 0, "new": 0 },
+  "secret_scan": { "files": 849, "findings": 0 },
+  "regression": {
+    "backend": { "files_passed": 154, "files_total": 155, "tests_passed": 2833, "skipped": 8, "note": "perf-17 flaked once under full-suite load; isolated rerun 3/3 green" },
+    "provider_foundation": { "files": 5, "tests": 82, "passed": 82 },
+    "frontend": { "files": 73, "tests": 402, "passed": 402 },
+    "desktop": { "files": 5, "tests": 58, "passed": 58 },
+    "payment": { "frozen": true, "status": "PASS" },
+    "typecheck": { "backend": true, "frontend": true, "desktop": true },
+    "builds": { "backend": true, "frontend": true, "desktop": true }
+  },
+  "code_fixes": [
+    { "file": "backend/src/modules/ai/providers.ts", "fix": "httpError maps HTTP 402 to provider_billing; billing regex covers insufficient balance" },
+    { "file": "backend/src/modules/ai/providers.ts", "fix": "openaiCompatAdapter empty-completion guard (zero delta on HTTP 200 -> provider_error)" },
+    { "file": "backend/src/config/env.ts", "fix": "optional ANTHROPIC_WORKSPACE_ID added" },
+    { "file": "backend/src/modules/ai/providers.ts", "fix": "anthropicAdapter sends anthropic-workspace-id header when configured" },
+    { "file": "backend/src/foundation/provider-verification-audit-55.test.ts", "fix": "new 6-test proof file, all passing" }
+  ],
+  "providers": {
+    "google": { "state": "VERIFIED", "capabilities": ["text", "multimodal_input"], "image_generation": "QUOTA_EXHAUSTED_429", "live": true },
+    "qwen": { "state": "VERIFIED", "live": true },
+    "nemotron": { "state": "VERIFIED", "live": true, "success_count": 16 },
+    "gemma": { "state": "VERIFIED_DEGRADED", "live": true, "note": "200 OK once; intermittent 500s" },
+    "deepseek": { "state": "QUOTA_EXHAUSTED", "live": true, "note": "402 insufficient balance" },
+    "openai": { "state": "QUOTA_EXHAUSTED", "live": true, "note": "429 billing" },
+    "grok": { "state": "REQUIRES_REAUTH", "live": true, "note": "403 invalid credentials" },
+    "kimi": { "state": "REQUIRES_REAUTH", "live": true, "note": "401 invalid credentials" },
+    "anthropic": { "state": "REQUIRES_REAUTH", "live": true, "note": "400 requires anthropic-workspace-id header" },
+    "ox_alpha": { "state": "KEY_INVALID", "live": true, "note": "401; key format mismatch" },
+    "z_code_5_3": { "state": "KEY_INVALID", "live": true, "note": "HTTP 200 with error body; adapter now surfaces it" },
+    "cohere": { "state": "UNKNOWN", "note": "no key" },
+    "mistral": { "state": "UNKNOWN", "note": "no key" },
+    "devin": { "state": "ENVIRONMENT_BLOCKED", "note": "external agent; unsafe to probe; not in AI_PROVIDERS_ENABLED" },
+    "manus": { "state": "ENVIRONMENT_BLOCKED", "note": "external agent; unsafe to probe; registry row disabled" },
+    "big_pickle": { "state": "ENVIRONMENT_BLOCKED", "note": "permanent never-add; OPENCODE_ZEN_API_KEY never present" }
+  },
+  "db_inventory": {
+    "ai_model_registry_rows": 34,
+    "provider_health_rows": 12,
+    "plaintext_key_columns": "none (token_hash only)",
+    "gemma_3_27b_it": { "enabled": false, "health": "DOWN" },
+    "glm_5_3_model_id_correct": true,
+    "devin_in_enabled_list": false
+  },
+  "output_lines_rendered": [
+    "PROMPT 5 GATE: PASS",
+    "FINAL PROVIDER EXPANSION STATUS:" 
+  ],
+  "done": true
+}

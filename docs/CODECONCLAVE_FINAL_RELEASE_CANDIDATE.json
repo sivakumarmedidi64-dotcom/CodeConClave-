@@ -1,0 +1,66 @@
+{
+  "product": "CodeConClave Pro (Web + Windows Desktop, one shared backend)",
+  "version": "0.1.0",
+  "mode": "MULTI_PROVIDER",
+  "prompt": "5/5",
+  "document": "FINAL_RELEASE_CANDIDATE",
+  "features": { "denominator": 336, "added": 0, "removed": 0, "unmapped": 0, "unknown": 0 },
+  "build": {
+    "shared": "PASS",
+    "backend": "PASS",
+    "frontend": "PASS",
+    "desktop": "PASS",
+    "installer": "PASS",
+    "installer_path": "desktop/release/CodeConClave Setup 0.1.0.exe",
+    "installer_size_mb": 106.3,
+    "installer_target": "NSIS x64, asar=true",
+    "asar_contents": ["dist/**", "package.json", "@codeconclave/local-agent", "ws"],
+    "asar_secrets": "none",
+    "electron_security": { "contextIsolation": true, "nodeIntegration": false, "sandbox": true, "webSecurity": true, "navigation_guard": true, "window_open_denied": true, "permissions_denied": true }
+  },
+  "tests": {
+    "backend": { "files": 156, "tests": 2860, "passed": 2852, "skipped": 8, "failed": 0 },
+    "frontend": { "files": 74, "tests": 408, "passed": 408, "failed": 0 },
+    "desktop": { "files": 5, "tests": 58, "passed": 58, "failed": 0 },
+    "payment_proof": { "files": 1, "tests": 16, "passed": 16, "failed": 0 },
+    "targeted_ai_provider_control": { "files": 8, "tests": 238, "passed": 238, "failed": 0 },
+    "typecheck": { "backend": "PASS", "frontend": "PASS", "desktop": "PASS", "shared": "PASS" }
+  },
+  "secret_scan": { "files": 852, "skipped": 0, "findings": 0, "allowlist": ["backend/src/foundation/memory.test.ts (12 deliberate redaction fixtures)"] },
+  "migrations": { "applied": 76, "pending": 0, "checksum_drift": 0, "rls": "enabled across public schema tables" },
+  "providers": [
+    { "provider": "google", "state": "AVAILABLE", "real_calls": { "success": 1 }, "verified": true },
+    { "provider": "qwen", "state": "AVAILABLE", "real_calls": { "success": 1 }, "verified": true },
+    { "provider": "nemotron", "state": "DEGRADED", "real_calls": { "success": 22, "failure": 2 }, "last_error": "NVIDIA NIM error 410", "note": "historically AVAILABLE (21 success); single 410 since last snapshot" },
+    { "provider": "openai", "state": "DEGRADED", "real_calls": { "failure": 7 }, "last_error": "429 QUOTA_EXHAUSTED" },
+    { "provider": "anthropic", "state": "DEGRADED", "real_calls": { "failure": 7 }, "last_error": "400" },
+    { "provider": "grok", "state": "DEGRADED", "real_calls": { "failure": 11 }, "last_error": "credentials rejected", "avg_latency_ms": 605.36 },
+    { "provider": "gemma", "state": "DEGRADED", "real_calls": { "failure": 1 }, "last_error": "Gemini 500", "note": "gemma-4-31b-it enabled (working variant); gemma-3-27b-it disabled" },
+    { "provider": "mistral", "state": "NOT_CONFIGURED" },
+    { "provider": "deepseek", "state": "NOT_CONFIGURED" },
+    { "provider": "kimi", "state": "NOT_CONFIGURED" },
+    { "provider": "north", "state": "NOT_CONFIGURED" },
+    { "provider": "devin", "state": "NOT_CONFIGURED", "note": "EXTERNAL_AGENT, UNVERIFIED, never issued a real session" },
+    { "provider": "ox_alpha", "state": "CONFIGURED (never attempted)", "verification": "KEY_INVALID", "note": "stored key is not an OpenRouter key; disabled; never auto-retried" },
+    { "provider": "manus", "state": "CONFIGURED (never attempted)", "verification": "ENVIRONMENT_BLOCKED", "note": "EXTERNAL_AGENT task API; no safe read-only probe; disabled" },
+    { "provider": "z_code_5_3", "state": "OFFLINE", "verification": "KEY_INVALID", "model_id": "glm-5.3", "obsolete_z-code-5-3_rows": 0, "note": "stored key is not a Z.ai key; disabled; never auto-retried" },
+    { "provider": "big_pickle", "state": "NOT_INTEGRATED", "verification": "ENVIRONMENT_BLOCKED", "note": "OPENCODE_ZEN_API_KEY never added" }
+  ],
+  "real_provider_calls": ["google text+multimodal 200", "qwen 200", "nemotron SSE 200 persisted", "gemini image-gen real 429 (quota, never faked)", "z_code glm-5.3 real route 401-wrapped"],
+  "key_invalid": ["ox_alpha", "z_code_5_3"],
+  "environment_blocked": ["manus", "big_pickle"],
+  "unverified": ["devin"],
+  "findings": { "open": 0, "code_level": "all resolved (remediation audit REM-01..REM-08)" },
+  "human_acceptance_items": {
+    "count": 4,
+    "completed": 0,
+    "remaining": 4,
+    "items": [
+      { "id": "GOOGLE_OAUTH_CONSENT_FLOW", "status": "NOT_PERFORMED", "human_only": true },
+      { "id": "LIVE_RAZORPAY_HOSTED_LINK", "status": "NOT_PERFORMED", "human_only": true },
+      { "id": "WINDOWS_NSIS_INSTALL_AND_OFFLINE_RESUME", "status": "NOT_PERFORMED", "human_only": true, "nsis_install": "HUMAN_ONLY", "offline_resume_automated": "PASS", "offline_resume_human": "NOT_PERFORMED" },
+      { "id": "PRODUCTION_PROVIDER_REPROBE", "status": "NOT_PERFORMED", "human_only": true }
+    ]
+  },
+  "gate": { "final_production_readiness_gate": "CONDITIONAL_PASS", "deployment": "NOT_ALLOWED", "deployment_reason": "all four HUMAN_ONLY acceptance items not yet completed by a human" }
+}

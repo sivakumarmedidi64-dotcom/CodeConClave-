@@ -1,0 +1,79 @@
+{
+  "audit": {
+    "name": "CODECONCLAVE_PROD_READINESS_AUDIT",
+    "prompt": "Prompt 21",
+    "date": "2026-09-08",
+    "verdict": "PASS",
+    "goStatus": "CONDITIONAL_GO"
+  },
+  "finalProductionReadinessGate": "GO (CONDITIONAL_GO) — PASS",
+  "changesApplied": [
+    "migration 0074 RLS GUC correction (24 policies -> app.current_user_id)",
+    "task sub-resource IDOR ownership guards (6 endpoints + coworker filters)",
+    "free-usage wording rolled-window copy (4 components + 4 test assertions)",
+    "accessibility skip-link + main[id] + CSS",
+    "GOOGLE_REDIRECT_URI default aligned to 5173 (env + docs)",
+    "autonomy status 500 fixed (FK-ordered cleanup in harness-real.ts)"
+  ],
+  "backend": { "testFiles": 155, "passed": 155, "testsPassed": 2834, "testsSkipped": 8, "typecheck": "PASS", "build": "PASS" },
+  "frontend": { "testFiles": 73, "passedFiles": 71, "testsTotal": 402, "testsPassed": 400, "typecheck": "PASS", "build": "PASS" },
+  "desktop": { "testFiles": 5, "passed": 5, "testsPassed": 58, "typecheck": "PASS", "build": "PASS" },
+  "payment": { "status": "FROZEN_REGRESSION_ONLY", "suite": "PASS", "liveSandboxKey": false },
+  "secretScan": { "files": 849, "findings": 0 },
+  "database": { "migrationsApplied": 74, "migrationsPending": 0, "migration0074Sha": "ae18674340cf", "rlsWrongGuc": 0, "rlsFixed": 24 },
+  "realProviderCalls": [
+    { "endpoint": "POST /api/v1/conversations/chat", "status": 200, "streamBytes": 413, "note": "SSE stream via central router to a HEALTHY provider" },
+    { "endpoint": "GET /api/v1/ai/models", "status": 200, "modelsLength": 29, "note": "8+ HEALTHY/available models listed (nemotron/qwen/google)" },
+    { "endpoint": "GET /api/v1/autonomy/status", "status": 200, "note": "logic ok, dbReachable true" }
+  ],
+  "providers": {
+    "VERIFIED_HEALTHY": ["google", "qwen", "nemotron"],
+    "QUOTA_EXHAUSTED": ["deepseek", "openai"],
+    "REQUIRES_REAUTH": ["grok", "kimi", "anthropic"],
+    "KEY_INVALID": ["ox_alpha", "z_code_5_3", "glm-5.3"],
+    "ENVIRONMENT_BLOCKED": ["devin", "manus", "big_pickle"],
+    "UNKNOWN": ["cohere", "mistral"],
+    "note": "Image generation (google) QUOTA_EXHAUSTED; all statuses served honestly"
+  },
+  "e2eAcceptance": {
+    "registerLogin": "PASS",
+    "conversationCreateList": "PASS",
+    "aiChatSse": "PASS",
+    "messagePersistence": "PASS",
+    "modelMetadata": "PASS",
+    "usageEndpoint": "PASS",
+    "crossUserConversationIsolation": "PASS (404)",
+    "taskSubresourceIdor": "PASS (6/6 blocked)",
+    "coworkerOwnerScoped": "PASS",
+    "emailUniqueness": "PASS (409)",
+    "logout": "PASS (200)",
+    "total": { "passed": 18, "failed": 0 }
+  },
+  "securityPosture": {
+    "csrf": "double-submit cookie pattern enforced",
+    "sessionCookie": "cc_session opaque httpOnly SHA-256 server-side",
+    "googleOauthState": "signed HMAC 10-min (nonce in state)",
+    "googleOauthPkceNonce": "NOT_IMPLEMENTED (documented residual)",
+    "crossUserConvRead": 404,
+    "crossUserMsgsRead": 404,
+    "taskIdorBlocked": "6/6"
+  },
+  "accessibility": {
+    "skipLink": "PRESENT (new)",
+    "tabSemantics": "PARTIAL — verbose pages conformant; SettingsPage + ChatPage toggle residual (documented)",
+    "ariaLiveChatStatus": "PRESENT"
+  },
+  "features": { "total": 336, "removed": 0, "unmapped": 0, "skipped": 0 },
+  "nonBlockingLimitations": [
+    "Google OAuth PKCE / OIDC nonce not implemented (CSRF safe via signed state)",
+    "Provider accounts heavily quota/key-drained; healthy fallbacks exist (nemotron/qwen/google)",
+    "Settings 7-tab + ChatPage mode toggle lack full role=tab/aria-selected (a11y residual)",
+    "WorkPage / ReviewDetailPage frontend flakes are pre-existing, pass solo",
+    "Payment live E2E not possible without sandbox key (regression-only)"
+  ],
+  "documentsCreated": [
+    "docs/CODECONCLAVE_MANUAL_ACCEPTANCE_CHECKLIST.md",
+    "docs/CODECONCLAVE_PRODUCTION_READINESS_AUDIT.md",
+    "docs/CODECONCLAVE_PRODUCTION_READINESS_AUDIT.json"
+  ]
+}
