@@ -263,6 +263,31 @@ const envSchema = z.object({
   DEMO_ACTIVATION_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
   DEMO_ACTIVATION_MAX_PER_HOUR: z.coerce.number().int().positive().default(3),
 
+  // ------------------------------------------------- TEMPORARY DEMO / EARLY ACCESS MODE
+  // TEMPORARY — added for the Saturday Kuberns demonstration. DELETE this flag
+  // (and every `temporaryDemoModeEnabled()` branch) once the demo is over.
+  //
+  // When 'true', an authenticated user may use the core workspace (projects,
+  // tasks/agents, execution, memory, chat) WITHOUT a paid entitlement.
+  //
+  // SECURITY / COMMERCIAL INVARIANTS:
+  //  - Server-side only. A frontend env var, localStorage value, cookie,
+  //    URL/query parameter or request body can NEVER enable it; the only input
+  //    is this process environment variable, read on the server.
+  //  - Writes NO rows. It never creates a payment, payment_intent, webhook or
+  //    entitlement row, and never marks a plan as purchased/PRO_VERIFIED. It is
+  //    a read-time allowance, exactly like the founder/test-user grants above.
+  //  - It is NOT a free tier. users.plan_id / users.entitlement_state are left
+  //    untouched, so nothing downstream can mistake demo access for a purchase.
+  //  - API Access (the separate ₹9,999 entitlement behind /api/v1/ai and
+  //    cc_live_* keys) is NOT unlocked by this flag; apiKeyAuth still enforces it.
+  //  - Safety limits are RETAINED, not removed: bounded message/project/storage
+  //    caps, a hard per-run AI budget, auth rate limits and abuse controls all
+  //    stay active. See DEMO_LIMITS in modules/entitlements/service.ts.
+  // Default is 'false', i.e. full commercial enforcement. Setting this back to
+  // 'false' restores the paywall everywhere with no code change and no migration.
+  TEMPORARY_DEMO_MODE: z.string().default('false'),
+
   CLOUDFLARE_WORKER_NAME: z.string().optional(),
   CLOUDFLARE_WORKER_URL: z.string().optional(),
   CLOUDFLARE_API_TOKEN: z.string().optional(),

@@ -45,12 +45,21 @@ vi.mock('../modules/notifications/service.js', () => ({ notify, notifyUser: noti
 const memory = vi.hoisted(() => ({ createMemory: vi.fn(async () => ({})) }));
 vi.mock('../modules/memory/service.js', () => memory);
 
-const entitlements = vi.hoisted(() => ({
-  FREE_LIMITS: { MAX_AGENTS: 2, AGENT_MAX_TASKS_PER_RUN: 5, AGENT_MAX_BUDGET_USD: 1 },
-  PRO_LIMITS: { MAX_AGENTS: 10, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
-  TEAM_LIMITS: { MAX_AGENTS: 20, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 },
-  effectivePlan: vi.fn(async () => 'free'),
-}));
+const entitlements = vi.hoisted(() => {
+  const FREE_LIMITS = { MAX_AGENTS: 2, AGENT_MAX_TASKS_PER_RUN: 5, AGENT_MAX_BUDGET_USD: 1 };
+  const PRO_LIMITS = { MAX_AGENTS: 10, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 };
+  const TEAM_LIMITS = { MAX_AGENTS: 20, AGENT_MAX_TASKS_PER_RUN: 10, AGENT_MAX_BUDGET_USD: 5 };
+  return {
+    FREE_LIMITS,
+    PRO_LIMITS,
+    TEAM_LIMITS,
+    effectivePlan: vi.fn(async () => 'free'),
+    // Mirrors the real limitsFor() with TEMPORARY_DEMO_MODE off (the default).
+    limitsFor: vi.fn((plan: string) =>
+      plan === 'pro' ? PRO_LIMITS : plan === 'team' ? TEAM_LIMITS : FREE_LIMITS,
+    ),
+  };
+});
 vi.mock('../modules/entitlements/service.js', () => entitlements);
 
 const gateway = vi.hoisted(() => ({

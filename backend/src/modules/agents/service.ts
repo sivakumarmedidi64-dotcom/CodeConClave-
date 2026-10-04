@@ -28,7 +28,7 @@ import { notify } from '../notifications/service.js';
 import { createMemory } from '../memory/service.js';
 import { createTask, setTaskStatus, addTaskDependency } from '../execution/tasks.js';
 import { eligibleModels } from '../ai/gateway.js';
-import { FREE_LIMITS, PRO_LIMITS, TEAM_LIMITS, effectivePlan } from '../entitlements/service.js';
+import { limitsFor as limitsForPlan, effectivePlan } from '../entitlements/service.js';
 
 export const AGENT_ROLES = [
   'ARCHITECT',
@@ -150,7 +150,10 @@ function validAgentState(state: string): boolean {
 
 async function limitsFor(userId: string): Promise<{ MAX_AGENTS: number; AGENT_MAX_TASKS_PER_RUN: number; AGENT_MAX_BUDGET_USD: number }> {
   const plan = await effectivePlan(userId);
-  return plan === 'pro' ? PRO_LIMITS : plan === 'team' ? TEAM_LIMITS : FREE_LIMITS;
+  // Delegate to the entitlement layer so TEMPORARY DEMO MODE limits apply here
+  // too (single source of truth for plan caps). Plan-independent AI spend caps
+  // still apply on top.
+  return limitsForPlan(plan);
 }
 
 /**

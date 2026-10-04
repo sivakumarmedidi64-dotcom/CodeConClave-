@@ -15,7 +15,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { CommandPalette } from './components/CommandPalette';
 import { ProCelebration } from './components/ProCelebration';
 import { PaymentGateModal } from './components/PaymentGateModal';
-import type { WorkspaceAccess } from './lib/types';
+import type { AccessMode, WorkspaceAccess } from './lib/types';
 import { api } from './lib/api';
 import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
@@ -66,6 +66,11 @@ function Shell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [access, setAccess] = useState<WorkspaceAccess | null>(null);
   const [accessState, setAccessState] = useState<'loading' | 'ready' | 'error'>('loading');
+  // TEMPORARY DEMO / EARLY ACCESS MODE. Purely informational chrome: it is
+  // driven only by the server's /api/v1/access reply and grants nothing. The
+  // backend gate is the authority, so there is deliberately no client-side flag
+  // that can unlock anything.
+  const [mode, setMode] = useState<AccessMode | null>(null);
 
   useEffect(() => initOfflineSync(), []);
 
@@ -77,9 +82,10 @@ function Shell() {
     if (status !== 'authed' || !user) return;
     let cancelled = false;
     setAccessState('loading');
-    void api<{ access?: WorkspaceAccess }>('/api/v1/access')
+    void api<{ access?: WorkspaceAccess; mode?: AccessMode }>('/api/v1/access')
       .then((res) => {
         if (cancelled) return;
+        setMode(res?.mode ?? null);
         const acc = res?.access;
         if (acc && typeof acc.unlocked === 'boolean') {
           setAccess(acc);
@@ -93,6 +99,7 @@ function Shell() {
       })
       .catch(() => {
         if (cancelled) return;
+        setMode(null);
         setAccess({ unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' });
         setAccessState('ready');
       });
@@ -201,6 +208,15 @@ function Shell() {
       <Sidebar user={user} />
       {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
       <OfflineBanner />
+      {/* TEMPORARY DEMO / EARLY ACCESS MODE — informational only. Rendered from
+          the server's authoritative /api/v1/access reply; it unlocks nothing and
+          must never imply a purchase happened. */}
+      {mode?.temporaryDemoMode ? (
+        <div className="cc-demo-mode-banner" role="status">
+          <strong>Temporary demo / early access mode</strong> — workspace access is open for this
+          demonstration. No payment was taken and no plan was purchased.
+        </div>
+      ) : null}
       <Topbar onMenuClick={toggleSidebar} />
       <a className="cc-skip-link" href="#main">
         Skip to content

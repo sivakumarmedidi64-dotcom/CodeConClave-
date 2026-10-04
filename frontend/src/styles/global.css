@@ -896,6 +896,22 @@ background: var(--cc-accent-soft);
 /* Customer Google sign-in was removed: no .cc-google button styles ship.
    (Former "Sign in with Google" box deleted with the OAuth login flow.) */
 
+/* TEMPORARY DEMO / EARLY ACCESS MODE banner. Informational only — it unlocks
+   nothing. Remove with the TEMPORARY_DEMO_MODE flag after the demo. */
+.cc-demo-mode-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--cc-accent);
+  color: var(--cc-on-accent);
+  font-size: 13px;
+  padding: 6px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .cc-auth__divider {
   display: flex;
   align-items: center;

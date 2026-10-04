@@ -31,7 +31,14 @@ const dbMock = vi.hoisted(() => {
   };
 });
 const envMock = vi.hoisted(() => ({
-  env: { PAYMENT_FOUNDER_EMAIL: 'medidisaharsh@gmail.com' },
+  env: { PAYMENT_FOUNDER_EMAIL: 'medidisaharsh@gmail.com', TEMPORARY_DEMO_MODE: 'false' },
+  // The real module exports a Set. Without it, isPaymentTestUser() threw on
+  // `paymentTestUserIds.size`, workspaceAccess() rejected, and this whole suite
+  // reported 503 instead of the real 402/200 — silently disabling the paywall
+  // regression guard. TEMPORARY_DEMO_MODE is pinned OFF here so this file keeps
+  // proving the COMMERCIAL default; demo-mode behaviour is covered by
+  // temporary-demo-mode.test.ts.
+  paymentTestUserIds: new Set<string>(),
 }));
 vi.mock('../shared/db.js', () => dbMock);
 vi.mock('../config/env.js', () => envMock);

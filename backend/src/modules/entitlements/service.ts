@@ -81,10 +81,50 @@ export const TEAM_LIMITS: PlanLimits = {
 } as const;
 
 /**
+ * TEMPORARY DEMO / EARLY ACCESS MODE.
+ *
+ * TEMPORARY — remove together with `env.TEMPORARY_DEMO_MODE` after the Saturday
+ * Kuberns demo. Reads the process environment on EVERY call (never cached at
+ * import time) so the flag takes effect on the next request after a redeploy and
+ * can be flipped back to 'false' to restore the paywall immediately.
+ *
+ * Server-side only: no client input, cookie, query parameter or request body can
+ * influence this. Returns false for any value other than an explicit truthy
+ * token, so a typo or empty string fails SAFE to commercial enforcement.
+ */
+export function temporaryDemoModeEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(String(env.TEMPORARY_DEMO_MODE ?? '').trim());
+}
+
+/**
  * Hard cap on human members per team (spec §74). Enforced server-side at
  * invitation time; existing members are never affected.
  */
 export const TEAM_MAX_MEMBERS = 30;
+
+/**
+ * TEMPORARY DEMO / EARLY ACCESS MODE limits.
+ *
+ * Removing the payment barrier must NOT remove the safety caps, so these are
+ * deliberately LOWER than PRO_LIMITS and strictly finite on every axis:
+ *   - AGENT_MAX_BUDGET_USD 2  < PRO 5   (hard per-run AI spend stop)
+ *   - MAX_PROJECTS 5         < PRO 10
+ *   - DAILY_MESSAGES 100     < PRO 200
+ *   - STORAGE_BYTES 5 GB     < PRO 100 GB
+ * Plan-independent global caps (auth rate limits, RATE_LIMIT_*,
+ * AI_PREMIUM_BUDGET_USD_PER_DAY) apply on top of these unchanged.
+ * Reverting to FREE_LIMITS is a single flag flip, not a code change.
+ */
+export const DEMO_LIMITS: PlanLimits = {
+  DAILY_MESSAGES: 100,
+  MAX_PROJECTS: 5,
+  STORAGE_BYTES: 5 * 1024 * 1024 * 1024,
+  COWORKER_TYPES: COWORKERS_ALL,
+  MAX_COWORKER_RUNS_PER_TASK: 9,
+  MAX_AGENTS: 5,
+  AGENT_MAX_TASKS_PER_RUN: 10,
+  AGENT_MAX_BUDGET_USD: 2,
+} as const;
 
 export type PlanId = 'free' | 'pro' | 'team';
 
@@ -193,7 +233,11 @@ export function limitsFor(plan: PlanId): PlanLimits {
     case 'pro':
       return PRO_LIMITS;
     default:
-      return FREE_LIMITS;
+      // TEMPORARY DEMO MODE: raise the FREE plan's caps to bounded demo limits
+      // so a demo account can actually create projects and run agents. This
+      // ADJUSTS caps, it never removes them, and a user with a real paid plan
+      // keeps their paid limits. Flag off => FREE_LIMITS exactly as before.
+      return temporaryDemoModeEnabled() ? DEMO_LIMITS : FREE_LIMITS;
   }
 }
 

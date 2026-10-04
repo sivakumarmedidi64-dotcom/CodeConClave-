@@ -753,7 +753,15 @@ export interface PaymentStatusView {
   plans: PaymentStatusPlan[];
 }
 
-export type WorkspaceReason = 'NO_ENTITLEMENT' | 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'API_ONLY';
+export type WorkspaceReason =
+  | 'NO_ENTITLEMENT'
+  | 'PENDING'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'REVOKED'
+  | 'API_ONLY'
+  /** TEMPORARY: the server's demo / early access mode is on; no payment was taken. */
+  | 'TEMPORARY_DEMO_MODE';
 
 /** Mirror of backend GET /api/v1/access — server-authoritative workspace gate. */
 export interface WorkspaceAccess {
@@ -762,6 +770,22 @@ export interface WorkspaceAccess {
   planId: string;
   entitlementState: string;
   reason: WorkspaceReason;
+  /** TEMPORARY DEMO MODE fields (absent on older backends — treat as false). */
+  demoMode?: boolean;
+  paidEntitlement?: boolean;
+  paymentRequired?: boolean;
+}
+
+/**
+ * TEMPORARY DEMO / EARLY ACCESS MODE block from GET /api/v1/access.
+ * Optional so the client degrades safely when the backend predates the flag.
+ */
+export interface AccessMode {
+  temporaryDemoMode: boolean;
+  paymentRequired: boolean;
+  paidEntitlement: boolean;
+  purchaseEnabled: boolean;
+  commercialPlans: { solo: number; team: number; apiAccess: number };
 }
 
 export interface Notification {
