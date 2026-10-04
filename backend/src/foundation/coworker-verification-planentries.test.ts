@@ -138,7 +138,11 @@ describe('coworker VERIFYING stage — plan_entries lookup (SQLSTATE 42703 regre
     expect(verifierCall, 'a verifier must judge the declared criteria').toBeDefined();
 
     // The verdict is persisted, and the run reaches its successful terminal state.
-    const outParams = db.calls.find((c) => /UPDATE coworker_runs SET output/i.test(c.text))?.params ?? [];
+    // The output is written twice: once before verification, then again with the
+    // verdict. Only the final write carries verification_result.
+    const outputWrites = db.calls.filter((c) => /UPDATE coworker_runs SET output/i.test(c.text));
+    expect(outputWrites.length).toBeGreaterThanOrEqual(2);
+    const outParams = outputWrites.at(-1)?.params ?? [];
     expect(outParams[2], 'verification_result must be PASS').toBe('PASS');
     expect(stateWrites.at(-1), 'terminal state must be COMPLETED').toBe('COMPLETED');
 
@@ -159,7 +163,8 @@ describe('coworker VERIFYING stage — plan_entries lookup (SQLSTATE 42703 regre
     expect(verifierCall, 'no criteria means no verifier').toBeUndefined();
     expect(completeWithFallback).toHaveBeenCalledTimes(1); // only the coworker output
 
-    const outParams = db.calls.find((c) => /UPDATE coworker_runs SET output/i.test(c.text))?.params ?? [];
+    const outputWrites = db.calls.filter((c) => /UPDATE coworker_runs SET output/i.test(c.text));
+    const outParams = outputWrites.at(-1)?.params ?? [];
     expect(outParams[2], 'verification_result must be SKIPPED').toBe('SKIPPED');
   });
 

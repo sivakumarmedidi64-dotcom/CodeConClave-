@@ -528,6 +528,11 @@ export async function runCoworker(
   }
 
   await setRunState(run.id, 'VERIFYING');
+  // Persist the output BEFORE verifying. verifyCoworkerRun() re-reads the run
+  // row and returns 'SKIPPED' when output is absent, so verifying first meant
+  // the verifier model was never invoked and every run was recorded SKIPPED.
+  // The verdict is written by the setRunOutput call below.
+  await setRunOutput(run.id, { text: outputText });
   // Real verification: when the plan entry declared acceptance criteria for
   // this run, a verifier model judges the output strictly against them
   // (PASS/FAIL). With no criteria the result stays honestly SKIPPED — the run

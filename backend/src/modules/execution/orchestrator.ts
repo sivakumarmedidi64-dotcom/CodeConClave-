@@ -228,11 +228,17 @@ export async function executeTask(task: TaskRow): Promise<void> {
     const last = runsByGroup.length ? runsByGroup[runsByGroup.length - 1]![runsByGroup[runsByGroup.length - 1]!.length - 1]! : null;
     if (last) {
       const artifactStep = await addStep(task.id, attempt.id, 'artifact', 'Persist artifacts');
+      // `last` is the in-memory run object created by createCoworkerRun, whose
+      // `output` is never mutated by runCoworker — the real output is written to
+      // coworker_runs.output. Serializing last.output therefore persisted the
+      // literal string "null" for every artifact. `results` (SELECT *) holds the
+      // persisted rows, so read the final run's output from there.
+      const persistedLast = results.find((r) => r.id === last.id) ?? last;
       await saveCoworkerArtifact({
         runId: last.id,
         name: `${task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}-output.md`,
         kind: 'output',
-        content: JSON.stringify(last.output, null, 2),
+        content: JSON.stringify(persistedLast.output, null, 2),
         attemptId: attempt.id,
         verification: verified ? 'PASS' : 'SKIPPED',
       });
