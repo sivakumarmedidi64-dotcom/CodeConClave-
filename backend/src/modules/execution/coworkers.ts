@@ -535,11 +535,20 @@ export async function runCoworker(
   const criteriaRow = await withTenant<{ acceptance_criteria: string | null } | null>(taskContext.userId, (db) =>
     db
       .query<{ acceptance_criteria: string | null }>(
-        `SELECT acceptance_criteria FROM plan_entries
-      WHERE task_id = $1 AND order_index = $2
-        AND acceptance_criteria IS NOT NULL
-        AND acceptance_criteria::text <> 'null'
-        AND acceptance_criteria::text <> '[]'
+        // plan_entries has NO task_id column: a task reaches its plan entries
+        // through plans, because plans.task_id is UNIQUE (one plan per task) and
+        // plan_entries references plans(id). The previous direct
+        // `plan_entries WHERE task_id = ...` raised SQLSTATE 42703 and aborted
+        // every run during VERIFYING, so tasks could never complete.
+        // uq_plan_entries is UNIQUE (plan_id, order_index), so this yields at
+        // most one row for the run's own pipeline entry.
+        `SELECT pe.acceptance_criteria
+           FROM plan_entries pe
+           JOIN plans p ON p.id = pe.plan_id
+      WHERE p.task_id = $1 AND pe.order_index = $2
+        AND pe.acceptance_criteria IS NOT NULL
+        AND pe.acceptance_criteria::text <> 'null'
+        AND pe.acceptance_criteria::text <> '[]'
       LIMIT 1`,
         [run.task_id, run.order_index],
       )
