@@ -14,6 +14,7 @@ import { completeWithFallback } from '../ai/gateway.js';
 import type { ChatMessage } from '../ai/providers.js';
 import { planRoute } from '../ai/router.js';
 import { retrieveAgentContext } from '../memorycoding/agentContext.js';
+import { redactSecrets } from '../secretGuard/patterns.js';
 import { TaskType, RoutingPreference } from '@codeconclave/shared';
 
 export interface CoworkerDef {
@@ -456,6 +457,65 @@ export function coworkerTaskType(type: string): (typeof TaskType)[keyof typeof T
   }
 }
 
+/**
+ * Prior-stage context carried into the next coworker run.
+ *
+ * Previously a dependent coworker (e.g. REVIEWER after CODER) received only
+ * `Output of CODER completed (<run-id>)` — never the produced work — so it could
+ * not genuinely review anything and returned FAIL for missing input. This loads
+ * the actual output of the earlier stages of the SAME task.
+ *
+ * Protections preserved:
+ *  - tenant boundary: read through withTenant(userId) and scoped to task_id, so
+ *    only the caller's own task output is ever exposed;
+ *  - output-size protection: hard per-run and total character budgets, newest
+ *    stage first, truncating the oldest once the budget is spent;
+ *  - no secret exposure: every fragment passes through redactSecrets().
+ */
+export const HANDOFF_PER_RUN_CHARS = 4000;
+export const HANDOFF_TOTAL_CHARS = 12000;
+
+export async function loadPriorStageContext(
+  userId: string,
+  taskId: string,
+  orderIndex: number,
+): Promise<string> {
+  const rows = await withTenant<{ order_index: number; coworker_type: string; output: { text?: string } | null }[]>(
+    userId,
+    (db) =>
+      db
+        .query<{ order_index: number; coworker_type: string; output: { text?: string } | null }>(
+          `SELECT order_index, coworker_type, output
+             FROM coworker_runs
+            WHERE task_id = $1 AND order_index < $2 AND output IS NOT NULL
+         ORDER BY order_index`,
+          [taskId, orderIndex],
+        )
+        .then((r) => r.rows),
+  );
+  if (!rows.length) return '';
+
+  let budget = HANDOFF_TOTAL_CHARS;
+  const parts: string[] = [];
+  // Newest stage first so the immediately preceding work is never crowded out.
+  for (const row of [...rows].reverse()) {
+    if (budget <= 0) break;
+    const raw = redactSecrets(String(row.output?.text ?? '').trim());
+    if (!raw) continue;
+    const clipped = raw.length > HANDOFF_PER_RUN_CHARS ? `${raw.slice(0, HANDOFF_PER_RUN_CHARS)}\n…[truncated]` : raw;
+    const block = `### Output of ${row.coworker_type} (stage ${row.order_index})\n${clipped}`;
+    if (block.length > budget) {
+      parts.push(`${block.slice(0, budget)}\n…[truncated]`);
+      budget = 0;
+      break;
+    }
+    parts.push(block);
+    budget -= block.length;
+  }
+  if (!parts.length) return '';
+  return `Previous stage output (review this actual work; it is the real result of the earlier stage):\n${parts.join('\n\n')}`;
+}
+
 export async function runCoworker(
   run: CoworkerRunRow,
   taskContext: { userId: string; title: string; description: string | null; plan: string | null; projectId?: string | null },
@@ -467,11 +527,13 @@ export async function runCoworker(
   const memoryContext = taskContext.projectId
     ? await retrieveAgentContext(taskContext.userId, { projectId: taskContext.projectId })
     : 'Memory context: (project not provided)\n';
+  const priorStage = await loadPriorStageContext(taskContext.userId, run.task_id, Number(run.order_index));
   const userMessage = [
     `Task: ${taskContext.title}`,
     taskContext.description ? `Description: ${taskContext.description}` : null,
     taskContext.plan ? `Plan: ${taskContext.plan}` : null,
     `Input: ${JSON.stringify(run.input ?? {})}`,
+    priorStage || null,
     memoryContext.trim(),
   ]
     .filter(Boolean)

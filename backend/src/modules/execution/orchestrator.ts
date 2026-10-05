@@ -50,6 +50,10 @@ import { recordLatencyMetric } from '../../observability/metrics.js';
 
 const DEFAULT_PIPELINE = ['ARCHITECT', 'CODER', 'SECURITY', 'TESTER', 'REVIEWER', 'DOCS'];
 
+// Review-only stages comment on other people's work; they never produce the
+// deliverable. Their output must not be promoted to "the artifact".
+const REVIEW_ONLY_STAGES = new Set<string>(['REVIEWER', 'SECURITY']);
+
 export { type PipelineEntry };
 
 export function normalizePipeline(raw: unknown): PipelineEntry[] {
@@ -224,25 +228,48 @@ export async function executeTask(task: TaskRow): Promise<void> {
     );
     steps.push(verifyStep.id);
 
-    // 5. artifacts (persist final output with SHA-256 + attempt + verification refs)
-    const last = runsByGroup.length ? runsByGroup[runsByGroup.length - 1]![runsByGroup[runsByGroup.length - 1]!.length - 1]! : null;
-    if (last) {
+    // Resolve the produced deliverable from the PERSISTED runs.
+    // `last` is the in-memory run object created by createCoworkerRun, whose
+    // `output` is never mutated by runCoworker — the real output is written to
+    // coworker_runs.output, so serializing last.output persisted the literal
+    // string "null" for every artifact. `results` (SELECT *) holds the real rows.
+    const last = runsByGroup.length ? runsByGroup[runsByGroup.length - 1]!.at(-1)! : null;
+    const lastPersisted = last ? (results.find((r) => r.id === last.id) ?? last) : null;
+    // The deliverable is the last PRODUCING stage whose work passed verification.
+    // A trailing REVIEWER is review-only: selecting it (the previous behaviour)
+    // stored review commentary as "the artifact" and hid the produced file.
+    const deliverable = lastPersisted
+      ? ([...results].reverse().find((r) => r.verification_result === 'PASS' && r.output && !REVIEW_ONLY_STAGES.has(String(r.coworker_type)))
+        ?? [...results].reverse().find((r) => r.verification_result === 'PASS' && r.output)
+        ?? lastPersisted)
+      : null;
+
+    // 5. artifacts (persist the PRODUCED DELIVERABLE with SHA-256 + attempt +
+    // verification refs, and keep the review/verification result separately).
+    if (deliverable) {
       const artifactStep = await addStep(task.id, attempt.id, 'artifact', 'Persist artifacts');
-      // `last` is the in-memory run object created by createCoworkerRun, whose
-      // `output` is never mutated by runCoworker — the real output is written to
-      // coworker_runs.output. Serializing last.output therefore persisted the
-      // literal string "null" for every artifact. `results` (SELECT *) holds the
-      // persisted rows, so read the final run's output from there.
-      const persistedLast = results.find((r) => r.id === last.id) ?? last;
+      const slug = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48);
       await saveCoworkerArtifact({
-        runId: last.id,
-        name: `${task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}-output.md`,
+        runId: deliverable.id,
+        name: `${slug}-output.md`,
         kind: 'output',
-        content: JSON.stringify(persistedLast.output, null, 2),
+        content: JSON.stringify(deliverable.output, null, 2),
         attemptId: attempt.id,
-        verification: verified ? 'PASS' : 'SKIPPED',
+        verification: (deliverable.verification_result as 'PASS' | 'FAIL' | 'SKIPPED') ?? (verified ? 'PASS' : 'SKIPPED'),
       });
-      await finishStep(artifactStep.id, 'COMPLETED', { runId: last.id });
+      // Review / verification output stays recorded on its own artifact, and is
+      // never removed from coworker_runs.output.
+      if (deliverable.id !== lastPersisted!.id && lastPersisted!.output) {
+        await saveCoworkerArtifact({
+          runId: lastPersisted!.id,
+          name: `${slug}-review.md`,
+          kind: 'review',
+          content: JSON.stringify(lastPersisted!.output, null, 2),
+          attemptId: attempt.id,
+          verification: (lastPersisted!.verification_result as 'PASS' | 'FAIL' | 'SKIPPED') ?? 'SKIPPED',
+        });
+      }
+      await finishStep(artifactStep.id, 'COMPLETED', { runId: deliverable.id });
       steps.push(artifactStep.id);
     }
 
@@ -258,7 +285,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
       taskId: task.id,
       title: task.title,
       description: task.description ?? task.title,
-      outcome: last ? JSON.stringify(last.output).slice(0, 3000) : 'Completed',
+      outcome: deliverable ? JSON.stringify(deliverable.output).slice(0, 3000) : 'Completed',
     }).catch(() => undefined);
     await finishAttempt(attempt.id, 'SUCCESS');
     // 5b. verified execution receipt + spec-proof matrix (blueprint #1/#6):
@@ -273,7 +300,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
           attemptId: attempt.id,
           projectId: task.project_id,
           ownerId: task.owner_id,
-          artifactContent: JSON.stringify(last.output, null, 2),
+          artifactContent: JSON.stringify(deliverable?.output ?? null, null, 2),
           verification: verification || 'SKIPPED',
           runs: runRows.map((r) => ({
             runId: r.id,
