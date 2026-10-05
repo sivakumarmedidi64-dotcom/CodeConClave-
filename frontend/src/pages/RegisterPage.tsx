@@ -122,7 +122,10 @@ export function RegisterPage() {
             <BrandLogo variant="lockup" height={44} />
           </div>
           <h2>Create account</h2>
-          <p className="cc-auth__sub">Start building with CodeConClave — your AI developer coworker.</p>
+          <p className="cc-auth__sub">
+            Create your CodeConClave identity. We generate a 32-character account key, show it once, and ask you to paste
+            it back to confirm.
+          </p>
           {mode === 'register' ? (
             <form onSubmit={submit}>
               <div className="cc-field">
@@ -137,6 +140,55 @@ export function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              <span className="cc-hint">Used for account notices and recovery contact.</span>
+            </div>
+            <fieldset className="cc-field" style={{ border: 0, margin: 0, padding: 0 }}>
+              <legend className="cc-hint" style={{ padding: 0, marginBottom: 10 }}>
+                Your CodeConClave identity — these issue your 32-character account key.
+              </legend>
+              <div className="cc-field">
+                <label htmlFor="handle">Handle</label>
+                <input
+                  id="handle"
+                  className="cc-input"
+                  required
+                  minLength={3}
+                  maxLength={20}
+                  autoComplete="username"
+                  placeholder="your_handle"
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                />
+                <span className="cc-hint">3–20 chars, letters/numbers/underscore. This is your primary sign-in name.</span>
+              </div>
+              <div className="cc-field">
+                <label htmlFor="keyword">Keyword</label>
+                <input
+                  id="keyword"
+                  className="cc-input"
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+                <span className="cc-hint">12+ chars, upper + lower + digit. Only its hash is stored.</span>
+              </div>
+            </fieldset>
+            <div className="cc-field">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                className="cc-input"
+                type="password"
+                required
+                minLength={10}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <span className="cc-hint">At least 10 chars, upper + lower + digit.</span>
             </div>
             <div className="cc-field">
               <label htmlFor="displayName">Display name</label>
@@ -165,44 +217,6 @@ export function RegisterPage() {
                   <option key={u} value={u}>{u}</option>
                 ))}
               </select>
-            </div>
-            <div className="cc-field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                className="cc-input"
-                type="password"
-                required
-                minLength={10}
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <span className="cc-hint">At least 10 chars, upper + lower + digit.</span>
-            </div>
-            <div className="cc-field">
-              <label htmlFor="handle">Handle (your sign-in name, optional)</label>
-              <input
-                id="handle"
-                className="cc-input"
-                autoComplete="username"
-                placeholder="your_handle"
-                value={handle}
-                onChange={(e) => setHandle(e.target.value)}
-              />
-              <span className="cc-hint">3–20 chars, letters/numbers/underscore. With a keyword it becomes your primary sign-in — no email delivery needed.</span>
-            </div>
-            <div className="cc-field">
-              <label htmlFor="keyword">Keyword (required with handle)</label>
-              <input
-                id="keyword"
-                className="cc-input"
-                type="password"
-                autoComplete="new-password"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-              />
-              <span className="cc-hint">12+ chars, upper + lower + digit. Only its hash is stored.</span>
             </div>
             {error && <p className="cc-error">{error}</p>}
             <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>

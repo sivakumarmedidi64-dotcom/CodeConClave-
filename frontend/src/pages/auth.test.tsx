@@ -117,6 +117,10 @@ describe('login UI', () => {
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -134,6 +138,10 @@ describe('login UI', () => {
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Wrong123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -160,6 +168,10 @@ describe('login UI', () => {
       />,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -182,6 +194,10 @@ describe('MFA challenge flow', () => {
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -203,6 +219,10 @@ describe('MFA challenge flow', () => {
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -223,6 +243,10 @@ describe('MFA challenge flow', () => {
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
+    // The public entry now leads with the zero-domain identity form; these
+    // cases cover the retained email + password alternative.
+    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
+    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
@@ -257,6 +281,8 @@ describe('registration UI', () => {
     await user.selectOptions(screen.getByLabelText('Your role'), 'Developer');
     await user.selectOptions(screen.getByLabelText('Primary use case'), 'Build software');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(screen.getByLabelText('Handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
     await waitFor(() =>
@@ -279,6 +305,8 @@ describe('registration UI', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(screen.getByLabelText('Handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     await waitFor(() =>
       expect(screen.getAllByText('An account with this email already exists').length).toBeGreaterThan(0),

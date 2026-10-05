@@ -1,12 +1,19 @@
 /**
- * CodeConClave — public landing page (marketing).
- * Shown to unauthenticated visitors at "/": brand, what it is, how it works,
- * a website section and a desktop installer download button. Same design
- * tokens as the app (global.css variables + cc-btn classes).
+ * CodeConClave — public product entry (marketing).
+ *
+ * Structure: header -> hero -> web/desktop choice -> workflow comparison ->
+ * about -> feature showcase -> early-access CTA -> footer.
+ *
+ * Payment is intentionally absent from this surface: early-access demo access
+ * is handled server-side by temporary demo mode. Commercial plans stay in the
+ * backend and reappear with the payment surface when demo mode is switched off.
+ *
+ * Styling is scoped to styles/landing.css so the in-app IDE theme is untouched.
  */
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from '../components/BrandLogo';
+import '../styles/landing.css';
 
 interface InstallInfo {
   available: boolean;
@@ -16,18 +23,104 @@ interface InstallInfo {
 
 const DOWNLOAD_URL = '/api/v1/downloads/desktop';
 const INFO_URL = '/api/v1/downloads/info';
-const FOUNDER_EMAIL = 'medidisaharsh@gmail.com';
 
-const STEPS: Array<{ n: string; title: string; body: string }> = [
-  { n: '01', title: 'Create your account', body: 'Sign up with your email in a few seconds — account creation is instant and free, then pick a plan to unlock your workspace.' },
-  { n: '02', title: 'Pick a plan', body: 'Solo starts at ₹999/mo, Team and API plans scale with you. Pay once, unpack immediately.' },
-  { n: '03', title: 'Open your workspace', body: 'Chat with AI, manage projects, agents, files, terminals, memory and approvals — all in one place.' },
-  { n: '04', title: 'Run it anywhere', body: 'Use the web app in any browser, or install the desktop app for your own machine.' },
+const PILLARS = ['Memory', 'Execution', 'Continuity', 'Team', 'Control'] as const;
+
+const CHOICES = [
+  {
+    id: 'web',
+    name: 'Web App',
+    tag: 'Fastest to start',
+    primary: true,
+    description: 'Run CodeConClave in your browser.',
+    points: ['No installation', 'Instant access', 'Works across devices', 'Best for quick access'],
+    cta: 'Open Web App',
+    to: '/register',
+    external: false,
+  },
+  {
+    id: 'desktop',
+    name: 'Desktop App',
+    tag: 'Full environment',
+    primary: false,
+    description: 'Use the full CodeConClave desktop environment.',
+    points: [
+      'Local project access',
+      'Desktop workflow',
+      'Local-agent capabilities where supported',
+      'Best for development workflows',
+    ],
+    cta: 'Get Desktop App',
+    to: DOWNLOAD_URL,
+    external: true,
+  },
+] as const;
+
+const TRADITIONAL = ['IDE', 'Chatbot', 'Task tracker', 'Terminal', 'Memory', 'Deployment'];
+const CONCLAVE = ['Project context', 'AI agents', 'Execution', 'Verification', 'Memory', 'Continuity', 'Control'];
+const DEVELOPER_CHAIN = ['Goal', 'Plan', 'Agent execution', 'Verification', 'Artifact', 'Memory', 'Continue'];
+
+const ABOUT = [
+  {
+    title: 'Project memory',
+    body: 'CodeConClave preserves project context, decisions and useful history, so you do not have to repeatedly re-explain the project.',
+  },
+  {
+    title: 'AI agents',
+    body: 'Specialized agents can handle architecture, coding, debugging, research, review, testing, security, DevOps, UI/UX and documentation where supported.',
+  },
+  {
+    title: 'Execution',
+    body: 'CodeConClave is designed to execute work, not only generate conversational answers.',
+  },
+  {
+    title: 'Verification',
+    body: 'Work can be checked through tests, diagnostics and execution verification before you accept it.',
+  },
+  {
+    title: 'Continuity',
+    body: 'Tasks, project context and durable state survive refreshes and sessions through the persistent backend architecture.',
+  },
+  {
+    title: 'Control',
+    body: 'You retain control through permissions, approvals, stop mechanisms, verification and auditability.',
+  },
+  {
+    title: 'Team',
+    body: 'Project and workspace collaboration with structured task workflows and shared project state.',
+  },
+  {
+    title: 'Desktop and web',
+    body: 'Reach the same system from a browser or from a desktop workflow on your own machine.',
+  },
+];
+
+/**
+ * Feature showcase. `status` is rendered as visible text, never colour-only, so
+ * availability stays honest and legible: anything not fully live is labelled.
+ */
+const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Available now' | 'Plan dependent' | 'Proposed' }> = [
+  { title: 'AI agent orchestration', body: 'Specialized agent roles run as an ordered pipeline over a shared project task.', status: 'Available now' },
+  { title: 'Project memory', body: 'Durable project knowledge, decisions and digests that persist between sessions.', status: 'Available now' },
+  { title: 'Persistent context', body: 'Project state and prior-stage context carry forward instead of resetting per turn.', status: 'Available now' },
+  { title: 'Task execution', body: 'Structured tasks with risk levels, required approvals and human-in-the-loop dispatch.', status: 'Available now' },
+  { title: 'Verification', body: 'Review passes, tests and diagnostics that check produced work rather than assuming it.', status: 'Available now' },
+  { title: 'Artifact tracking', body: 'Produced artifacts are stored with a SHA-256 digest and byte count so output stays verifiable.', status: 'Available now' },
+  { title: 'Continuity', body: 'Long-running and background work continues across refreshes, restarts and sessions.', status: 'Available now' },
+  { title: 'Background work', body: 'A worker loop and scheduler claim queued tasks and report back into the workspace.', status: 'Available now' },
+  { title: 'Terminal and tools', body: 'Integrated terminal access and tool-driven execution inside the project workspace.', status: 'Available now' },
+  { title: 'Git and development workflows', body: 'Repository-aware code workspace and release workflows around your project.', status: 'Available now' },
+  { title: 'Security', body: 'Secret guarding, security review roles and security operations reporting.', status: 'Available now' },
+  { title: 'Auditability', body: 'An audit trail records what ran, what changed and what was verified.', status: 'Available now' },
+  { title: 'Team workflows', body: 'Shared projects, team agents and collaborative task tracking.', status: 'Available now' },
+  { title: 'API access', body: 'Programmatic access through managed API keys, released as its own plan.', status: 'Plan dependent' },
+  { title: 'Desktop environment', body: 'A downloadable desktop build for local project access on your own machine.', status: 'Available now' },
+  { title: 'Web environment', body: 'The complete workspace in a browser, served same-origin with the API.', status: 'Available now' },
+  { title: 'Deployment integrations', body: 'Kuberns deployment is a proposed integration and partnership capability, not live today.', status: 'Proposed' },
 ];
 
 export function LandingPage() {
   const [info, setInfo] = useState<InstallInfo>({ available: false, version: null, sizeMB: null });
-  const [photoMissing, setPhotoMissing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,252 +138,278 @@ export function LandingPage() {
     };
   }, []);
 
-  const btn = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    fontWeight: 700,
-    fontSize: 16,
-    padding: '14px 26px',
-    borderRadius: 12,
-    textDecoration: 'none',
-    transition: 'transform .12s ease, opacity .12s ease',
-  } as const;
+  const installLine = info.available
+    ? `Windows installer · v${info.version}${info.sizeMB ? ` · ${info.sizeMB} MB` : ''}`
+    : 'Windows installer';
 
   return (
-    <div style={{ minHeight: '100%', background: 'var(--cc-bg)', color: 'var(--cc-text)', fontFamily: 'Arial,Helvetica,sans-serif' }}>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 16,
-          padding: '18px 32px',
-          borderBottom: '1px solid var(--cc-border)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <BrandLogo height={32} />
-          <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: 0.5 }}>CodeConClave</span>
+    <div className="lp-root">
+      <a className="lp-skip" href="#lp-main">
+        Skip to content
+      </a>
+
+      <header className="lp-header">
+        <div className="lp-header__inner">
+          <Link to="/" className="lp-brand">
+            <BrandLogo height={30} />
+            <span>CodeConClave</span>
+          </Link>
+          <nav className="lp-nav" aria-label="Primary">
+            <a className="lp-nav__link lp-nav__link--secondary" href="#lp-choose">
+              Choose an app
+            </a>
+            <a className="lp-nav__link lp-nav__link--secondary" href="#lp-about">
+              About
+            </a>
+            <a className="lp-nav__link lp-nav__link--secondary" href="#lp-features">
+              Features
+            </a>
+            <Link to="/login" className="lp-btn lp-btn--ghost lp-btn--sm">
+              Sign in
+            </Link>
+            <Link to="/register" className="lp-btn lp-btn--primary lp-btn--sm">
+              Enter CodeConClave
+            </Link>
+          </nav>
         </div>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <a
-            href={`mailto:${FOUNDER_EMAIL}`}
-            style={{ color: 'var(--cc-text)', fontSize: 14, fontWeight: 600, textDecoration: 'none' }}
-            aria-label="Contact the founder"
-          >
-            Contact founder
-          </a>
-          <Link to="/login" className="cc-btn cc-btn--ghost">
-            Sign in
-          </Link>
-          <Link to="/register" className="cc-btn cc-btn--gradient">
-            Open web app
-          </Link>
-        </nav>
       </header>
 
-      <main>
-        <section
-          style={{
-            position: 'relative',
-            background: '#000000',
-            color: '#ffffff',
-            padding: '72px 32px 96px',
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ maxWidth: 900, margin: '0 auto', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 22 }}>
-              <BrandLogo variant="lockup" height={72} />
-            </div>
-            <h1 style={{ fontSize: 44, lineHeight: 1.15, margin: '0 0 14px', letterSpacing: -0.5 }}>
-              Your AI <span style={{ color: '#ffd400' }}>developer coworker</span>
+      <main id="lp-main">
+        {/* ------------------------------------------------------------ hero */}
+        <section className="lp-hero">
+          <div className="lp-shell lp-hero__inner">
+            <p className="lp-badge">
+              <span className="lp-badge__dot" aria-hidden="true" />
+              Early Access
+            </p>
+            <h1 className="lp-hero__title">
+              CodeConClave
+              <br />{' '}
+              <span className="lp-hero__accent">AI Developer &amp; Founder Operating System</span>
             </h1>
-            <p style={{ fontSize: 18, color: '#d4d4d8', margin: '0 auto 36px', maxWidth: 640, lineHeight: 1.6 }}>
-              CodeConClave is a workspace where code, agents, memory and automation live together. Build with AI — on the web or
-              on your desktop.
+            <p className="lp-hero__lede">
+              Build software with an AI operating layer that understands your project, executes work, verifies results and
+              preserves context.
             </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, justifyContent: 'center' }}>
-              <Link
-                to="/register"
-                style={{ ...btn, background: '#ffd400', color: '#000000' }}
-                aria-label="Use CodeConClave in your browser"
-              >
-                Use in browser
+            <div className="lp-hero__actions">
+              <Link to="/register" className="lp-btn lp-btn--primary">
+                Enter CodeConClave
               </Link>
-              <a
-                href={DOWNLOAD_URL}
-                style={{ ...btn, background: '#ffffff', color: '#000000' }}
-                aria-label="Download the desktop app"
-              >
-                Download for desktop
-              </a>
-              <a
-                href={`mailto:${FOUNDER_EMAIL}`}
-                style={{
-                  ...btn,
-                  background: 'transparent',
-                  color: '#d4d4d8',
-                  border: '1px solid #52525b',
-                }}
-                aria-label="Contact the founder"
-              >
-                Contact founder
-              </a>
+              <Link to="/login" className="lp-btn lp-btn--ghost">
+                Explore CodeConClave
+              </Link>
             </div>
-            <p style={{ marginTop: 18, fontSize: 13, color: '#a1a1aa' }}>
-              {info.available
-                ? `Windows installer • v${info.version}${info.sizeMB ? ` • ${info.sizeMB} MB` : ''}`
-                : 'Download available for Windows'}
-            </p>
-            <div
-              style={{
-                maxWidth: 560,
-                margin: '26px auto 0',
-                padding: '14px 18px',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,212,0,0.35)',
-                borderRadius: 12,
-                textAlign: 'left',
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: '#e4e4e7',
-              }}
-            >
-              <strong style={{ color: '#ffd400' }}>Installing on Windows:</strong> Microsoft Defender SmartScreen may say this app is
-              unrecognized because it isn't signed yet. That's expected — click <strong>More info</strong> then{' '}
-              <strong>Run anyway</strong>. The file comes straight from our servers and is safe.
-            </div>
+            <ul className="lp-pillars" aria-label="Core concepts">
+              {PILLARS.map((p) => (
+                <li key={p} className="lp-pillar">
+                  {p}
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
-        <section style={{ maxWidth: 940, margin: '0 auto', padding: '64px 32px 24px' }}>
-          <h2 style={{ fontSize: 30, margin: '0 0 10px', color: 'var(--cc-accent)' }}>What is CodeConClave?</h2>
-          <p style={{ fontSize: 17, lineHeight: 1.7, margin: '0 0 10px', maxWidth: 760 }}>
-            CodeConClave is a complete AI development workspace. Talk to AI, spin up agents, manage projects, files and
-            terminals, keep a long-term memory, and review every change before it ships — one place for your whole build.
-          </p>
-          <p style={{ fontSize: 15, lineHeight: 1.6, color: '#6b7280', margin: 0, maxWidth: 720 }}>
-            Founded by{' '}
-            <strong style={{ color: 'var(--cc-text)' }}>MEDIDI SAHARSH</strong>, built as a real, usage-ready product — with
-            payments, email sign-in, and a desktop app — shipped at zero budget.
-          </p>
-        </section>
-
-        <section style={{ maxWidth: 940, margin: '0 auto', padding: '32px 32px 72px' }}>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '220px 1fr',
-              gap: 28,
-              alignItems: 'center',
-              background: 'var(--cc-surface)',
-              border: '1px solid var(--cc-border)',
-              borderRadius: 18,
-              padding: 28,
-            }}
-          >
-            <div
-              style={{
-                width: 200,
-                height: 200,
-                borderRadius: '50%',
-                overflow: 'hidden',
-                border: '3px solid #ffd400',
-                background: '#000000',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto',
-              }}
-            >
-              {photoMissing ? (
-                <span style={{ fontSize: 64, fontWeight: 800, color: '#ffd400' }}>MS</span>
-              ) : (
-                <img
-                  src="/brand/founder-photo.jpg"
-                  alt="MEDIDI SAHARSH — Founder of CodeConClave"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  onError={() => setPhotoMissing(true)}
-                />
-              )}
+        {/* ------------------------------------------- web / desktop choice */}
+        <section className="lp-choice" id="lp-choose">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">Get started</p>
+              <h2 className="lp-section__title">Choose how you want to use CodeConClave</h2>
+              <p className="lp-section__sub">
+                Both options use the same account. Pick the environment that fits how you work.
+              </p>
             </div>
-            <div>
-              <h2 style={{ fontSize: 26, margin: '0 0 6px', color: 'var(--cc-accent)' }}>The 16-year-old founder behind it</h2>
-              <p style={{ fontSize: 15, lineHeight: 1.7, margin: '0 0 12px', color: '#6b7280' }}>
-                CodeConClave is made by <strong style={{ color: 'var(--cc-text)' }}>MEDIDI SAHARSH</strong> — a 16-year-old
-                builder who shipped a complete product with <strong style={{ color: 'var(--cc-text)' }}>₹0</strong> budget:
-                no funding, no paid tools, no shortcuts. Payments, email sign-in, a full AI workspace and a desktop app — all
-                built from a single laptop.
-              </p>
-              <p style={{ fontSize: 15, lineHeight: 1.7, margin: 0, color: '#6b7280' }}>
-                The story behind it is simple: if a teenager can ship this with nothing but free tools and late nights,
-                imagine what the people using it can build.
-              </p>
-              <div style={{ marginTop: 18 }}>
-                <a
-                  href={`mailto:${FOUNDER_EMAIL}`}
-                  className="cc-btn cc-btn--gradient"
-                  aria-label="Contact the founder"
+
+            <div className="lp-choice__grid">
+              {CHOICES.map((c) => (
+                <article
+                  key={c.id}
+                  className={`lp-choice__card${c.primary ? ' lp-choice__card--primary' : ''}`}
+                  aria-labelledby={`lp-choice-${c.id}-name`}
                 >
-                  Contact the founder
-                </a>
-                <p style={{ fontSize: 13, color: '#6b7280', margin: '10px 0 0' }}>
-                  {FOUNDER_EMAIL}
+                  <p className="lp-choice__tag">{c.tag}</p>
+                  <h3 className="lp-choice__name" id={`lp-choice-${c.id}-name`}>
+                    {c.name}
+                  </h3>
+                  <p className="lp-choice__desc">{c.description}</p>
+                  <ul className="lp-choice__list">
+                    {c.points.map((p) => (
+                      <li key={p}>
+                        <span className="lp-choice__check" aria-hidden="true">
+                          ✓
+                        </span>
+                        <span>{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {c.external ? (
+                    <a className="lp-btn lp-btn--block lp-btn--primary" href={c.to}>
+                      {c.cta}
+                    </a>
+                  ) : (
+                    <Link className="lp-btn lp-btn--block lp-btn--primary" to={c.to}>
+                      {c.cta}
+                    </Link>
+                  )}
+                  {c.id === 'desktop' ? <p className="lp-choice__meta">{installLine}</p> : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------ workflow framing */}
+        <section className="lp-flow" aria-labelledby="lp-flow-title">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">Why it is different</p>
+              <h2 className="lp-section__title" id="lp-flow-title">
+                One workflow instead of six disconnected tools
+              </h2>
+            </div>
+
+            <div className="lp-flow__grid">
+              <div className="lp-flow__col">
+                <p className="lp-flow__title">Traditional workflow</p>
+                <div className="lp-flow__stack">
+                  {TRADITIONAL.map((s) => (
+                    <div key={s} className="lp-flow__step">
+                      {s}
+                    </div>
+                  ))}
+                </div>
+                <p className="lp-flow__op" aria-hidden="true">
+                  results in
                 </p>
+                <p className="lp-flow__result">Fragmented workflow</p>
+              </div>
+
+              <div className="lp-flow__col lp-flow__col--accent">
+                <p className="lp-flow__title">CodeConClave</p>
+                <div className="lp-flow__stack">
+                  {CONCLAVE.map((s) => (
+                    <div key={s} className="lp-flow__step">
+                      {s}
+                    </div>
+                  ))}
+                </div>
+                <p className="lp-flow__op" aria-hidden="true">
+                  results in
+                </p>
+                <p className="lp-flow__result">One AI development workflow</p>
               </div>
             </div>
           </div>
         </section>
 
-        <section style={{ maxWidth: 940, margin: '0 auto', padding: '24px 32px 72px' }}>
-          <h2 style={{ fontSize: 30, margin: '0 0 26px', color: 'var(--cc-accent)' }}>How it works</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 18 }}>
-            {STEPS.map((s) => (
-              <div
-                key={s.n}
-                style={{
-                  background: 'var(--cc-surface)',
-                  border: '1px solid var(--cc-border)',
-                  borderRadius: 14,
-                  padding: '20px 18px',
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 800, color: '#ffd400' }}>{s.n}</div>
-                <h3 style={{ fontSize: 17, margin: '8px 0 6px' }}>{s.title}</h3>
-                <p style={{ fontSize: 14, lineHeight: 1.55, margin: 0, color: '#6b7280' }}>{s.body}</p>
+        {/* ---------------------------------------------------------- about */}
+        <section className="lp-about" id="lp-about">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">About</p>
+              <h2 className="lp-section__title">What is CodeConClave?</h2>
+            </div>
+
+            <p className="lp-about__lead">
+              CodeConClave is an AI-native developer and founder operating system that brings project context, AI agents,
+              execution, verification, memory, continuity and control into one workflow.
+            </p>
+
+            <div className="lp-about__grid">
+              {ABOUT.map((a) => (
+                <article key={a.title} className="lp-about__card">
+                  <h3>{a.title}</h3>
+                  <p>{a.body}</p>
+                </article>
+              ))}
+            </div>
+
+            <div className="lp-about__card" style={{ marginTop: 18 }}>
+              <h3>Developer workflow</h3>
+              <p>
+                A task moves through the same loop every time, so progress stays visible and resumable instead of living in a
+                chat transcript.
+              </p>
+              <div className="lp-chain">
+                {DEVELOPER_CHAIN.map((step, i) => (
+                  <span key={step} style={{ display: 'contents' }}>
+                    {i > 0 ? (
+                      <span className="lp-chain__arrow" aria-hidden="true">
+                        →
+                      </span>
+                    ) : null}
+                    <span className="lp-chain__node">{step}</span>
+                  </span>
+                ))}
               </div>
-            ))}
+            </div>
+
+            <div className="lp-about__card" style={{ marginTop: 18 }}>
+              <h3>Deployment</h3>
+              <p>
+                Deployment integrations are part of the broader platform direction. Kuberns deployment is a proposed
+                integration and partnership capability and is not live today.
+              </p>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 36 }}>
-            <Link to="/register" className="cc-btn cc-btn--gradient">
-              Start building
-            </Link>
-            <a href={DOWNLOAD_URL} className="cc-btn cc-btn--ghost">
-              Download desktop app
-            </a>
+        </section>
+
+        {/* ------------------------------------------------------- features */}
+        <section className="lp-features" id="lp-features">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">Capabilities</p>
+              <h2 className="lp-section__title">What CodeConClave does</h2>
+              <p className="lp-section__sub">
+                Availability is labelled honestly on every item, including what is still proposed rather than shipped.
+              </p>
+            </div>
+
+            <div className="lp-features__grid">
+              {FEATURES.map((f) => (
+                <article key={f.title} className="lp-feature">
+                  <h3 className="lp-feature__title">{f.title}</h3>
+                  <p className="lp-feature__body">{f.body}</p>
+                  <p
+                    className={`lp-feature__status${f.status === 'Available now' ? ' lp-feature__status--live' : ''}`}
+                  >
+                    {f.status}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------- cta */}
+        <section className="lp-cta">
+          <div className="lp-shell lp-cta__inner">
+            <h2 className="lp-section__title">CodeConClave is currently available in Early Access</h2>
+            <p className="lp-section__sub">
+              Create an account and go straight into the workspace. No payment is required during early access.
+            </p>
+            <div className="lp-hero__actions">
+              <Link to="/register" className="lp-btn lp-btn--primary">
+                Enter CodeConClave
+              </Link>
+              <a href="#lp-choose" className="lp-btn lp-btn--ghost">
+                Compare the apps
+              </a>
+            </div>
+            <p className="lp-cta__note">Early access. Capabilities are labelled individually above.</p>
           </div>
         </section>
       </main>
 
-      <footer
-        style={{
-          borderTop: '1px solid var(--cc-border)',
-          padding: '28px 32px',
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          fontSize: 13,
-          color: '#6b7280',
-        }}
-      >
-        <span>© {new Date().getFullYear()} CodeConClave</span>
-        <span>
-          THANK YOU &lt;&lt;&lt; <strong style={{ color: 'var(--cc-text)' }}>MEDIDI SAHARSH (Founder of CodeConClave)</strong>
-        </span>
+      <footer className="lp-footer">
+        <div className="lp-shell lp-footer__inner">
+          <span>© {new Date().getFullYear()} CodeConClave</span>
+          <nav className="lp-footer__links" aria-label="Footer">
+            <Link to="/login">Sign in</Link>
+            <Link to="/register">Create account</Link>
+            <a href={DOWNLOAD_URL}>Get Desktop App</a>
+          </nav>
+        </div>
       </footer>
     </div>
   );

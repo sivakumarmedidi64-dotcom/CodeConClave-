@@ -35,8 +35,9 @@ beforeEach(() => {
 describe('App shell', () => {
   it('renders the public landing page at /', async () => {
     renderApp(['/']);
-    expect(await screen.findByText(/developer coworker/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(/AI Developer & Founder Operating System/i);
     expect(screen.getByText('What is CodeConClave?')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Choose how you want to use CodeConClave/i })).toBeInTheDocument();
   });
 
   it('renders the 404 page for unknown routes', async () => {

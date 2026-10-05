@@ -21,7 +21,11 @@ export function LoginPage() {
   const from = ((location.state ?? {}) as { from?: string }).from ?? '/home';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [mode, setMode] = useState<'password' | 'otp' | 'handle'>('password');
+  // Zero-domain identity is the primary customer sign-in path: identifier
+  // (email or handle) -> keyword -> account-key challenge when required.
+  // Email+password and the emailed sign-in code remain available as
+  // alternatives; there is no third-party identity-provider choice.
+  const [mode, setMode] = useState<'password' | 'otp' | 'handle'>('handle');
   const [handle, setHandle] = useState('');
   const [keyword, setKeyword] = useState('');
   const [keyChallenge, setKeyChallenge] = useState<{ challengeToken: string; reason: string | null } | null>(null);
@@ -156,7 +160,9 @@ export function LoginPage() {
             <BrandLogo variant="lockup" height={44} />
           </div>
           <h2>Welcome back</h2>
-          <p className="cc-auth__sub">Sign in to your CodeConClave workspace to keep building.</p>
+          <p className="cc-auth__sub">
+            Sign in with your CodeConClave identity — your email or handle, plus your keyword.
+          </p>
           {mode === 'password' ? (
             <form onSubmit={submit}>
               <div className="cc-field">
@@ -295,10 +301,11 @@ export function LoginPage() {
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
                 />
+                <span className="cc-hint">Your account key may be requested on an unrecognized device.</span>
               </div>
               {error && <p className="cc-error">{error}</p>}
               <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>
-                {busy ? 'Signing in…' : 'Sign in with handle'}
+                {busy ? 'Signing in…' : 'Sign in'}
               </button>
               <p className="cc-auth__hint">
                 <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => { setRecovering(true); setError(null); }}>

@@ -213,8 +213,8 @@ function Shell() {
           must never imply a purchase happened. */}
       {mode?.temporaryDemoMode ? (
         <div className="cc-demo-mode-banner" role="status">
-          <strong>Temporary demo / early access mode</strong> — workspace access is open for this
-          demonstration. No payment was taken and no plan was purchased.
+          <strong>CodeConClave is currently available in Early Access</strong> — workspace access is open
+          for early-access users. No payment has been taken and no plan has been purchased.
         </div>
       ) : null}
       <Topbar onMenuClick={toggleSidebar} />
