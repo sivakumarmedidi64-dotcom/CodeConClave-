@@ -395,7 +395,7 @@ export function LoginPage() {
           )}
           <p className="cc-auth__hint" style={{ marginTop: '1rem' }}>
             <a className="cc-btn cc-btn--ghost cc-btn--sm" href={`mailto:${FOUNDER_EMAIL}`}>
-              Contact the founder
+              Contact support
             </a>
           </p>
         </div>

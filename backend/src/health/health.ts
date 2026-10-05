@@ -62,18 +62,27 @@ async function aiCheck(): Promise<HealthCheck> {
   }
   const rows = await withSystem<AiHealthRow[]>(async (q) => (await q.query<AiHealthRow>('SELECT provider_id, state FROM provider_health')).rows);
   const byProvider = new Map(rows.map((r) => [r.provider_id, r.state]));
+  // These tallies MUST mirror registry.refreshProviderHealth's state mapping,
+  // or /health reports HEALTHY for a provider the router is currently
+  // excluding. Any state the registry does not treat as usable counts against
+  // this check — notably QUOTA_EXHAUSTED (written by a single 429) and BLOCKED,
+  // which matched none of the three branches below and therefore produced a
+  // false "HEALTHY / reason: null" while zero models were eligible.
   let failed = 0;
   let degraded = 0;
-  let unknown = 0;
+  let usable = 0;
   for (const id of configured) {
     const state = byProvider.get(id) ?? 'UNKNOWN';
-    if (state === 'DOWN') failed += 1;
-    else if (state === 'DEGRADED') degraded += 1;
-    else if (state === 'UNKNOWN') unknown += 1;
+    if (state === 'HEALTHY' || state === 'UP') usable += 1;
+    else if (state === 'DEGRADED' || state === 'RATE_LIMITED' || state === 'UNKNOWN' || state === 'QUOTA_EXHAUSTED') degraded += 1;
+    else failed += 1; // DOWN, BLOCKED, and any other hard exclusion
   }
-  if (failed > 0) return { id: 'ai', name: 'AI providers', status: 'FAILED', reason: `${failed} configured provider(s) down`, critical: true };
-  if (degraded > 0) return { id: 'ai', name: 'AI providers', status: 'DEGRADED', reason: `${degraded} configured provider(s) degraded`, critical: true };
-  if (unknown > 0) return { id: 'ai', name: 'AI providers', status: 'DEGRADED', reason: 'Configured but no health data yet', critical: true };
+  // At least one configured provider usable => AI is usable, so a secondary
+  // provider being unavailable must not fail the whole system. No usable
+  // provider => this check cannot pass, and must say why.
+  if (usable === 0 && failed > 0) return { id: 'ai', name: 'AI providers', status: 'FAILED', reason: `no usable AI provider (${failed} down)`, critical: true };
+  if (usable === 0) return { id: 'ai', name: 'AI providers', status: 'DEGRADED', reason: `no usable AI provider (${degraded} degraded/quota-limited)`, critical: true };
+  if (degraded > 0) return { id: 'ai', name: 'AI providers', status: 'DEGRADED', reason: `${degraded} configured provider(s) degraded or quota-limited`, critical: true };
   return { id: 'ai', name: 'AI providers', status: 'HEALTHY', reason: null, critical: true };
 }
 

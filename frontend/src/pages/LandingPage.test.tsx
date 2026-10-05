@@ -122,9 +122,12 @@ describe('LandingPage', () => {
       ]) {
         expect(within(card).getByText(point)).toBeDefined();
       }
-      expect(within(card).getByRole('link', { name: 'Get Desktop App' }).getAttribute('href')).toBe(
-        '/api/v1/downloads/desktop',
-      );
+      // No installer is published, so the CTA must be truthful Early Access wording
+      // and must NOT link the 404ing download endpoint.
+      const cta = within(card).getByRole('link', { name: 'Request Access' });
+      expect(cta.getAttribute('href')).toBe('/register');
+      expect(card.textContent).not.toContain('Get Desktop App');
+      expect(card.textContent).not.toContain('/api/v1/downloads/desktop');
     });
 
     it('renders both cards so the choice stays visually balanced', () => {
@@ -243,7 +246,7 @@ describe('LandingPage', () => {
       const grid = features();
       const statusOf = (title: string) => {
         const card = within(grid).getByRole('heading', { name: title }).closest('.lp-feature') as HTMLElement;
-        return within(card).getByText(/^(Available now|Plan dependent|Proposed)$/).textContent;
+        return within(card).getByText(/^(Available now|Plan dependent|Proposed|Early access)$/).textContent;
       };
 
       expect(statusOf('Project memory')).toBe('Available now');

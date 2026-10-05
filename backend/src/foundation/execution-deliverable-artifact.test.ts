@@ -198,7 +198,7 @@ describe('PROBLEM 2 — the artifact is the produced deliverable', () => {
     }
   });
 
-  it('falls back to the final run when nothing passed verification', async () => {
+  it('never promotes the reviewer to the deliverable when nothing passed verification', async () => {
     coworkers.runCoworker.mockImplementation(async (r: Record<string, unknown>) => {
       store.persisted.set(r.id as string, { output: { text: `output of ${String(r.coworker_type)}` }, verification_result: 'FAIL' });
     });
@@ -207,9 +207,16 @@ describe('PROBLEM 2 — the artifact is the produced deliverable', () => {
 
     await executeTask(task as never);
 
-    expect(store.artifacts.length).toBe(1);
-    expect(String(artifact('output').content)).toContain('output of REVIEWER');
+    // The producing stage stays the deliverable and keeps the FAIL verdict; the
+    // reviewer's commentary is recorded separately as the review artifact. The
+    // previous `?? lastPersisted` fallback promoted REVIEWER to the deliverable
+    // here, which is what stored a 20-byte {"text":"PASS"} as the artifact in
+    // production and discarded the real produced document.
+    expect(store.artifacts.length).toBe(2);
+    expect(String(artifact('output').content)).toContain('output of CODER');
+    expect(String(artifact('output').content)).not.toContain('output of REVIEWER');
     expect(artifact('output').verification).toBe('FAIL');
+    expect(String(artifact('review').content)).toContain('output of REVIEWER');
   });
 
   it('task lifecycle is unchanged', async () => {

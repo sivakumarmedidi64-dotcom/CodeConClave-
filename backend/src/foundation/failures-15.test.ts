@@ -141,7 +141,7 @@ describe('FAILURE CATEGORY 2 — cache / Redis down', () => {
 });
 
 describe('FAILURE CATEGORY 3 — AI providers down', () => {
-  it('a configured provider in DOWN state fails the health report', async () => {
+  it('one DOWN provider does not fail the system while another configured provider is usable', async () => {
     env.AI_PROVIDERS_ENABLED = 'anthropic,openai';
     env.ANTHROPIC_API_KEY = 'sk-ant-test';
     env.OPENAI_API_KEY = 'sk-openai-test';
@@ -151,8 +151,36 @@ describe('FAILURE CATEGORY 3 — AI providers down', () => {
       return null;
     };
     const report = await healthBody();
+    // A secondary provider being unavailable must not make AI fail; the check is
+    // about whether any configured provider can still serve requests.
+    expect(report.checks.find((c) => c.id === 'ai')?.status).not.toBe('FAILED');
+  });
+
+  it('fails the AI check when no configured provider can serve requests', async () => {
+    env.AI_PROVIDERS_ENABLED = 'anthropic,openai';
+    env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    env.OPENAI_API_KEY = 'sk-openai-test';
+    db.state.resolve = (text) => {
+      if (text.includes('provider_health')) return [{ provider_id: 'anthropic', state: 'DOWN' }, { provider_id: 'openai', state: 'DOWN' }];
+      if (text.includes('plugin_connections')) return [];
+      return null;
+    };
+    const report = await healthBody();
     expect(report.checks.find((c) => c.id === 'ai')?.status).toBe('FAILED');
     expect(report.status).toBe('FAILED');
+  });
+
+  it('never reports HEALTHY while every provider is quota-exhausted', async () => {
+    env.AI_PROVIDERS_ENABLED = 'anthropic,openai';
+    env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    env.OPENAI_API_KEY = 'sk-openai-test';
+    db.state.resolve = (text) => {
+      if (text.includes('provider_health')) return [{ provider_id: 'anthropic', state: 'QUOTA_EXHAUSTED' }, { provider_id: 'openai', state: 'QUOTA_EXHAUSTED' }];
+      if (text.includes('plugin_connections')) return [];
+      return null;
+    };
+    const report = await healthBody();
+    expect(report.checks.find((c) => c.id === 'ai')?.status).not.toBe('HEALTHY');
   });
 });
 

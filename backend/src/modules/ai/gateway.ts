@@ -22,6 +22,7 @@ import { getAdapter, updateProviderHealth, classifyProviderError, messageTextCha
 import { AppError } from '../../shared/errors.js';
 import { env } from '../../config/env.js';
 import { pool, withTenant } from '../../shared/db.js';
+import { cache } from '../../shared/cache.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import { logger } from '../../shared/logger.js';
 import type { AiModelDescriptor, PlanId, AiFallbackReason, PrivacyClass } from '@codeconclave/shared';
@@ -155,6 +156,18 @@ export async function routeModels(userId: string, opts: RouteOptions): Promise<R
   if (!primary) {
     // Honest failure: no eligible model (e.g. no keys configured).
     const providers = configuredProviders().length;
+    // The registry snapshot is cached for AI_MODEL_REFRESH_MINUTES, while model
+    // health is re-derived from provider_health on every registry load. When
+    // routing finds nothing eligible, that cached snapshot can be pinning a
+    // TRANSIENT provider verdict far past HEALTH_RETRY_COOLDOWN_MS — e.g. a
+    // single 429 marks the provider QUOTA_EXHAUSTED, refreshProviderHealth maps
+    // that to health DOWN, and every model on it is filtered out for the whole
+    // cache window. The fast-fail path never touches provider_health, so the
+    // cooldown could never re-apply. Drop the snapshot so the next attempt
+    // re-reads live provider health and the existing staleness rule can retry.
+    // Eligibility is unchanged: entitlement, capability, privacy, health and
+    // cost rails all still apply on the reloaded registry.
+    await cache.del('ai:registry');
     throw AppError.unavailable(
       'no_model_available',
       providers === 0

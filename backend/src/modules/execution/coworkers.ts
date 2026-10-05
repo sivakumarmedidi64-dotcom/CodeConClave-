@@ -677,7 +677,16 @@ export async function verifyCoworkerRun(
         { role: 'user', content: `Acceptance criteria:\n${acceptanceCriteria}\n\nOutput to verify:\n${JSON.stringify(run.output)}` },
       ],
       maxTokens: 32,
-      opts: { computeClass: 'C' },
+      // STANDARD compute, not PREMIUM (C). A verifier emits a single PASS/FAIL/
+      // SKIPPED token over output that already exists; it performs no premium
+      // reasoning. Class C is entitlement-gated (a free-plan account — including
+      // every TEMPORARY_DEMO_MODE account — has no class-C model eligible), so
+      // requesting C here meant the verifier could NEVER obtain a model and
+      // every run was silently recorded SKIPPED via the catch below. Class B
+      // keeps every rail in place (entitlement, health, capability, privacy and
+      // the premium budget gate are all still enforced by the gateway) while
+      // letting verification actually execute.
+      opts: { computeClass: 'B' },
     });
     const normalized = summary.text.trim().toUpperCase().slice(0, 16);
     const result: 'PASS' | 'FAIL' | 'SKIPPED' = normalized.startsWith('PASS')

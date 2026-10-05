@@ -241,7 +241,17 @@ export async function executeTask(task: TaskRow): Promise<void> {
     const deliverable = lastPersisted
       ? ([...results].reverse().find((r) => r.verification_result === 'PASS' && r.output && !REVIEW_ONLY_STAGES.has(String(r.coworker_type)))
         ?? [...results].reverse().find((r) => r.verification_result === 'PASS' && r.output)
-        ?? lastPersisted)
+        // Fall back to the last PRODUCING stage, never the trailing reviewer.
+        // The previous `?? lastPersisted` fallback ran whenever no run had
+        // verification_result === 'PASS' and promoted the reviewer, storing a
+        // 20-byte {"text":"PASS"} verdict as the deliverable and discarding the
+        // real produced document. A review-only stage is never a deliverable.
+        ?? [...results].reverse().find((r) => r.output && !REVIEW_ONLY_STAGES.has(String(r.coworker_type)))
+        // Last resort: the final run, but never a review-only stage. Without this
+        // guard a pipeline whose last stage is the reviewer stored a 20-byte
+        // {"text":"PASS"} verdict as the deliverable and discarded the real
+        // produced document.
+        ?? (lastPersisted && !REVIEW_ONLY_STAGES.has(String(lastPersisted.coworker_type)) ? lastPersisted : null))
       : null;
 
     // 5. artifacts (persist the PRODUCED DELIVERABLE with SHA-256 + attempt +

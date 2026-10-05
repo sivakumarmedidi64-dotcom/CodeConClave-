@@ -21,7 +21,6 @@ interface InstallInfo {
   sizeMB: number | null;
 }
 
-const DOWNLOAD_URL = '/api/v1/downloads/desktop';
 const INFO_URL = '/api/v1/downloads/info';
 
 const PILLARS = ['Memory', 'Execution', 'Continuity', 'Team', 'Control'] as const;
@@ -41,7 +40,12 @@ const CHOICES = [
   {
     id: 'desktop',
     name: 'Desktop App',
-    tag: 'Full environment',
+    // No installer is published, so this card must not advertise or link a
+    // download. Pointing the CTA at /api/v1/downloads/desktop returned 404
+    // ("desktop_installer_unavailable") because backend/src/modules/downloads/
+    // routes.ts publishes no artifact. Truthful Early Access wording instead;
+    // installLine below already reports real availability from /downloads/info.
+    tag: 'Early Access',
     primary: false,
     description: 'Use the full CodeConClave desktop environment.',
     points: [
@@ -50,9 +54,9 @@ const CHOICES = [
       'Local-agent capabilities where supported',
       'Best for development workflows',
     ],
-    cta: 'Get Desktop App',
-    to: DOWNLOAD_URL,
-    external: true,
+    cta: 'Request Access',
+    to: '/register',
+    external: false,
   },
 ] as const;
 
@@ -99,7 +103,7 @@ const ABOUT = [
  * Feature showcase. `status` is rendered as visible text, never colour-only, so
  * availability stays honest and legible: anything not fully live is labelled.
  */
-const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Available now' | 'Plan dependent' | 'Proposed' }> = [
+const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Available now' | 'Plan dependent' | 'Proposed' | 'Early access' }> = [
   { title: 'AI agent orchestration', body: 'Specialized agent roles run as an ordered pipeline over a shared project task.', status: 'Available now' },
   { title: 'Project memory', body: 'Durable project knowledge, decisions and digests that persist between sessions.', status: 'Available now' },
   { title: 'Persistent context', body: 'Project state and prior-stage context carry forward instead of resetting per turn.', status: 'Available now' },
@@ -114,7 +118,7 @@ const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Available 
   { title: 'Auditability', body: 'An audit trail records what ran, what changed and what was verified.', status: 'Available now' },
   { title: 'Team workflows', body: 'Shared projects, team agents and collaborative task tracking.', status: 'Available now' },
   { title: 'API access', body: 'Programmatic access through managed API keys, released as its own plan.', status: 'Plan dependent' },
-  { title: 'Desktop environment', body: 'A downloadable desktop build for local project access on your own machine.', status: 'Available now' },
+  { title: 'Desktop environment', body: 'The desktop environment is in Early Access. A downloadable build is not published yet.', status: 'Early access' },
   { title: 'Web environment', body: 'The complete workspace in a browser, served same-origin with the API.', status: 'Available now' },
   { title: 'Deployment integrations', body: 'Kuberns deployment is a proposed integration and partnership capability, not live today.', status: 'Proposed' },
 ];
@@ -407,7 +411,7 @@ export function LandingPage() {
           <nav className="lp-footer__links" aria-label="Footer">
             <Link to="/login">Sign in</Link>
             <Link to="/register">Create account</Link>
-            <a href={DOWNLOAD_URL}>Get Desktop App</a>
+            <Link to="/register">Request Desktop Access</Link>
           </nav>
         </div>
       </footer>

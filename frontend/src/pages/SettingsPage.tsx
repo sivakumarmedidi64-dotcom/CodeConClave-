@@ -1772,10 +1772,10 @@ export function SettingsPage() {
       <div className="cc-card" style={{ marginTop: 20 }}>
         <h3>Need help?</h3>
         <p className="cc-hint" style={{ margin: '6px 0 12px' }}>
-          Stuck, have a bug, or want a plan change? Write to the founder directly.
+          Stuck, have a bug, or want a plan change? Write to support.
         </p>
         <a className="cc-btn cc-btn--sm cc-btn--ghost" href="mailto:medidisaharsh@gmail.com">
-          Contact the founder
+          Contact support
         </a>
       </div>
     </div>
