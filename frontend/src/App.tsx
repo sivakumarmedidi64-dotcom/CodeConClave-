@@ -37,6 +37,7 @@ import { FilesPage } from './pages/FilesPage';
 import { TerminalPage } from './pages/TerminalPage';
 import { WorkPage } from './pages/WorkPage';
 import { WorkspacePage } from './pages/WorkspacePage';
+import { WorkbenchPage } from './pages/WorkbenchPage';
 import { AutomationPage } from './pages/AutomationPage';
 import { RecoveryPage } from './pages/RecoveryPage';
 import { ControlPage } from './pages/ControlPage';
@@ -255,6 +256,8 @@ function Shell() {
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/recovery" element={<RecoveryPage />} />
             <Route path="/workspace" element={<WorkspacePage />} />
+            <Route path="/workbench" element={<WorkbenchPage />} />
+            <Route path="/workbench/:projectId" element={<WorkbenchPage />} />
             <Route path="/coworkers" element={<CoworkersPage />} />
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/plugins" element={<PluginsPage />} />

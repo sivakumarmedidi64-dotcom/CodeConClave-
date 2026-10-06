@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { WorkspacePage } from './WorkspacePage';
 import { ToastProvider } from '../components/Toast';
@@ -125,9 +126,11 @@ describe('WorkspacePage', () => {
 
   const renderPage = () =>
     render(
-      <ToastProvider>
-        <WorkspacePage />
-      </ToastProvider>,
+      <MemoryRouter>
+        <ToastProvider>
+          <WorkspacePage />
+        </ToastProvider>
+      </MemoryRouter>,
     );
 
   it('renders CHAT/CODE/PREVIEW tabs and queues a task', async () => {

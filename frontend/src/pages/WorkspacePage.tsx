@@ -7,6 +7,7 @@
  * and the honest visual diff (no fabricated before/after).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, uploadForm } from '../lib/api';
 import { PreviewPanel } from '../components/PreviewPanel';
 import { useToast } from '../components/Toast';
@@ -252,7 +253,12 @@ export function WorkspacePage() {
 
   return (
     <div className="cc-page">
-      <h1>Workspace</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <h1>Workspace</h1>
+        <Link to="/workbench" className="cc-btn cc-btn--sm" data-testid="workbench-entry">
+          Open Workbench
+        </Link>
+      </div>
       <p className="cc-hint">
         One project, three views: compose real tasks (CHAT), inspect the real file tree, change heatmap and proof of work
         (CODE), and review the live preview (PREVIEW) with comments that create tracked tasks.

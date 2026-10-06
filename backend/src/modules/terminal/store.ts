@@ -7,6 +7,7 @@
 import type { TerminalState } from '@codeconclave/shared';
 import { pool, withTenant } from '../../shared/db.js';
 import { newId, PREFIX } from '../../shared/ids.js';
+import { redactSecrets } from '../secretGuard/patterns.js';
 
 const MAX_LINE_TEXT = 65_536;
 
@@ -75,13 +76,17 @@ export async function appendTerminalHistory(
   text: string,
 ): Promise<void> {
   if (!text) return;
+  // Redact BEFORE persistence: secrets visible in a terminal (API keys,
+  // tokens, connection strings, private keys) must never reach the store.
+  const safe = redactSecrets(text);
+  if (!safe) return;
   await withTenant(ownerId, (q) => q.query(
     `INSERT INTO terminal_history (id, session_id, channel, text, seq)
      SELECT $1, s.id, $3, $4,
             COALESCE((SELECT MAX(seq) FROM terminal_history h WHERE h.session_id = s.id), 0) + 1
      FROM terminal_sessions s
      WHERE s.tab_id = $2 AND s.owner_id = $5`,
-    [newId(PREFIX.TERMINAL_LINE), tabId, channel, text.slice(0, MAX_LINE_TEXT), ownerId],
+    [newId(PREFIX.TERMINAL_LINE), tabId, channel, safe.slice(0, MAX_LINE_TEXT), ownerId],
   ));
 }
 

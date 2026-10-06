@@ -343,6 +343,11 @@ export async function setRunState(runId: string, state: string, errorCode?: stri
     fields.push(`error_code = $${params.length}`);
   }
   await withSystem((db) => db.query(`UPDATE coworker_runs SET ${fields.join(', ')} WHERE id = $1`, params));
+  try {
+    await (await import('./events.js')).emitCoworkerRuntime(runId, state);
+  } catch {
+    /* workbench event bridge is best-effort; never break state transitions */
+  }
 }
 
 export async function setRunOutput(runId: string, output: Record<string, unknown>, verificationResult?: 'PASS' | 'FAIL' | 'SKIPPED'): Promise<void> {

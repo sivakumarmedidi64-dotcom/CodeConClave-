@@ -280,6 +280,11 @@ export async function setTaskStatus(taskId: string, status: string, errorCode?: 
       /* notification is best-effort; never fail task status transitions */
     }
   }
+  try {
+    await (await import('./events.js')).emitTaskRuntime(taskId, status);
+  } catch {
+    /* workbench event bridge is best-effort; never fail task status transitions */
+  }
 }
 
 export async function cancelTask(userId: string, taskId: string, reason?: string): Promise<TaskRow> {

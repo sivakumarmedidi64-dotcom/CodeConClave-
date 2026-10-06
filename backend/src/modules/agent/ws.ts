@@ -14,6 +14,7 @@ import { AppError } from '../../shared/errors.js';
 import { incMetric } from '../../observability/metrics.js';
 import { evaluateToolCall } from '../execution/policy.js';
 import { registerGrants, revokeGrants } from '../execution/policy.js';
+import { redactSecrets } from '../secretGuard/patterns.js';
 import type { TerminalState } from '@codeconclave/shared';
 import { updateTerminalStatus, appendTerminalHistory } from '../terminal/store.js';
 
@@ -145,7 +146,10 @@ export class AgentHub {
       case 'cmd_stream': {
         const corrId = String(msg.corrId ?? '');
         const channel = String(msg.channel ?? 'stdout');
-        const text = String(msg.text ?? '');
+        // Redact secrets from every surface of a streamed line BEFORE it is
+        // forwarded to a browser socket, buffered for a server-side caller, or
+        // persisted to terminal_history (store mirrors the same guard).
+        const text = redactSecrets(String(msg.text ?? ''));
         const tabId = typeof msg.tabId === 'string' ? msg.tabId : '';
         const browser = this.pending.get(corrId);
         if (browser) {
