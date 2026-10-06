@@ -78,6 +78,8 @@ services:
         sync: false
       - key: TEMPORARY_DEMO_MODE
         value: "true"
+      - key: VITE_DEMO_BUILD
+        value: "1"
       - key: GEMINI_API_KEY
         sync: false
       - key: NVIDIA_API_KEY
