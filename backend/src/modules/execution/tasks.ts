@@ -393,6 +393,88 @@ export async function deadLetterTask(taskId: string, errorCode?: string, failure
 }
 
 /**
+ * Park a task in the existing REQUIRES_REVIEW state with the reason recorded.
+ *
+ * Used when a stage produced an affirmative FAIL verdict (reviewer/verifier
+ * rejection). That is a judgement about the work, not a transient outage, so it
+ * must not be retried automatically: the deliverable is NOT published and NOT
+ * labelled PASS, every run output stays in coworker_runs, and the reason is
+ * visible to the owner through the task row, task_steps and a task.failed
+ * notification.
+ */
+export async function requireTaskReview(taskId: string, reason: string, errorCode = 'verification_failed'): Promise<void> {
+  await setTaskStatus(taskId, 'REQUIRES_REVIEW', errorCode);
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE tasks SET requires_review_reason = $2, failure_reason = $2, updated_at = now() WHERE id = $1`,
+      [taskId, reason.slice(0, 2000)],
+    ),
+  );
+  await recordAudit({
+    action: AuditAction.TASK_FAILED,
+    actorUserId: null,
+    scope: 'SYSTEM',
+    tenantId: null,
+    resourceType: 'task',
+    resourceId: taskId,
+    detail: { error: reason.slice(0, 500), decision: 'REQUIRES_REVIEW', errorCode },
+  });
+  try {
+    const task = await getTaskInternal(taskId);
+    await notify(task.owner_id, NotificationType.TASK_FAILED, 'Task needs review', {
+      body: `${task.title} — review did not pass`,
+      resourceType: 'task',
+      resourceId: taskId,
+      metadata: { status: 'REQUIRES_REVIEW', errorCode, reason: reason.slice(0, 500) },
+      email: false,
+    });
+  } catch {
+    /* notification is best-effort; never break the state transition */
+  }
+}
+
+/**
+ * Clear the FINAL task row's failure marker after an attempt succeeds.
+ *
+ * scheduleRetry() deliberately keeps failure_reason/error_code for the audit
+ * trail, but nothing cleared them on the way back to success: a COMPLETED task
+ * kept the previous attempt's "Premium compute requires an entitled plan"
+ * message and recovery_status='RETRYING', so the final state contradicted the
+ * outcome. Attempt-level history (task_attempts, task_steps, coworker_runs,
+ * audit) is deliberately NOT touched — only the final task row becomes truthful.
+ * A task that never failed keeps recovery_status='NONE'.
+ */
+export async function clearTaskFailureState(taskId: string): Promise<void> {
+  await withSystem(async (q) =>
+    q.query(
+      `UPDATE tasks
+          SET failure_reason = NULL,
+              error_code = NULL,
+              error_detail = NULL,
+              requires_review_reason = NULL,
+              recovery_status = CASE WHEN recovery_status = 'NONE' THEN 'NONE' ELSE 'RECOVERED' END,
+              updated_at = now()
+        WHERE id = $1`,
+      [taskId],
+    ),
+  );
+}
+
+/**
+ * Drop the durable resume checkpoint for an attempt.
+ *
+ * Used when an attempt is aborted for a reason a resume cannot fix (a verifier
+ * that could not be reached). Without this the next attempt would resume the
+ * very same runs, re-derive the same SKIPPED verdict and dead-letter without
+ * ever retrying the verification.
+ */
+export async function clearAttemptCheckpoint(attemptId: string): Promise<void> {
+  await withSystem(async (q) =>
+    q.query('UPDATE task_attempts SET checkpoint = NULL, checkpointed_at = NULL WHERE id = $1', [attemptId]),
+  );
+}
+
+/**
  * Engine decision on a failed attempt: retry while the budget remains
  * (max_attempts total attempts), otherwise dead-letter. Returns the decision.
  */
@@ -414,7 +496,7 @@ export async function retryOrDeadLetter(
 /** Manual recovery: retry a FAILED/TIMED_OUT/BLOCKED or dead-lettered task. */
 export async function retryTask(userId: string, taskId: string, reason?: string): Promise<TaskRow> {
   const task = await getTask(userId, taskId);
-  const retryable = ['FAILED', 'TIMED_OUT', 'BLOCKED'].includes(task.status) || task.recovery_status === 'DEAD_LETTERED';
+  const retryable = ['FAILED', 'TIMED_OUT', 'BLOCKED', 'REQUIRES_REVIEW'].includes(task.status) || task.recovery_status === 'DEAD_LETTERED';
   if (!retryable) {
     throw AppError.conflict('task_not_retryable', `Task ${task.status.toLowerCase()} cannot be retried`);
   }

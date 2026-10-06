@@ -90,7 +90,7 @@ export function ProCelebration() {
         <p className="cc-pro-celebration__meta">
           Questions about your payment?{' '}
           <a href="mailto:medidisaharsh@gmail.com" style={{ color: 'var(--cc-accent)' }}>
-            Contact the founder
+            Contact support
           </a>
         </p>
       </div>

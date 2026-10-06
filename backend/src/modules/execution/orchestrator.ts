@@ -14,6 +14,9 @@ import {
   addStep,
   finishStep,
   setTaskStatus,
+  requireTaskReview,
+  clearTaskFailureState,
+  clearAttemptCheckpoint,
   getTaskInternal,
   retryOrDeadLetter,
   listTaskDependencies,
@@ -53,6 +56,24 @@ const DEFAULT_PIPELINE = ['ARCHITECT', 'CODER', 'SECURITY', 'TESTER', 'REVIEWER'
 // Review-only stages comment on other people's work; they never produce the
 // deliverable. Their output must not be promoted to "the artifact".
 const REVIEW_ONLY_STAGES = new Set<string>(['REVIEWER', 'SECURITY']);
+
+/**
+ * Was a verdict REQUIRED for this run?
+ *
+ * True when the plan entry for this stage declared acceptance criteria (the
+ * verifier was meant to run), or when a verifier was attempted and could not be
+ * reached (`verification_unavailable`). A stage the plan never asked to verify is
+ * not failed by a SKIPPED verdict it was never given — that distinction is what
+ * keeps an honestly-unverified stage from being reported as verified success.
+ */
+function verificationRequiredFor(run: CoworkerRunRow, pipeline: PipelineEntry[]): boolean {
+  const criteria = pipeline[Number(run.order_index)]?.acceptanceCriteria;
+  if (typeof criteria === 'string') {
+    const trimmed = criteria.trim();
+    if (trimmed !== '' && trimmed !== 'null' && trimmed !== '[]') return true;
+  }
+  return run.error_code === 'verification_unavailable';
+}
 
 export { type PipelineEntry };
 
@@ -240,7 +261,10 @@ export async function executeTask(task: TaskRow): Promise<void> {
     // stored review commentary as "the artifact" and hid the produced file.
     const deliverable = lastPersisted
       ? ([...results].reverse().find((r) => r.verification_result === 'PASS' && r.output && !REVIEW_ONLY_STAGES.has(String(r.coworker_type)))
-        ?? [...results].reverse().find((r) => r.verification_result === 'PASS' && r.output)
+        // A review-only stage is NEVER the deliverable, even when it is the only
+        // run that passed. Selecting it here republished the reviewer's verdict as
+        // "the artifact" — the exact defect this whole selection block exists to
+        // prevent.
         // Fall back to the last PRODUCING stage, never the trailing reviewer.
         // The previous `?? lastPersisted` fallback ran whenever no run had
         // verification_result === 'PASS' and promoted the reviewer, storing a
@@ -254,18 +278,83 @@ export async function executeTask(task: TaskRow): Promise<void> {
         ?? (lastPersisted && !REVIEW_ONLY_STAGES.has(String(lastPersisted.coworker_type)) ? lastPersisted : null))
       : null;
 
+    // 4b. TERMINAL SUCCESS GATE.
+    //
+    // The orchestrator used to write VERIFIED/COMPLETED unconditionally, so a
+    // REVIEWER verdict of FAIL and a SKIPPED verifier both still published the
+    // deliverable and reported success (observed live 2026-10-05 on commit
+    // 1850598). A task is only SUCCESSFULLY COMPLETED when every blocking
+    // verdict passed:
+    //   1. every stage completed — a throw above already aborts the attempt
+    //   2. no run came back with verification_result = 'FAIL'
+    //   3. every stage the plan required a verdict for actually earned a PASS
+    //   4. a deliverable exists, bound to a producing stage
+    // Nothing is published as PASS unless this gate passes.
+    const failedRuns = results.filter((r) => r.verification_result === 'FAIL');
+    // Every stage the plan required a verdict for must have actually earned one.
+    // Scoped to ALL runs, not just the selected deliverable: letting an earlier
+    // PASS stand in for an unverified producing stage is the same loophole that
+    // published live task tsk_kdx6nw42's deliverable while its own verification
+    // was SKIPPED.
+    const unverifiedRuns = results.filter(
+      (r) => r.verification_result !== 'FAIL' && verificationRequiredFor(r, pipeline) && r.verification_result !== 'PASS',
+    );
+
+    if (failedRuns.length > 0 || unverifiedRuns.length > 0 || !deliverable) {
+      const reasons: string[] = [];
+      for (const r of failedRuns) reasons.push(`${String(r.coworker_type).toLowerCase()} verification returned FAIL`);
+      for (const r of unverifiedRuns) {
+        reasons.push(
+          `${String(r.coworker_type).toLowerCase()} verification is ${r.verification_result ?? 'SKIPPED'} but the plan required a PASS`,
+        );
+      }
+      if (!deliverable) reasons.push('no verified producing stage produced a deliverable');
+      const reason = reasons.join('; ');
+
+      // The deliverable is NOT published and NOT labelled PASS. Every run output
+      // stays in coworker_runs and task_steps, so the work is not destroyed — it
+      // is simply not reported as successful.
+      await finishStep(verifyStep.id, 'FAILED', { verification: verification || 'SKIPPED', reason }, undefined, 'verification_failed');
+      steps.push(verifyStep.id);
+
+      if (failedRuns.length > 0) {
+        // An affirmative FAIL is a judgement about the work, not an outage. Park
+        // it in the existing REQUIRES_REVIEW state so the owner sees the review
+        // failed, instead of burning the retry budget on the same rejected work.
+        await finishAttempt(attempt.id, 'FAILURE', reason.slice(0, 500));
+        recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
+        await requireTaskReview(task.id, reason);
+        logger.warn('task requires review: verification did not pass', { taskId: task.id, reason });
+        return;
+      }
+
+      // Verification was required but could not be reached (or there is no
+      // deliverable at all). That is infrastructure, so re-use the existing
+      // retry/dead-letter path (its catch owns finishAttempt + the retry audit).
+      // Drop the resume checkpoint first, otherwise the next attempt resumes the
+      // very same runs, re-derives the same SKIPPED verdict and dead-letters
+      // without ever retrying the verification.
+      recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
+      await clearAttemptCheckpoint(attempt.id);
+      throw AppError.conflict('verification_failed', reason);
+    }
+
     // 5. artifacts (persist the PRODUCED DELIVERABLE with SHA-256 + attempt +
     // verification refs, and keep the review/verification result separately).
     if (deliverable) {
       const artifactStep = await addStep(task.id, attempt.id, 'artifact', 'Persist artifacts');
       const slug = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48);
+      // The gate above guarantees the deliverable is PASS whenever a verdict was
+      // required. `?? verified ? 'PASS' : 'SKIPPED'` could previously relabel a
+      // SKIPPED stage as PASS merely because some OTHER run passed; the artifact
+      // now carries only the verdict its own run actually earned.
       await saveCoworkerArtifact({
         runId: deliverable.id,
         name: `${slug}-output.md`,
         kind: 'output',
         content: JSON.stringify(deliverable.output, null, 2),
         attemptId: attempt.id,
-        verification: (deliverable.verification_result as 'PASS' | 'FAIL' | 'SKIPPED') ?? (verified ? 'PASS' : 'SKIPPED'),
+        verification: (deliverable.verification_result as 'PASS' | 'FAIL' | 'SKIPPED') ?? 'SKIPPED',
       });
       // Review / verification output stays recorded on its own artifact, and is
       // never removed from coworker_runs.output.
@@ -286,6 +375,11 @@ export async function executeTask(task: TaskRow): Promise<void> {
     // 6. complete (re-check: a cancel during verification/artifacts must not
     // be overwritten by completion writes)
     await abortIfCancelled(task.id, attempt.id);
+    // Make the final task row truthful before writing the terminal status: a
+    // retried task still carried the PREVIOUS attempt's failure_reason and
+    // recovery_status='RETRYING' while reporting COMPLETED. Attempt history
+    // (task_attempts / task_steps / audit) is left intact.
+    await clearTaskFailureState(task.id);
     await setTaskStatus(task.id, 'VERIFIED');
     await setTaskStatus(task.id, 'COMPLETED');
     // Phase 6: auto-save project DNA (background; never blocks or fails the task).

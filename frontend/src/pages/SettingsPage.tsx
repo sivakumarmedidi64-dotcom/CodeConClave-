@@ -444,7 +444,7 @@ export function SettingsPage() {
       });
       setClaimPaymentId('');
       await load();
-      toast(`Claim ${res.claim.status.toLowerCase()} — you'll be notified when the founder verifies it.`);
+      toast(`Claim ${res.claim.status.toLowerCase()} — you'll be notified when support verifies it.`);
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : 'Claim submission failed');
       toast(err instanceof Error ? err.message : 'Claim submission failed', 'error');
@@ -1149,7 +1149,7 @@ export function SettingsPage() {
               <div>
                 <div style={{ fontWeight: 600 }}>Pay &amp; confirm (manual review)</div>
                 <p className="cc-hint" style={{ margin: 0 }}>
-                  Pays are verified manually by the founder. Pay at your checkout's link with the reference
+                  Payments are confirmed manually by the support team. Pay at your checkout's link with the reference
                   (e.g. <span className="cc-mono">CCPRO-XXXXXX</span>), then paste the Razorpay Payment ID
                   (<span className="cc-mono">pay_...</span>) from your confirmation screen or e-mail. Startup
                   amounts are ₹{capability.plans.pro ?? 999} (Solo), ₹{capability.plans.team ?? 4999} (Team) and

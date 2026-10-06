@@ -15,7 +15,31 @@ import type { ChatMessage } from '../ai/providers.js';
 import { planRoute } from '../ai/router.js';
 import { retrieveAgentContext } from '../memorycoding/agentContext.js';
 import { redactSecrets } from '../secretGuard/patterns.js';
+import { temporaryDemoModeEnabled } from '../entitlements/service.js';
 import { TaskType, RoutingPreference } from '@codeconclave/shared';
+
+/**
+ * Resolve the compute class a stage actually requests.
+ *
+ * While TEMPORARY_DEMO_MODE is on, every account is free-plan, and a free-plan
+ * account has NO class-C (PREMIUM) model eligible. Requesting C made the gateway
+ * attempt the premium class and only fall back to a cheaper model when one
+ * happened to be healthy; under a transient provider flap no cheaper model was
+ * available and the stage failed with "Premium compute requires an entitled
+ * plan (Pro/Team/Enterprise)" or "All configured models failed (billing)",
+ * burning a retry before recovering. Observed live 2026-10-05 on commit 1850598,
+ * where ARCHITECT and SECURITY each failed once before succeeding.
+ *
+ * Demo execution therefore demotes a PREMIUM stage policy to STANDARD (B) up
+ * front, so the demo only ever asks for a model that is actually eligible.
+ * Nothing is faked or unlocked: the gateway still enforces entitlement, health,
+ * capability, privacy and the premium budget gate on every request, the
+ * entitlement rails are untouched, and a paid plan keeps its declared class C.
+ */
+export function resolveComputeClass(declared: 'A' | 'B' | 'C'): 'A' | 'B' | 'C' {
+  if (declared === 'C' && temporaryDemoModeEnabled()) return 'B';
+  return declared;
+}
 
 export interface CoworkerDef {
   type: string;
@@ -330,6 +354,18 @@ export async function setRunOutput(runId: string, output: Record<string, unknown
   );
 }
 
+/**
+ * Record WHY a run carries no verdict. `verification_unavailable` means the plan
+ * asked for verification and the verifier could not be reached, which is
+ * materially different from a stage the plan never asked to verify — the
+ * orchestrator's terminal-success gate needs to tell those apart.
+ */
+export async function setRunErrorCode(runId: string, errorCode: string): Promise<void> {
+  await withSystem((db) =>
+    db.query('UPDATE coworker_runs SET error_code = $2, updated_at = now() WHERE id = $1', [runId, errorCode]),
+  );
+}
+
 /** Resolve the owning task of a coworker run (used for route-level ownership checks). */
 export async function getCoworkerRunTaskId(runId: string): Promise<string | null> {
   const rows = await withSystem((db) => db.query<{ task_id: string }>('SELECT task_id FROM coworker_runs WHERE id = $1', [runId]));
@@ -552,6 +588,9 @@ export async function runCoworker(
     // Model Routing 2026: plan a decision for this coworker's task type. The
     // coworker's declared compute class stays the default when planning fails.
     const taskType = coworkerTaskType(run.coworker_type);
+    // Demo execution requests only an actually-eligible class (see
+    // resolveComputeClass); every gateway rail still applies to that request.
+    const computeClass = resolveComputeClass(def.modelPolicy.computeClass);
     let routedModelId: string | undefined;
     try {
       const decision = await planRoute({
@@ -559,7 +598,7 @@ export async function runCoworker(
         text: userMessage,
         taskType,
         routingPreference: RoutingPreference.AUTO,
-        opts: { computeClass: def.modelPolicy.computeClass, coworkerType: run.coworker_type },
+        opts: { computeClass, coworkerType: run.coworker_type },
       });
       routedModelId = decision.selectedModel || undefined;
     } catch {
@@ -576,7 +615,7 @@ export async function runCoworker(
       messages,
       maxTokens: def.maxTokens,
       opts: {
-        computeClass: def.modelPolicy.computeClass,
+        computeClass,
         coworkerType: run.coworker_type,
         requestedModelId: routedModelId,
         taskType,
@@ -697,7 +736,13 @@ export async function verifyCoworkerRun(
     await setRunOutput(run.id, run.output, result);
     return result;
   } catch {
+    // The verifier could not be reached (routing/provider outage). Record that
+    // the verdict is missing because of an outage, not because the plan never
+    // asked for one, so the orchestrator refuses to report this task as
+    // successfully verified (the live 2026-10-05 task tsk_kdx6nw42 published a
+    // deliverable whose verification was SKIPPED for exactly this reason).
     await setRunOutput(run.id, run.output, 'SKIPPED');
+    await setRunErrorCode(run.id, 'verification_unavailable');
     return 'SKIPPED';
   }
 }

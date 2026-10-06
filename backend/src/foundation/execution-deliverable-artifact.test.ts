@@ -207,16 +207,20 @@ describe('PROBLEM 2 — the artifact is the produced deliverable', () => {
 
     await executeTask(task as never);
 
-    // The producing stage stays the deliverable and keeps the FAIL verdict; the
-    // reviewer's commentary is recorded separately as the review artifact. The
-    // previous `?? lastPersisted` fallback promoted REVIEWER to the deliverable
-    // here, which is what stored a 20-byte {"text":"PASS"} as the artifact in
-    // production and discarded the real produced document.
-    expect(store.artifacts.length).toBe(2);
-    expect(String(artifact('output').content)).toContain('output of CODER');
-    expect(String(artifact('output').content)).not.toContain('output of REVIEWER');
-    expect(artifact('output').verification).toBe('FAIL');
-    expect(String(artifact('review').content)).toContain('output of REVIEWER');
+    // Two independent guarantees now hold when every verdict is FAIL.
+    //
+    // (a) The reviewer is never promoted to the deliverable. The old
+    //     `?? lastPersisted` fallback promoted REVIEWER here, which is what
+    //     stored a 20-byte {"text":"PASS"} as the artifact in production and
+    //     discarded the real produced document.
+    // (b) Nothing is published at all. A task whose required verification
+    //     returned FAIL must not publish a deliverable or report success, so
+    //     there is no output artifact and no review artifact to confuse.
+    expect(store.artifacts.length).toBe(0);
+    expect(store.artifacts.some((a) => String(a.content).includes('output of REVIEWER'))).toBe(false);
+    expect(store.persisted.get(store.created.find((r) => r.coworker_type === 'REVIEWER')!.id as string)!.output).toEqual({
+      text: 'output of REVIEWER',
+    });
   });
 
   it('task lifecycle is unchanged', async () => {
