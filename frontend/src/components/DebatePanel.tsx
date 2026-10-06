@@ -161,7 +161,7 @@ export function DebatePanel() {
               rows={3}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Should we switch the checkout to a server-side render?"
+              placeholder="e.g. Should we switch the logout flow to server-side rendering?"
             />
           </div>
           <div className="cc-field">

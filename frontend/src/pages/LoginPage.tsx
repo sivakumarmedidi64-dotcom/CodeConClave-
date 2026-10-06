@@ -4,7 +4,7 @@
  * account password (no OTP). It is never triggered by typing an email alone.
  */
 import { useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, MfaRequiredError } from '../auth/AuthProvider';
 import { ApiError } from '../lib/api';
 import { useToast } from '../components/Toast';
@@ -343,6 +343,11 @@ export function LoginPage() {
                 </button>
               </>
             )}
+          </p>
+          <p className="cc-auth__hint">
+            <Link to="/register" className="cc-btn cc-btn--ghost cc-btn--sm">
+              New here? Create an account
+            </Link>
           </p>
           {ownerVisible || (
             <button

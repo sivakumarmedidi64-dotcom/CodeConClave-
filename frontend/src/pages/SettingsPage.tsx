@@ -67,8 +67,10 @@ export function SettingsPage() {
   const tabParam = searchParams.get('tab');
   // Early access drops `billing` from the available sections entirely, so a
   // leftover /settings?tab=billing deep link falls back to the default tab
-  // rather than rendering dormant payment chrome.
-  const tabs: readonly Tab[] = earlyAccess ? SETTINGS_TABS.filter((t) => t !== 'billing') : SETTINGS_TABS;
+  // rather than rendering dormant payment chrome. In a demo build the billing
+  // section is compiled out of the bundle entirely (no price/checkout strings).
+  const billingOn = !__DEMO_BUILD__ && !earlyAccess;
+  const tabs: readonly Tab[] = billingOn ? SETTINGS_TABS : SETTINGS_TABS.filter((t) => t !== 'billing');
   const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? '') ? (tabParam as Tab) : 'profile';
   const selectTab = useCallback(
     (next: Tab) => {
@@ -938,7 +940,7 @@ export function SettingsPage() {
         </div>
       )}
 
-      {tab === 'billing' && (
+      {!__DEMO_BUILD__ && tab === 'billing' && (
         <div className="cc-card">
           <h3>Payments & plan</h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1594,7 +1596,7 @@ export function SettingsPage() {
             <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--cc-border, #ddd)', borderRadius: 6, background: 'var(--cc-bg-soft, #fafafa)' }}>
               <p style={{ margin: 0 }}>API keys are released as a separate plan and are not part of Early Access.</p>
             </div>
-          ) : apiAccess && !apiAccess.entitled ? (
+          ) : !__DEMO_BUILD__ && apiAccess && !apiAccess.entitled ? (
             <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--cc-border, #ddd)', borderRadius: 6, background: 'var(--cc-bg-soft, #fafafa)' }}>
               <p style={{ margin: 0 }}>
                 {`API keys require the API Access add-on (₹${capability?.plans.api ?? 9999}/month). Solo and Team plans do not include API keys.`}

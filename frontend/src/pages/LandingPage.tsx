@@ -8,10 +8,12 @@
  * is handled server-side by temporary demo mode. Commercial plans stay in the
  * backend and reappear with the payment surface when demo mode is switched off.
  *
- * Entry is DIRECT LOGIN ONLY: no "create account" / self-sign-up is exposed
- * from this page (or from /login, which no longer links to /register). The
- * backend /register API is untouched and the page stays registered for the
- * tour once sign-up is turned back on. Every CTA here lands on /login.
+ * Entry is zero-domain only: LOGIN via identifier (email or handle) -> keyword
+ * (with the 32-character account-key challenge when required) and REGISTER via
+ * identifier -> handle -> keyword -> generated 32-character account key shown
+ * once. There is no Google/OAuth choice, and no payment surface on this page.
+ * Commercial plans stay in the backend and reappear with the payment surface
+ * when demo mode is switched off.
  *
  * Styling is scoped to styles/landing.css so the in-app IDE theme is untouched.
  */
@@ -201,8 +203,8 @@ export function LandingPage() {
               <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
-              <Link to="/login" className="lp-btn lp-btn--ghost">
-                Explore CodeConClave
+              <Link to="/register" className="lp-btn lp-btn--ghost">
+                Create an account
               </Link>
             </div>
             <ul className="lp-pillars" aria-label="Core concepts">
@@ -398,9 +400,9 @@ export function LandingPage() {
               <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
-              <a href="#lp-choose" className="lp-btn lp-btn--ghost">
-                Compare the apps
-              </a>
+              <Link to="/register" className="lp-btn lp-btn--ghost">
+                Create an account
+              </Link>
             </div>
             <p className="lp-cta__note">Early access. Capabilities are labelled individually above.</p>
           </div>
@@ -412,6 +414,7 @@ export function LandingPage() {
           <span>© {new Date().getFullYear()} CodeConClave</span>
           <nav className="lp-footer__links" aria-label="Footer">
             <Link to="/login">Sign in</Link>
+            <Link to="/register">Create an account</Link>
           </nav>
         </div>
       </footer>

@@ -172,16 +172,16 @@ describe('login — identifier, keyword, account-key challenge', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /send sign-in code/i })).toBeDefined());
   });
 
-  it('offers direct login only — no create-account path from sign-in', async () => {
+  it('leads from sign-in to the zero-domain register path — no third-party auth', async () => {
     const { container } = renderEntry('/login', async (url) => {
       if (url.includes('/auth/me')) return jsonResponse({ data: { user: USER } });
       return jsonResponse({ data: {} });
     });
 
     await waitFor(() => expect(screen.getByLabelText('Email or handle')).toBeDefined());
-    expect(container.querySelectorAll('a[href*="/register"]')).toHaveLength(0);
-    expect(screen.queryByRole('link', { name: /create an? account/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /create an? account/i })).toBeNull();
+    expect(container.querySelector('a[href="/register"]')).not.toBeNull();
+    expect(container.textContent).toMatch(/create an? account/i);
+    expectNoThirdPartyAuth(container);
   });
 });
 

@@ -18,7 +18,7 @@ function renderMoon(overrides: Partial<Parameters<typeof FreeLimitMoon>[0]> = {}
   return render(
     <FreeLimitMoon
       name="Alice"
-      onUpgrade={vi.fn()}
+      onOpenBilling={vi.fn()}
       onClose={vi.fn()}
       {...overrides}
     />,
@@ -62,10 +62,10 @@ describe('FreeLimitMoon', () => {
 
   it('Continue with Pro triggers the upgrade path', async () => {
     stubFetch(async () => jsonResponse({ data: {} }));
-    const onUpgrade = vi.fn();
-    renderMoon({ onUpgrade });
+    const onOpenBilling = vi.fn();
+    renderMoon({ onOpenBilling });
     await userEvent.click(screen.getByText('Continue with Pro'));
-    expect(onUpgrade).toHaveBeenCalledTimes(1);
+    expect(onOpenBilling).toHaveBeenCalledTimes(1);
   });
 
   it('Maybe Later closes the overlay', async () => {

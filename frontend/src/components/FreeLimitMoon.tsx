@@ -18,12 +18,12 @@ function prefersReducedMotion(): boolean {
 
 export function FreeLimitMoon({
   name,
-  onUpgrade,
+  onOpenBilling,
   onClose,
   earlyAccess = false,
 }: {
   name: string | null | undefined;
-  onUpgrade: () => void;
+  onOpenBilling: () => void;
   onClose: () => void;
   /**
    * Early access: there is no paid tier to upgrade to, so the moon must never
@@ -66,7 +66,7 @@ export function FreeLimitMoon({
               Continue
             </button>
           ) : (
-            <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={() => onUpgrade()}>
+            <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={() => onOpenBilling()}>
               Continue with Pro
             </button>
           )}

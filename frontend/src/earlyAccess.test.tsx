@@ -190,22 +190,22 @@ describe('early access — usage limit moment', () => {
   });
 
   it('does not sell a plan from the usage-limit moment during early access', async () => {
-    const onUpgrade = vi.fn();
+    const onOpenBilling = vi.fn();
     const onClose = vi.fn();
-    render(<FreeLimitMoon name="Tester" onUpgrade={onUpgrade} onClose={onClose} earlyAccess />);
+    render(<FreeLimitMoon name="Tester" onOpenBilling={onOpenBilling} onClose={onClose} earlyAccess />);
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continue with Pro' })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(onUpgrade).not.toHaveBeenCalled();
+    expect(onOpenBilling).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the normal upgrade moment once demo mode is off', async () => {
-    const onUpgrade = vi.fn();
+    const onOpenBilling = vi.fn();
     const onClose = vi.fn();
-    render(<FreeLimitMoon name="Tester" onUpgrade={onUpgrade} onClose={onClose} />);
+    render(<FreeLimitMoon name="Tester" onOpenBilling={onOpenBilling} onClose={onClose} />);
     await userEvent.click(screen.getByRole('button', { name: 'Continue with Pro' }));
-    expect(onUpgrade).toHaveBeenCalledTimes(1);
+    expect(onOpenBilling).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
   });
 });

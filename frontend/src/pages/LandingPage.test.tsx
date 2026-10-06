@@ -51,17 +51,21 @@ describe('LandingPage', () => {
       const enter = screen.getAllByRole('link', { name: 'Enter CodeConClave' });
       expect(enter.length).toBeGreaterThan(0);
       for (const link of enter) expect(link.getAttribute('href')).toBe('/login');
-      expect(screen.getAllByRole('link', { name: 'Explore CodeConClave' })[0]!.getAttribute('href')).toBe('/login');
+      const register = screen.getAllByRole('link', { name: 'Create an account' });
+      expect(register.length).toBeGreaterThan(0);
+      for (const link of register) expect(link.getAttribute('href')).toBe('/register');
     });
 
-    it('is direct login only — no account-creation path from the landing page', () => {
+    it('offers the zero-domain register path and no third-party login', () => {
       renderLanding();
       const links = screen.getAllByRole('link');
       const registerLinks = links.filter((l) => (l.getAttribute('href') ?? '').endsWith('/register'));
-      expect(registerLinks).toHaveLength(0);
+      expect(registerLinks.length).toBeGreaterThanOrEqual(2);
       const loginLinks = links.filter((l) => (l.getAttribute('href') ?? '') === '/login');
       expect(loginLinks.length).toBeGreaterThanOrEqual(6);
-      expect(document.body.textContent).not.toMatch(/create an? account/i);
+      expect(document.body.textContent).toMatch(/create an? account/i);
+      expect(document.body.textContent).not.toMatch(/sign in with google/i);
+      expect(document.body.textContent).not.toMatch(/continue with google/i);
     });
   });
 
@@ -329,14 +333,17 @@ describe('LandingPage', () => {
       }
     });
 
-    it('routes every entry action into direct sign-in, with no sign-up surface', () => {
+    it('routes entry actions only into the zero-domain sign-in and register surfaces', () => {
       renderLanding();
       const authLinks = screen.getAllByRole('link').filter((l) => {
         const href = l.getAttribute('href') ?? '';
         return href === '/login' || href === '/register';
       });
-      expect(authLinks.length).toBeGreaterThanOrEqual(4);
-      expect(authLinks.every((l) => (l.getAttribute('href') ?? '') === '/login')).toBe(true);
+      expect(authLinks.length).toBeGreaterThanOrEqual(5);
+      for (const l of authLinks) {
+        const href = l.getAttribute('href') ?? '';
+        expect(['/login', '/register']).toContain(href);
+      }
     });
   });
 

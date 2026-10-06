@@ -1337,7 +1337,7 @@ export function ChatPage() {
         <FreeLimitMoon
           name={user?.displayName}
           earlyAccess={earlyAccess}
-          onUpgrade={() => {
+          onOpenBilling={() => {
             setFreeLimit(false);
             navigate('/settings');
           }}
