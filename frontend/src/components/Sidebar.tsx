@@ -10,6 +10,7 @@ import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { BrandLogo } from './BrandLogo';
 import type { User } from '../lib/types';
+import { useEarlyAccess } from '../lib/accessMode';
 
 interface NavItem {
   to: string;
@@ -98,6 +99,8 @@ function NavRow({ item }: { item: NavItem }) {
 
 export function Sidebar({ user }: { user: User }) {
   const isAdmin = user && ['admin', 'owner'].includes(user.rbacRole);
+  // Early access: the account pill reports the access stage, never a plan tier.
+  const earlyAccess = useEarlyAccess();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const name = user.displayName ?? user.email ?? 'Account';
@@ -149,10 +152,10 @@ export function Sidebar({ user }: { user: User }) {
           {name}
         </span>
         <span
-          className={`cc-plan-pill${user.entitlementState === 'PRO_VERIFIED' ? ' cc-plan-pill--pro' : ''}`}
+          className={`cc-plan-pill${!earlyAccess && user.entitlementState === 'PRO_VERIFIED' ? ' cc-plan-pill--pro' : ''}`}
           style={{ padding: '1px 8px', fontSize: 10, fontWeight: 600, letterSpacing: '0.04em' }}
         >
-          {planLabel(user)}
+          {earlyAccess ? 'Early Access' : planLabel(user)}
         </span>
       </div>
     </aside>

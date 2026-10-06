@@ -34,6 +34,7 @@ import type {
   UserApiKey,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { useEarlyAccess } from '../lib/accessMode';
 
 type Tab = 'profile' | 'security' | 'devices' | 'billing' | 'preferences' | 'notifications' | 'providers' | 'apikeys' | 'memory';
 
@@ -51,6 +52,10 @@ const PROVIDER_STATUS_LABEL: Record<ProviderStatusEntry['status'], string> = {
 export function SettingsPage() {
   const { user, refresh, updateProfile, sendVerificationEmail, getIdentity, enrollIdentity, changeKeyword, beginSecurityKeyEnroll, confirmSecurityKey, rotateSecurityKey, disableSecurityKey, reportSecurityKeyTheft, revokeAllSessions } = useAuth();
   const { toast } = useToast();
+  // Early access: the whole commercial billing surface (prices, plan cards,
+  // upgrade CTAs, checkout, entitlement debug) is dormant, not deleted. It
+  // returns automatically once the server switches demo mode off.
+  const earlyAccess = useEarlyAccess();
   const [displayName, setDisplayName] = useState<string>(user?.displayName ?? '');
   const [role, setRole] = useState<string>(user?.role ?? '');
   const [useCase, setUseCase] = useState<string>(user?.primaryUseCase ?? '');
@@ -60,7 +65,11 @@ export function SettingsPage() {
   // refresh, back/forward, and in-page tab clicks all resolve identically with
   // no duplicated state to fall out of sync.
   const tabParam = searchParams.get('tab');
-  const tab: Tab = (SETTINGS_TABS as readonly string[]).includes(tabParam ?? '') ? (tabParam as Tab) : 'profile';
+  // Early access drops `billing` from the available sections entirely, so a
+  // leftover /settings?tab=billing deep link falls back to the default tab
+  // rather than rendering dormant payment chrome.
+  const tabs: readonly Tab[] = earlyAccess ? SETTINGS_TABS.filter((t) => t !== 'billing') : SETTINGS_TABS;
+  const tab: Tab = (tabs as readonly string[]).includes(tabParam ?? '') ? (tabParam as Tab) : 'profile';
   const selectTab = useCallback(
     (next: Tab) => {
       const params = new URLSearchParams(searchParams);
@@ -665,8 +674,6 @@ export function SettingsPage() {
     }
   };
 
-  const tabs: readonly Tab[] = SETTINGS_TABS;
-
   return (
     <div className="cc-page">
       <h1>Settings</h1>
@@ -733,12 +740,14 @@ export function SettingsPage() {
           <p className="cc-hint">
             Address <strong>{user?.email}</strong> {user?.emailVerified ? '· verified' : '· not verified yet'}
           </p>
+          {!earlyAccess && (
           <p className="cc-hint">
             Plan: {user?.planId} · Entitlement:{' '}
             <span style={{ color: user?.entitlementState === 'PRO_VERIFIED' ? 'var(--cc-accent)' : 'inherit' }}>
               {user?.entitlementState}
             </span>
           </p>
+          )}
           <p className="cc-hint">
             MFA {user?.mfaEnabled ? 'enabled' : 'disabled'} · role {user?.rbacRole}
           </p>
@@ -1581,7 +1590,11 @@ export function SettingsPage() {
             </div>
           )}
 
-          {apiAccess && !apiAccess.entitled ? (
+          {earlyAccess ? (
+            <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--cc-border, #ddd)', borderRadius: 6, background: 'var(--cc-bg-soft, #fafafa)' }}>
+              <p style={{ margin: 0 }}>API keys are released as a separate plan and are not part of Early Access.</p>
+            </div>
+          ) : apiAccess && !apiAccess.entitled ? (
             <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--cc-border, #ddd)', borderRadius: 6, background: 'var(--cc-bg-soft, #fafafa)' }}>
               <p style={{ margin: 0 }}>
                 {`API keys require the API Access add-on (₹${capability?.plans.api ?? 9999}/month). Solo and Team plans do not include API keys.`}
@@ -1772,7 +1785,9 @@ export function SettingsPage() {
       <div className="cc-card" style={{ marginTop: 20 }}>
         <h3>Need help?</h3>
         <p className="cc-hint" style={{ margin: '6px 0 12px' }}>
-          Stuck, have a bug, or want a plan change? Write to support.
+          {earlyAccess
+            ? 'Stuck, have a bug, or need help getting access? Write to support.'
+            : 'Stuck, have a bug, or want a plan change? Write to support.'}
         </p>
         <a className="cc-btn cc-btn--sm cc-btn--ghost" href="mailto:medidisaharsh@gmail.com">
           Contact support

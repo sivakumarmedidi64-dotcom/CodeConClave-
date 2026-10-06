@@ -103,8 +103,8 @@ describe('LandingPage', () => {
     it('offers the web app with its documented benefits', () => {
       renderLanding();
       const card = screen.getByRole('article', { name: /Web App/i });
-      expect(within(card).getByText('Run CodeConClave in your browser.')).toBeDefined();
-      for (const point of ['No installation', 'Instant access', 'Works across devices', 'Best for quick access']) {
+      expect(within(card).getByText('Run CodeConClave instantly in your browser.')).toBeDefined();
+      for (const point of ['No installation', 'Instant access', 'Works across devices', 'Easiest way to start']) {
         expect(within(card).getByText(point)).toBeDefined();
       }
       expect(within(card).getByRole('link', { name: 'Open Web App' }).getAttribute('href')).toBe('/register');
@@ -113,12 +113,12 @@ describe('LandingPage', () => {
     it('offers the desktop app with its documented benefits', () => {
       renderLanding();
       const card = screen.getByRole('article', { name: /Desktop App/i });
-      expect(within(card).getByText('Use the full CodeConClave desktop environment.')).toBeDefined();
+      expect(within(card).getByText("Use CodeConClave's desktop environment.")).toBeDefined();
       for (const point of [
+        'Local development workflow',
         'Local project access',
-        'Desktop workflow',
-        'Local-agent capabilities where supported',
-        'Best for development workflows',
+        'Desktop experience',
+        'Early access status',
       ]) {
         expect(within(card).getByText(point)).toBeDefined();
       }
@@ -128,6 +128,23 @@ describe('LandingPage', () => {
       expect(cta.getAttribute('href')).toBe('/register');
       expect(card.textContent).not.toContain('Get Desktop App');
       expect(card.textContent).not.toContain('/api/v1/downloads/desktop');
+    });
+
+    it('never advertises local-agent capability, which is not live today', () => {
+      renderLanding();
+      const card = screen.getByRole('article', { name: /Desktop App/i });
+      expect(card.textContent).not.toMatch(/local-agent/i);
+      expect(document.body.textContent).not.toMatch(/local-agent/i);
+    });
+
+    it('ranks the web CTA above the desktop CTA visually', () => {
+      renderLanding();
+      const web = within(screen.getByRole('article', { name: /Web App/i })).getByRole('link', { name: 'Open Web App' });
+      const desktop = within(screen.getByRole('article', { name: /Desktop App/i })).getByRole('link', { name: 'Request Access' });
+      expect(web.className).toContain('lp-btn--primary');
+      expect(web.className).not.toContain('lp-btn--ghost');
+      expect(desktop.className).toContain('lp-btn--ghost');
+      expect(desktop.className).not.toContain('lp-btn--primary');
     });
 
     it('renders both cards so the choice stays visually balanced', () => {
@@ -141,6 +158,20 @@ describe('LandingPage', () => {
     it('shows the fetched installer version on the desktop card', async () => {
       renderLanding();
       expect(await screen.findByText(/Windows installer · v0\.1\.0 · 110 MB/i)).toBeDefined();
+    });
+
+    it('never claims an installer exists when none is published', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, available: false, version: null, sizeMB: null })));
+      renderLanding();
+      expect(await screen.findByText('No Windows installer published yet')).toBeDefined();
+      expect(document.body.textContent).not.toMatch(/Windows installer · v/i);
+    });
+
+    it('stays truthful when the downloads endpoint cannot be reached', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+      renderLanding();
+      expect(await screen.findByText('No Windows installer published yet')).toBeDefined();
+      expect(document.body.textContent).not.toMatch(/Windows installer · v/i);
     });
   });
 

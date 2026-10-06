@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 import { readDismissed, persistDismissed } from '../lib/celebrationStorage';
+import { useEarlyAccess } from '../lib/accessMode';
 import type { PaymentStatusView } from '../lib/types';
 
 const PRO = 'pro';
@@ -18,13 +19,16 @@ const POLL_MS = 20_000;
 
 export function ProCelebration() {
   const { status, user } = useAuth();
+  // Early access: no plan is purchased, so there is no activation to celebrate
+  // and no reason to poll a payments endpoint at all.
+  const earlyAccess = useEarlyAccess();
   const [visible, setVisible] = useState(false);
   const [activatedAt, setActivatedAt] = useState<string | null>(null);
   const celebratedKey = useRef<string | null>(null);
   const prevProEntitlement = useRef<string | null>(null);
 
   useEffect(() => {
-    if (status !== 'authed' || !user) {
+    if (earlyAccess || status !== 'authed' || !user) {
       setVisible(false);
       return;
     }
@@ -66,7 +70,7 @@ export function ProCelebration() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [status, user]);
+  }, [status, user, earlyAccess]);
 
   if (!visible) return null;
 

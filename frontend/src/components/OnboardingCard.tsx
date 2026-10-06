@@ -1,7 +1,7 @@
 /**
  * CodeConClave — OnboardingCard.
  * Minimal first-run profile completeness: display name (if missing), role and
- * primary use case. Google auth already provides identity (email), so email is
+ * primary use case. Sign-in already provides identity (email), so email is
  * never re-asked here. Values MUST match the server-side allow-lists
  * (shared/src/constants.ts ONBOARDING_ROLES / ONBOARDING_USE_CASES), which
  * validate every write. Persists via the existing account profile API so Web

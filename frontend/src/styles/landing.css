@@ -326,7 +326,21 @@
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.lp-choice__card:hover {
+/* Restrained colour polish for the two choice cards only: a faint accent
+   hairline along the top edge keeps both cards inside the brand palette, and
+   keyboard focus draws the same emphasis as hover so the recommended path
+   stays legible without relying on colour alone. */
+.lp-choice__card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  border-radius: var(--lp-radius-lg) var(--lp-radius-lg) 0 0;
+  background: linear-gradient(90deg, transparent, var(--lp-accent-line), transparent);
+}
+
+.lp-choice__card:hover,
+.lp-choice__card:focus-within {
   border-color: var(--lp-accent-line);
   transform: translateY(-3px);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--lp-accent-soft);
@@ -334,6 +348,11 @@
 
 .lp-choice__card--primary {
   border-color: var(--lp-accent-line);
+  background: linear-gradient(180deg, var(--lp-glow), var(--lp-surface));
+}
+
+.lp-choice__card--primary::before {
+  background: var(--lp-accent);
 }
 
 .lp-choice__tag {
@@ -353,6 +372,13 @@
   border-color: var(--lp-accent-line);
   background: var(--lp-accent-soft);
   color: var(--lp-accent-strong);
+}
+
+/* The Early Access tag reads as a status, not a CTA: keep it quiet, but tie
+   the border into the accent palette so both cards feel like one system. */
+.lp-choice__card:not(.lp-choice__card--primary) .lp-choice__tag {
+  border-color: var(--lp-accent-line);
+  color: var(--lp-text);
 }
 
 .lp-choice__name {

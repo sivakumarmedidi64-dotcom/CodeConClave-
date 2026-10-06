@@ -20,10 +20,17 @@ export function FreeLimitMoon({
   name,
   onUpgrade,
   onClose,
+  earlyAccess = false,
 }: {
   name: string | null | undefined;
   onUpgrade: () => void;
   onClose: () => void;
+  /**
+   * Early access: there is no paid tier to upgrade to, so the moon must never
+   * sell one. The primary action simply dismisses the moment instead of
+   * routing to the (dormant) billing surface.
+   */
+  earlyAccess?: boolean;
 }) {
   const primaryRef = useRef<HTMLButtonElement | null>(null);
   const reduced = useRef(prefersReducedMotion());
@@ -54,9 +61,15 @@ export function FreeLimitMoon({
         <h2 id="cc-free-limit-title">You&apos;ve reached your usage limit for this rolling window.</h2>
         <p className="cc-hint">Your work is safe.</p>
         <div className="cc-free-limit-actions">
-          <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={() => onUpgrade()}>
-            Continue with Pro
-          </button>
+          {earlyAccess ? (
+            <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={onClose}>
+              Continue
+            </button>
+          ) : (
+            <button ref={primaryRef} className="cc-btn cc-btn--primary" onClick={() => onUpgrade()}>
+              Continue with Pro
+            </button>
+          )}
           <button className="cc-btn cc-btn--ghost" onClick={onClose}>
             Maybe Later
           </button>

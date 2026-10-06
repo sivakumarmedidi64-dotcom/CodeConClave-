@@ -16,6 +16,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { ProCelebration } from './components/ProCelebration';
 import { PaymentGateModal } from './components/PaymentGateModal';
 import type { AccessMode, WorkspaceAccess } from './lib/types';
+import { AccessModeProvider, useEarlyAccess } from './lib/accessMode';
 import { api } from './lib/api';
 import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
@@ -36,7 +37,6 @@ import { WorkPage } from './pages/WorkPage';
 import { WorkspacePage } from './pages/WorkspacePage';
 import { AutomationPage } from './pages/AutomationPage';
 import { RecoveryPage } from './pages/RecoveryPage';
-import { DemoPaymentActivatePage } from './pages/DemoPaymentActivatePage';
 import { ControlPage } from './pages/ControlPage';
 import { CoworkersPage } from './pages/CoworkersPage';
 import { TeamsPage } from './pages/TeamsPage';
@@ -76,8 +76,9 @@ function Shell() {
 
   // Server-authoritative workspace gate. PaymentGateModal is cosmetic chrome;
   // the backend re-enforces 402 on every /api/v1/* router. When the access
-  // endpoint is unreachable we fail closed to the payment gate so nothing
-  // overexposes paid-only chrome; every workspace call still gets gated.
+  // endpoint is unreachable we fail closed to the Early Access notice instead
+  // of the commercial surface, so an unknown mode can never leak prices or
+  // checkout chrome; every workspace call is still gated server-side.
   useEffect(() => {
     if (status !== 'authed' || !user) return;
     let cancelled = false;
@@ -92,8 +93,8 @@ function Shell() {
           setAccessState('ready');
           return;
         }
-        // No authoritative signal (endpoint unreachable surface zero):
-        // fail CLOSED to the payment gate. The backend also 402s gated routers.
+        // No authoritative signal (endpoint unreachable surface zero): fail
+        // CLOSED to the Early Access notice — never to paid/commercial chrome.
         setAccess({ unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' });
         setAccessState('ready');
       })
@@ -195,75 +196,90 @@ function Shell() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
-  // Server-authoritative workspace gate: no free application tier. After
-  // login/signup a locked account gets the payment popup — the only surface a
-  // non-paying user sees (backend independently 402s every gated router; this
-  // is chrome, not authority). The popup is non-dismissible until unlocked.
+  // Server-authoritative workspace gate: no free application tier. A locked
+  // account is held on a single full-screen notice (backend independently 402s
+  // every gated router; this is chrome, not authority) and it is non-dismissible
+  // until unlocked.
+  //
+  // While the server reports temporary demo / early access there is no
+  // commercial surface to sell, so a locked reply renders the Early Access
+  // notice instead. The payment gate is only reached once the server explicitly
+  // reports demo mode off — so a transient access-fetch failure (mode unknown)
+  // can never leak prices, checkout or plan upgrade chrome onto the public build.
   if (access && !access.unlocked) {
-    return <PaymentGateModal />;
+    if (mode && !mode.temporaryDemoMode) return <PaymentGateModal />;
+    return (
+      <div className="cc-early-access-gate" data-testid="early-access-gate" style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div className="cc-card" style={{ maxWidth: 500, padding: 24 }}>
+          <h1 style={{ fontSize: 20, marginTop: 0 }}>CodeConClave is currently available in Early Access</h1>
+          <p className="cc-hint">Workspace access is open for early-access accounts, so no plan or payment is required. No payment has been taken and no plan has been purchased.</p>
+          <p className="cc-hint">If this screen persists, reload the page.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className={`cc-shell${collapsed ? ' cc-shell--collapsed' : ''}${drawerOpen ? ' cc-shell--drawer-open' : ''}`}>
-      <Sidebar user={user} />
-      {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
-      <OfflineBanner />
-      {/* TEMPORARY DEMO / EARLY ACCESS MODE — informational only. Rendered from
-          the server's authoritative /api/v1/access reply; it unlocks nothing and
-          must never imply a purchase happened. */}
-      {mode?.temporaryDemoMode ? (
-        <div className="cc-demo-mode-banner" role="status">
-          <strong>CodeConClave is currently available in Early Access</strong> — workspace access is open
-          for early-access users. No payment has been taken and no plan has been purchased.
-        </div>
-      ) : null}
-      <Topbar onMenuClick={toggleSidebar} />
-      <a className="cc-skip-link" href="#main">
-        Skip to content
-      </a>
-      <main id="main" className="cc-main">
-        <Routes>
-          <Route path="/" element={<Navigate to="/home" replace />} />
-          <Route path="/home" element={<HomePage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
-          <Route path="/memory" element={<MemoryPage />} />
-          <Route path="/dna" element={<DnaPage />} />
-          <Route path="/files" element={<FilesPage />} />
-          <Route path="/terminal" element={<TerminalPage />} />
-<Route path="/work" element={<WorkPage />} />
-<Route path="/automation" element={<AutomationPage />} />
-          <Route path="/recovery" element={<RecoveryPage />} />
-          <Route path="/demo/payment/activate" element={<DemoPaymentActivatePage />} />
-<Route path="/workspace" element={<WorkspacePage />} />
-          <Route path="/coworkers" element={<CoworkersPage />} />
-          <Route path="/teams" element={<TeamsPage />} />
-          <Route path="/plugins" element={<PluginsPage />} />
-          <Route path="/control" element={<ControlPage />} />
-          <Route path="/remote" element={<RemotePage />} />
-          <Route path="/ideas" element={<IdeasPage />} />
-          <Route path="/data" element={<DataPage />} />
-          <Route path="/trash" element={<TrashPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/billing" element={<Navigate to="/settings?tab=billing" replace />} />
-          <Route path="/approvals" element={<ApprovalsPage />} />
-          <Route path="/reviews" element={<ReviewListPage />} />
-          <Route path="/reviews/:id" element={<ReviewDetailPage />} />
-          <Route path="/intelligence" element={<IntelligencePage />} />
-          <Route path="/production" element={<ProductionPage />} />
-          <Route path="/deployment" element={<DeploymentPage />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/users" element={<AdminUsers />} />
-          <Route path="/admin/ai-usage" element={<AdminAIUsage />} />
-          <Route path="/admin/payments" element={<AdminPayments />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </main>
-      <CommandPalette onToggleFocus={toggleSidebar} />
-      <ProCelebration />
-    </div>
+    <AccessModeProvider earlyAccess={Boolean(mode?.temporaryDemoMode)}>
+      <div className={`cc-shell${collapsed ? ' cc-shell--collapsed' : ''}${drawerOpen ? ' cc-shell--drawer-open' : ''}`}>
+        <Sidebar user={user} />
+        {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
+        <OfflineBanner />
+        {/* TEMPORARY DEMO / EARLY ACCESS MODE — informational only. Rendered from
+            the server's authoritative /api/v1/access reply; it unlocks nothing and
+            must never imply a purchase happened. */}
+        {mode?.temporaryDemoMode ? (
+          <div className="cc-demo-mode-banner" role="status">
+            <strong>CodeConClave is currently available in Early Access</strong> — workspace access is open
+            for early-access users. No payment has been taken and no plan has been purchased.
+          </div>
+        ) : null}
+        <Topbar onMenuClick={toggleSidebar} />
+        <a className="cc-skip-link" href="#main">
+          Skip to content
+        </a>
+        <main id="main" className="cc-main">
+          <Routes>
+            <Route path="/" element={<Navigate to="/home" replace />} />
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/dna" element={<DnaPage />} />
+            <Route path="/files" element={<FilesPage />} />
+            <Route path="/terminal" element={<TerminalPage />} />
+            <Route path="/work" element={<WorkPage />} />
+            <Route path="/automation" element={<AutomationPage />} />
+            <Route path="/recovery" element={<RecoveryPage />} />
+            <Route path="/workspace" element={<WorkspacePage />} />
+            <Route path="/coworkers" element={<CoworkersPage />} />
+            <Route path="/teams" element={<TeamsPage />} />
+            <Route path="/plugins" element={<PluginsPage />} />
+            <Route path="/control" element={<ControlPage />} />
+            <Route path="/remote" element={<RemotePage />} />
+            <Route path="/ideas" element={<IdeasPage />} />
+            <Route path="/data" element={<DataPage />} />
+            <Route path="/trash" element={<TrashPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
+            <Route path="/reviews" element={<ReviewListPage />} />
+            <Route path="/reviews/:id" element={<ReviewDetailPage />} />
+            <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/production" element={<ProductionPage />} />
+            <Route path="/deployment" element={<DeploymentPage />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/users" element={<AdminUsers />} />
+            <Route path="/admin/ai-usage" element={<AdminAIUsage />} />
+            <Route path="/admin/payments" element={<AdminPayments />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </main>
+        <CommandPalette onToggleFocus={toggleSidebar} />
+        <ProCelebration />
+      </div>
+    </AccessModeProvider>
   );
 }
 

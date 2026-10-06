@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
+import { useEarlyAccess } from '../lib/accessMode';
 import type { Notification, SearchResult } from '../lib/types';
 import { labelFor, showBrowserNotification } from '../lib/browserNotifications';
 import { ContextIndicator } from './ContextIndicator';
@@ -54,6 +55,8 @@ function timeAgo(iso: string): string {
 export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  // Early access: the account pill reports the access stage, never a plan tier.
+  const earlyAccess = useEarlyAccess();
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notification[]>([]);
@@ -236,10 +239,10 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         <div className="cc-topbar__title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {user?.displayName ?? 'CodeConClave'}{' '}
           <span
-            className={`cc-plan-pill${user?.entitlementState === 'PRO_VERIFIED' ? ' cc-plan-pill--pro' : ''}`}
+            className={`cc-plan-pill${!earlyAccess && user?.entitlementState === 'PRO_VERIFIED' ? ' cc-plan-pill--pro' : ''}`}
             data-testid="plan-badge"
           >
-            {planLabel}
+            {earlyAccess ? 'EARLY ACCESS' : planLabel}
           </span>
         </div>
       </div>

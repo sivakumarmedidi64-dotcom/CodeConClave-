@@ -31,8 +31,8 @@ const CHOICES = [
     name: 'Web App',
     tag: 'Fastest to start',
     primary: true,
-    description: 'Run CodeConClave in your browser.',
-    points: ['No installation', 'Instant access', 'Works across devices', 'Best for quick access'],
+    description: 'Run CodeConClave instantly in your browser.',
+    points: ['No installation', 'Instant access', 'Works across devices', 'Easiest way to start'],
     cta: 'Open Web App',
     to: '/register',
     external: false,
@@ -47,12 +47,12 @@ const CHOICES = [
     // installLine below already reports real availability from /downloads/info.
     tag: 'Early Access',
     primary: false,
-    description: 'Use the full CodeConClave desktop environment.',
+    description: "Use CodeConClave's desktop environment.",
     points: [
+      'Local development workflow',
       'Local project access',
-      'Desktop workflow',
-      'Local-agent capabilities where supported',
-      'Best for development workflows',
+      'Desktop experience',
+      'Early access status',
     ],
     cta: 'Request Access',
     to: '/register',
@@ -144,7 +144,7 @@ export function LandingPage() {
 
   const installLine = info.available
     ? `Windows installer · v${info.version}${info.sizeMB ? ` · ${info.sizeMB} MB` : ''}`
-    : 'Windows installer';
+    : 'No Windows installer published yet';
 
   return (
     <div className="lp-root">
@@ -247,11 +247,11 @@ export function LandingPage() {
                     ))}
                   </ul>
                   {c.external ? (
-                    <a className="lp-btn lp-btn--block lp-btn--primary" href={c.to}>
+                    <a className={`lp-btn lp-btn--block${c.primary ? ' lp-btn--primary' : ' lp-btn--ghost'}`} href={c.to}>
                       {c.cta}
                     </a>
                   ) : (
-                    <Link className="lp-btn lp-btn--block lp-btn--primary" to={c.to}>
+                    <Link className={`lp-btn lp-btn--block${c.primary ? ' lp-btn--primary' : ' lp-btn--ghost'}`} to={c.to}>
                       {c.cta}
                     </Link>
                   )}

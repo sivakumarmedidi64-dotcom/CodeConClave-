@@ -7,6 +7,7 @@
 import { useCallback, useRef } from 'react';
 import { useVoice, type VoiceContext } from '../components/VoiceControl';
 import { parseVoiceCommand, type VoiceCommand, type VoiceCommandResult } from '../lib/voiceCommands';
+import { useEarlyAccess } from '../lib/accessMode';
 import { useToast } from '../components/Toast';
 
 export interface UseVoiceCommandsOptions {
@@ -59,6 +60,8 @@ export function useVoiceCommands(opts: UseVoiceCommandsOptions) {
   } = opts;
 
   const { toast } = useToast();
+  // Early access: the dormant billing target is not offered as a voice command.
+  const earlyAccess = useEarlyAccess();
   const lastCommandRef = useRef<{ cmd: string; time: number } | null>(null);
 
   const executeCommand = useCallback(
@@ -166,7 +169,7 @@ export function useVoiceCommands(opts: UseVoiceCommandsOptions) {
 
   const voice = useVoice({
     onTranscript: async (transcript: string) => {
-      const cmd = parseVoiceCommand(transcript);
+      const cmd = parseVoiceCommand(transcript, { earlyAccess });
       if (!cmd) return;
 
       const result = await executeCommand(cmd);

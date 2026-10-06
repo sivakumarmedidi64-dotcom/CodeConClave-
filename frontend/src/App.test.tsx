@@ -90,11 +90,62 @@ describe('App shell', () => {
     expect(screen.getByTestId('plan-badge')).toHaveTextContent('FREE');
   });
 
-  it('locks the workspace surface when the server reports no entitlement', async () => {
+  it('locks the workspace behind the Early Access notice while early access is open', async () => {
+    stubFetch(async (url) => {
+      if (url.includes('/api/v1/auth/me')) return shellHandler(url);
+      if (url.includes('/api/v1/access')) {
+        return jsonResponse({
+          data: {
+            access: { unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' },
+            mode: { temporaryDemoMode: true },
+          },
+        });
+      }
+      return shellHandler(url);
+    });
+    render(
+      <MemoryRouter initialEntries={['/home']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('early-access-gate')).toBeInTheDocument());
+    // The workspace heading must NOT render for a locked account.
+    expect(screen.queryByRole('heading', { name: /Good (morning|afternoon|evening|night),/ })).not.toBeInTheDocument();
+    // Early access is not a commercial surface: no prices, no checkout, no plan.
+    expect(screen.queryByRole('button', { name: /upgrade/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no free application tier/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/₹/)).not.toBeInTheDocument();
+  });
+
+  it('never shows payment chrome when the access reply carries no mode (fail closed)', async () => {
     stubFetch(async (url) => {
       if (url.includes('/api/v1/auth/me')) return shellHandler(url);
       if (url.includes('/api/v1/access')) {
         return jsonResponse({ data: { access: { unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' } } });
+      }
+      return shellHandler(url);
+    });
+    render(
+      <MemoryRouter initialEntries={['/home']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('early-access-gate')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /upgrade/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no free application tier/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/₹/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the server-authoritative payment gate when demo mode is explicitly off', async () => {
+    stubFetch(async (url) => {
+      if (url.includes('/api/v1/auth/me')) return shellHandler(url);
+      if (url.includes('/api/v1/access')) {
+        return jsonResponse({
+          data: {
+            access: { unlocked: false, effectivePlan: 'free', planId: 'free', entitlementState: 'FREE', reason: 'NO_ENTITLEMENT' },
+            mode: { temporaryDemoMode: false },
+          },
+        });
       }
       if (url.includes('/api/v1/payments/capabilities')) {
         return jsonResponse({ data: { plans: { pro: 999, team: 4999, api: 9999 }, unlockMode: 'MANUAL', currency: 'INR' } });
@@ -116,6 +167,7 @@ describe('App shell', () => {
     await waitFor(() => expect(screen.getByText(/no free application tier/i)).toBeInTheDocument());
     // The workspace heading must NOT render for a locked account.
     expect(screen.queryByRole('heading', { name: /Good (morning|afternoon|evening|night),/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('early-access-gate')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: /Upgrade \(₹999\)/i })).toBeInTheDocument(), { timeout: 5000 });
   });
 

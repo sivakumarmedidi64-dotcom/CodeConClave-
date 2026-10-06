@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { currentTheme, persistTheme } from '../lib/theme';
+import { useEarlyAccess } from '../lib/accessMode';
 import type { Project } from '../lib/types';
 import { Icon } from './Icon';
 import type { IconName } from './Icon';
@@ -49,6 +50,8 @@ export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void })
   const [projects, setProjects] = useState<Project[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const projectsLoadedRef = useRef(false);
+  // Early access: billing/payment commands are dormant, not deleted.
+  const earlyAccess = useEarlyAccess();
 
   const loadProjects = useCallback(() => {
     if (projectsLoadedRef.current) return;
@@ -110,7 +113,7 @@ export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void })
 
   const items = useMemo<PaletteItem[]>(() => {
     const staticItems: PaletteItem[] = [
-      ...NAV_COMMANDS.map((c) => ({ ...c, run: () => navigate(c.to) })),
+      ...NAV_COMMANDS.filter((c) => !(earlyAccess && c.id === 'open-billing')).map((c) => ({ ...c, run: () => navigate(c.to) })),
       { id: 'toggle-theme', icon: 'sparkle', label: 'Toggle Theme', hint: 'Switch light/dark (saved on server)', keywords: 'theme dark light appearance', run: () => void toggleTheme() },
       { id: 'focus-mode', icon: 'menu', label: 'Toggle Focus Mode', hint: 'Collapse or expand the sidebar', keywords: 'focus sidebar collapse', run: onToggleFocus },
     ];
@@ -125,7 +128,7 @@ export function CommandPalette({ onToggleFocus }: { onToggleFocus: () => void })
       run: () => navigate(`/projects?focus=${encodeURIComponent(p.id)}`),
     }));
     return [...filtered, ...(q ? [] : jump)];
-  }, [query, projects, navigate, toggleTheme, onToggleFocus]);
+  }, [query, projects, navigate, toggleTheme, onToggleFocus, earlyAccess]);
 
   useEffect(() => {
     setIndex(0);

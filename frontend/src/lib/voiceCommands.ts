@@ -19,6 +19,14 @@ export interface VoiceCommandResult {
   error?: string;
 }
 
+export interface ParseOptions {
+  /**
+   * Early access: the commercial billing surface is dormant, so it must not be
+   * reachable — or advertised in the help list — as a voice navigation target.
+   */
+  earlyAccess?: boolean;
+}
+
 const SLASH_COMMANDS: Record<string, { pattern: RegExp; description: string }> = {
   '/idea': { pattern: /^(?:add|create|capture)\s+(?:an?\s+)?idea\s+(.+)$/i, description: 'Capture an idea to memory' },
   '/new': { pattern: /^(?:start|create|new)\s+(?:a\s+)?(?:chat|conversation)$/i, description: 'Start new conversation' },
@@ -54,7 +62,7 @@ const QUERY_COMMANDS: Record<string, { pattern: RegExp; description: string }> =
   'status': { pattern: /^(?:what'?s\s+)?(?:my\s+)?(?:status|plan)$/i, description: 'Show plan status' },
 };
 
-export function parseVoiceCommand(transcript: string): VoiceCommand | null {
+export function parseVoiceCommand(transcript: string, opts: ParseOptions = {}): VoiceCommand | null {
   const normalized = transcript.trim().toLowerCase();
   if (!normalized) return null;
 
@@ -74,6 +82,7 @@ export function parseVoiceCommand(transcript: string): VoiceCommand | null {
 
   // Check navigation commands
   for (const [target, { pattern, description }] of Object.entries(NAVIGATION_COMMANDS)) {
+    if (opts.earlyAccess && target === 'billing') continue;
     if (pattern.test(normalized)) {
       return {
         type: 'navigation',
@@ -119,12 +128,13 @@ export function parseVoiceCommand(transcript: string): VoiceCommand | null {
   };
 }
 
-export function getVoiceCommandHelp(): string[] {
+export function getVoiceCommandHelp(opts: ParseOptions = {}): string[] {
+  const navigation = Object.entries(NAVIGATION_COMMANDS).filter(([target]) => !(opts.earlyAccess && target === 'billing'));
   const lines: string[] = [
     'Voice Commands:',
     '',
     'Navigation:',
-    ...Object.values(NAVIGATION_COMMANDS).map(({ description }) => `  "${description}"`),
+    ...navigation.map(([, { description }]) => `  "${description}"`),
     '',
     'Actions:',
     ...Object.values(ACTION_COMMANDS).map(({ description }) => `  "${description}"`),

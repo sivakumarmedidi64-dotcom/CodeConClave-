@@ -23,6 +23,7 @@ import { getContinuityCache, enqueuePendingMessage, newClientId, syncAllPending,
 import { copyText, splitCodeBlocks } from '../lib/clipboard';
 import { uploadFileWithProgress } from '../lib/upload';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
+import { useEarlyAccess } from '../lib/accessMode';
 import { ModelPicker } from '../components/ModelPicker';
 import { AICompanion, type CompanionState } from '../components/AICompanion';
 import { ThinkingMoon } from '../components/ThinkingMoon';
@@ -107,6 +108,7 @@ export function ChatPage() {
   /** Companion presence — always derived from the real stream lifecycle. */
   const [companion, setCompanion] = useState<CompanionState>('idle');
   const [freeLimit, setFreeLimit] = useState(false);
+  const earlyAccess = useEarlyAccess();
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachItems, setAttachItems] = useState<AttachItem[]>([]);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
@@ -1334,6 +1336,7 @@ export function ChatPage() {
       {freeLimit && (
         <FreeLimitMoon
           name={user?.displayName}
+          earlyAccess={earlyAccess}
           onUpgrade={() => {
             setFreeLimit(false);
             navigate('/settings');
