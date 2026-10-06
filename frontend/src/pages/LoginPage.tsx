@@ -1,7 +1,12 @@
 /**
- * CodeConClave — login (email+password, email sign-in code, MFA challenge redirection).
- * Discreet account-owner sign-in: the designated owner authenticates with their
- * account password (no OTP). It is never triggered by typing an email alone.
+ * CodeConClave — customer login.
+ *
+ * One sign-in path: identifier (email or handle) → keyword → the account key
+ * when the account or an unrecognized device demands it. Legacy email+password,
+ * the emailed sign-in code, and account-owner sign-in remain backend routes for
+ * legacy clients but are intentionally not offered in the customer UI, so no
+ * customer payload can trip the legacy schema that surfaced "Invalid request
+ * payload".
  */
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -9,23 +14,13 @@ import { useAuth, MfaRequiredError } from '../auth/AuthProvider';
 import { ApiError } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { BrandLogo } from '../components/BrandLogo';
-import { OtpSignIn } from '../auth/OtpSignIn';
-
-const FOUNDER_EMAIL = 'medidisaharsh@gmail.com';
 
 export function LoginPage() {
-  const { login, founderAccess, loginWithHandle, verifySecurityKeyChallenge, beginRecovery, completeRecovery } = useAuth();
+  const { loginWithHandle, verifySecurityKeyChallenge, beginRecovery, completeRecovery } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const from = ((location.state ?? {}) as { from?: string }).from ?? '/home';
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  // Zero-domain identity is the primary customer sign-in path: identifier
-  // (email or handle) -> keyword -> account-key challenge when required.
-  // Email+password and the emailed sign-in code remain available as
-  // alternatives; there is no third-party identity-provider choice.
-  const [mode, setMode] = useState<'password' | 'otp' | 'handle'>('handle');
   const [handle, setHandle] = useState('');
   const [keyword, setKeyword] = useState('');
   const [keyChallenge, setKeyChallenge] = useState<{ challengeToken: string; reason: string | null } | null>(null);
@@ -33,21 +28,19 @@ export function LoginPage() {
   const [recovering, setRecovering] = useState(false);
   const [recoveryToken, setRecoveryToken] = useState<string | null>(null);
   const [newKeyword, setNewKeyword] = useState('');
-  const [ownerVisible, setOwnerVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [ownerBusy, setOwnerBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const onOtpDone = () => navigate(from, { replace: true });
-  const onOtpMfa = (challengeToken: string, otpEmail: string) => navigate('/mfa', { state: { challengeToken, email: otpEmail } });
 
-  const submitHandle = async (e: React.FormEvent) => {
+  const goHome = () => navigate(from, { replace: true });
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     setKeyChallenge(null);
     try {
       await loginWithHandle(handle, keyword);
-      navigate(from, { replace: true });
+      goHome();
     } catch (err) {
       if (err instanceof MfaRequiredError) {
         if (err.method === 'security_key') {
@@ -55,7 +48,7 @@ export function LoginPage() {
           setKeyChallenge({ challengeToken: err.challengeToken, reason: err.reason });
           return;
         }
-        navigate('/mfa', { state: { challengeToken: err.challengeToken, email: handle } });
+        navigate('/mfa', { state: { challengeToken: err.challengeToken, email: handle, identityChallenge: true } });
         return;
       }
       setError(err instanceof ApiError ? err.message : 'Login failed');
@@ -74,7 +67,7 @@ export function LoginPage() {
       await verifySecurityKeyChallenge(keyChallenge.challengeToken, accountKey);
       setKeyChallenge(null);
       setAccountKey('');
-      navigate(from, { replace: true });
+      goHome();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Key verification failed — login again for a fresh challenge');
       setKeyChallenge(null);
@@ -99,7 +92,7 @@ export function LoginPage() {
         await completeRecovery(recoveryToken, newKeyword);
         setRecoveryToken(null);
         setNewKeyword('');
-        navigate(from, { replace: true });
+        goHome();
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Recovery failed');
@@ -109,47 +102,11 @@ export function LoginPage() {
     }
   };
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
+  const backToSignIn = () => {
+    setRecovering(false);
+    setKeyChallenge(null);
+    setRecoveryToken(null);
     setError(null);
-    try {
-      await login(email, password);
-      navigate(from, { replace: true });
-    } catch (err) {
-      if (err instanceof MfaRequiredError) {
-        navigate('/mfa', { state: { challengeToken: err.challengeToken, email } });
-        return;
-      }
-      setError(err instanceof ApiError ? err.message : 'Login failed');
-      toast('Login failed', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const ownerSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const emailValue = email.trim();
-    if (!emailValue || !password) {
-      setError('Email and password are required');
-      return;
-    }
-    setOwnerBusy(true);
-    setError(null);
-    try {
-      await founderAccess(emailValue, password);
-      navigate(from, { replace: true });
-    } catch (err) {
-      if (err instanceof MfaRequiredError) {
-        navigate('/mfa', { state: { challengeToken: err.challengeToken, email: emailValue } });
-        return;
-      }
-      setError(err instanceof ApiError ? err.message : 'Account owner sign-in failed');
-      toast('Account owner sign-in failed', 'error');
-    } finally {
-      setOwnerBusy(false);
-    }
   };
 
   return (
@@ -163,41 +120,7 @@ export function LoginPage() {
           <p className="cc-auth__sub">
             Sign in with your CodeConClave identity — your email or handle, plus your keyword.
           </p>
-          {mode === 'password' ? (
-            <form onSubmit={submit}>
-              <div className="cc-field">
-                <label htmlFor="email">Email</label>
-                <input
-                  id="email"
-                  className="cc-input"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="user@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="cc-field">
-                <label htmlFor="password">Password</label>
-                <input
-                  id="password"
-                  className="cc-input"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              {error && <p className="cc-error">{error}</p>}
-              <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>
-                {busy ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
-          ) : mode === 'otp' ? (
-            <OtpSignIn onAuthenticated={onOtpDone} onMfaRequired={onOtpMfa} />
-          ) : recovering ? (
+          {recovering ? (
             <form onSubmit={submitRecovery}>
               <p className="cc-auth__sub">
                 {!recoveryToken
@@ -248,7 +171,7 @@ export function LoginPage() {
               <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>
                 {busy ? 'Working…' : !recoveryToken ? 'Verify key' : 'Set new keyword'}
               </button>
-              <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => { setRecovering(false); setRecoveryToken(null); setError(null); }}>
+              <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={backToSignIn}>
                 Back to sign in
               </button>
             </form>
@@ -275,9 +198,12 @@ export function LoginPage() {
               <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>
                 {busy ? 'Verifying…' : 'Verify key'}
               </button>
+              <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={backToSignIn}>
+                Back to sign in
+              </button>
             </form>
           ) : (
-            <form onSubmit={submitHandle}>
+            <form onSubmit={submit}>
               <div className="cc-field">
                 <label htmlFor="handle">Email or handle</label>
                 <input
@@ -308,97 +234,23 @@ export function LoginPage() {
                 {busy ? 'Signing in…' : 'Sign in'}
               </button>
               <p className="cc-auth__hint">
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => { setRecovering(true); setError(null); }}>
+                <button
+                  type="button"
+                  className="cc-btn cc-btn--ghost cc-btn--sm"
+                  onClick={() => {
+                    setRecovering(true);
+                    setError(null);
+                  }}
+                >
                   Forgot keyword? Recover with account key
                 </button>
               </p>
             </form>
           )}
           <p className="cc-auth__hint">
-            {mode === 'password' ? (
-              <>
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('otp')}>
-                  Use a sign-in code instead
-                </button>{' '}
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('handle')}>
-                  Use handle + keyword instead
-                </button>
-              </>
-            ) : mode === 'otp' ? (
-              <>
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('password')}>
-                  Use email + password instead
-                </button>{' '}
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('handle')}>
-                  Use handle + keyword instead
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => { setMode('password'); setRecovering(false); setKeyChallenge(null); }}>
-                  Use email + password instead
-                </button>{' '}
-                <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('otp')}>
-                  Use a sign-in code instead
-                </button>
-              </>
-            )}
-          </p>
-          <p className="cc-auth__hint">
             <Link to="/register" className="cc-btn cc-btn--ghost cc-btn--sm">
               New here? Create an account
             </Link>
-          </p>
-          {ownerVisible || (
-            <button
-              type="button"
-              className="cc-btn cc-btn--ghost cc-btn--sm"
-              style={{ width: '100%', color: 'var(--cc-text-tertiary, #8a93a6)' }}
-              onClick={() => {
-                setOwnerVisible(true);
-                setError(null);
-              }}
-            >
-              Account owner sign-in
-            </button>
-          )}
-          {ownerVisible && (
-            <form onSubmit={ownerSignIn} style={{ marginTop: '0.25rem' }}>
-              <div className="cc-field">
-                <label htmlFor="owner-email">Owner email</label>
-                <input
-                  id="owner-email"
-                  className="cc-input"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="owner@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="cc-field">
-                <label htmlFor="owner-password">Password</label>
-                <input
-                  id="owner-password"
-                  className="cc-input"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              {error && <p className="cc-error">{error}</p>}
-              <button className="cc-btn cc-btn--gradient" type="submit" disabled={ownerBusy} style={{ width: '100%' }}>
-                {ownerBusy ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
-          )}
-          <p className="cc-auth__hint" style={{ marginTop: '1rem' }}>
-            <a className="cc-btn cc-btn--ghost cc-btn--sm" href={`mailto:${FOUNDER_EMAIL}`}>
-              Contact support
-            </a>
           </p>
         </div>
       </div>

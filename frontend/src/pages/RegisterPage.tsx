@@ -1,13 +1,44 @@
 /**
- * CodeConClave — registration (displayName optional).
+ * CodeConClave — registration (displayName/role/use-case optional).
+ *
+ * The register form captures the zero-domain identity — email as the contact
+ * label, handle + keyword as the primary credentials. The server issues a
+ * 32-character account key that is shown once and must be pasted back before
+ * entry. A strong password is generated client-side purely so the unchanged
+ * legacy registerSchema contract is satisfied; customers sign in with
+ * handle + keyword and are never shown or asked for it.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { ApiError } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { BrandLogo } from '../components/BrandLogo';
-import { OtpSignIn } from '../auth/OtpSignIn';
+
+/** Satisfies passwordSchema (10–128 chars, upper + lower + digit) and is never shown. */
+function generateZeroDomainPassword(): string {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const digit = '0123456789';
+  const all = upper + lower + digit;
+  const pick = (chars: string): string => {
+    const buf = new Uint32Array(1);
+    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+      globalThis.crypto.getRandomValues(buf);
+      return chars[(buf[0] ?? 0) % chars.length] ?? chars[0] ?? 'A';
+    }
+    return chars[Math.floor(Math.random() * chars.length)] ?? 'a';
+  };
+  const parts: string[] = [pick(upper), pick(lower), pick(digit)];
+  while (parts.length < 24) parts.push(pick(all));
+  for (let i = parts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = parts[i] ?? pick(upper);
+    parts[i] = parts[j] ?? parts[i] ?? pick(upper);
+    parts[j] = tmp;
+  }
+  return parts.join('');
+}
 
 export function RegisterPage() {
   const { register, sendVerificationEmail, confirmSecurityKey } = useAuth();
@@ -17,17 +48,14 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState('');
   const [useCase, setUseCase] = useState('');
-  const [password, setPassword] = useState('');
   const [handle, setHandle] = useState('');
   const [keyword, setKeyword] = useState('');
-  const [mode, setMode] = useState<'register' | 'otp'>('register');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Zero-domain account key: shown exactly once, never persisted client-side.
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   const [confirmKey, setConfirmKey] = useState('');
-  const onOtpDone = () => navigate('/home', { replace: true });
-  const onOtpMfa = (challengeToken: string, otpEmail: string) => navigate('/mfa', { state: { challengeToken, email: otpEmail } });
+  const generatedPassword = useMemo(generateZeroDomainPassword, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +63,13 @@ export function RegisterPage() {
     setError(null);
     try {
       const identity = handle.trim() && keyword ? { handle: handle.trim(), keyword } : undefined;
-      const res = await register(email, password, displayName || undefined, role ? { role, primaryUseCase: useCase || undefined } : undefined, identity);
+      const res = await register(
+        email,
+        generatedPassword,
+        displayName || undefined,
+        role ? { role, primaryUseCase: useCase || undefined } : undefined,
+        identity,
+      );
       // Best-effort verification email; never blocks registration.
       sendVerificationEmail().catch(() => undefined);
       if (res.securityKey) {
@@ -126,9 +160,8 @@ export function RegisterPage() {
             Create your CodeConClave identity. We generate a 32-character account key, show it once, and ask you to paste
             it back to confirm.
           </p>
-          {mode === 'register' ? (
-            <form onSubmit={submit}>
-              <div className="cc-field">
+          <form onSubmit={submit}>
+            <div className="cc-field">
               <label htmlFor="email">Email</label>
               <input
                 id="email"
@@ -177,20 +210,6 @@ export function RegisterPage() {
               </div>
             </fieldset>
             <div className="cc-field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                className="cc-input"
-                type="password"
-                required
-                minLength={10}
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <span className="cc-hint">At least 10 chars, upper + lower + digit.</span>
-            </div>
-            <div className="cc-field">
               <label htmlFor="displayName">Display name</label>
               <input
                 id="displayName"
@@ -222,21 +241,7 @@ export function RegisterPage() {
             <button className="cc-btn cc-btn--gradient" type="submit" disabled={busy} style={{ width: '100%' }}>
               {busy ? 'Creating…' : 'Create account'}
             </button>
-            </form>
-          ) : (
-            <OtpSignIn onAuthenticated={onOtpDone} onMfaRequired={onOtpMfa} />
-          )}
-          <p className="cc-auth__hint">
-            {mode === 'register' ? (
-              <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('otp')}>
-                Have a sign-in code? Use it instead
-              </button>
-            ) : (
-              <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => setMode('register')}>
-                Create an account with email instead
-              </button>
-            )}
-          </p>
+          </form>
           <p className="cc-auth__hint">
             Already registered? <Link to="/login">Sign in</Link>
           </p>

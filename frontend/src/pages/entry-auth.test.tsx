@@ -157,19 +157,45 @@ describe('login — identifier, keyword, account-key challenge', () => {
     await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
   });
 
-  it('keeps email + password and the sign-in code as alternatives', async () => {
+  it('removes the email + password and sign-in-code alternatives from the customer login', async () => {
     const user = userEvent.setup();
-    renderEntry('/login', async (url) => {
+    const { fetchFn } = renderEntry('/login', async (url) => {
       if (url.includes('/auth/me')) return jsonResponse({ data: { user: USER } });
       return jsonResponse({ data: {} });
     });
 
-    await user.click(await screen.findByRole('button', { name: /use email \+ password instead/i }));
-    expect(screen.getByLabelText('Email')).toBeDefined();
-    expect(screen.getByLabelText('Password')).toBeDefined();
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    expect(screen.queryByRole('button', { name: /use email \+ password instead/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /use a sign-in code instead/i })).toBeNull();
+    expect(screen.queryByLabelText('Password')).toBeNull();
+    expect(screen.queryByLabelText('Email')).toBeNull();
+    // No legacy /auth/login request shape can be emitted by the customer UI.
+    for (const call of fetchFn.mock.calls) {
+      expect(String(call[0])).not.toMatch(/\/api\/v1\/auth\/login\b/);
+    }
+  });
 
-    await user.click(screen.getByRole('button', { name: /use a sign-in code instead/i }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /send sign-in code/i })).toBeDefined());
+  it('invalid-request-payload regression: the zero-domain payload is the only login payload', async () => {
+    const user = userEvent.setup();
+    const { fetchFn } = renderEntry('/login', async (url, init) => {
+      if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized' } }, 401);
+      if (url.includes('/auth/identity/login')) {
+        // A handle-shaped identifier (which the legacy email schema rejected as
+        // "Invalid request payload") must be sent as { handle, keyword }.
+        expect(JSON.parse(String(init?.body))).toEqual({ handle: 'alice@example.com', keyword: 'CorrectHorse9Battery' });
+        return jsonResponse({ data: { user: USER } });
+      }
+      return jsonResponse({ data: {} });
+    });
+
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice@example.com');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
+    const urls = fetchFn.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('/api/v1/auth/identity/login'))).toBe(true);
+    expect(urls.some((u) => u.includes('/api/v1/auth/login'))).toBe(false);
   });
 
   it('leads from sign-in to the zero-domain register path — no third-party auth', async () => {
@@ -227,7 +253,6 @@ describe('register — identity, handle, keyword, one-time account key', () => {
     await user.type(await screen.findByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Handle'), 'alice_01');
     await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     await waitFor(() =>
@@ -251,7 +276,6 @@ describe('register — identity, handle, keyword, one-time account key', () => {
     await user.type(await screen.findByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Handle'), 'alice_01');
     await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     const shown = await screen.findByTestId('account-key-once');
@@ -288,7 +312,6 @@ describe('register — identity, handle, keyword, one-time account key', () => {
     await user.type(await screen.findByLabelText('Email'), 'alice@example.com');
     await user.type(screen.getByLabelText('Handle'), 'alice_01');
     await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     await user.type(await screen.findByLabelText(/paste key to confirm/i), 'x'.repeat(32));

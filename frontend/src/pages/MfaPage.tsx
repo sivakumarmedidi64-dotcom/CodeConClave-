@@ -1,6 +1,8 @@
 /**
  * CodeConClave — MFA verification (TOTP code or recovery code).
- * challengeToken is passed from /login via router state.
+ * challengeToken is passed from /login via router state. Identity-login
+ * challenges are single-use `imfa_` challenges verified by
+ * /identity/mfa/verify; legacy challenges go to /auth/mfa/verify.
  */
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -9,10 +11,10 @@ import { ApiError } from '../lib/api';
 import { BrandLogo } from '../components/BrandLogo';
 
 export function MfaPage() {
-  const { verifyMfa } = useAuth();
+  const { verifyMfa, verifyIdentityMfa } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const state = (location.state ?? {}) as { challengeToken?: string; email?: string };
+  const state = (location.state ?? {}) as { challengeToken?: string; email?: string; identityChallenge?: boolean };
   const [code, setCode] = useState('');
   const [recovery, setRecovery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,11 @@ export function MfaPage() {
     setBusy(true);
     setError(null);
     try {
-      await verifyMfa(state.challengeToken, code || undefined, recovery || undefined);
+      if (state.identityChallenge) {
+        await verifyIdentityMfa(state.challengeToken, recovery ? { recoveryCode: recovery } : { code: code || undefined });
+      } else {
+        await verifyMfa(state.challengeToken, code || undefined, recovery || undefined);
+      }
       navigate('/home', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Verification failed');

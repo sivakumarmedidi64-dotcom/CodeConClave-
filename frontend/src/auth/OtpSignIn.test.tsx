@@ -1,17 +1,17 @@
 /**
- * CodeConClave — "sign in with a code" UI tests.
- * Covers the full request-code → enter-code → authenticated flow through the
- * real AuthProvider + api client + LoginPage, the MFA challenge handoff for
- * MFA-enabled accounts, and the exact backend endpoints hit.
+ * CodeConClave — "sign in with a code" component tests.
+ * The email-code flow is a retained legacy capability (no customer entry point
+ * in the login page); these tests pin its contract through the real
+ * AuthProvider + api client + component: request-code → verify-code, the MFA
+ * challenge handoff, and cleanup of the resend countdown on unmount.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from './AuthProvider';
 import { ToastProvider } from '../components/Toast';
-import { LoginPage } from '../pages/LoginPage';
-import { MfaPage } from '../pages/MfaPage';
+import { OtpSignIn } from './OtpSignIn';
 import type { User } from '../lib/types';
 
 const USER: User = {
@@ -40,25 +40,25 @@ function setupFetch(handler: (url: string, init?: RequestInit) => Promise<Respon
   return fn;
 }
 
-function renderLogin(handler: (url: string, init?: RequestInit) => Promise<Response>) {
+function renderOtp(
+  handler: (url: string, init?: RequestInit) => Promise<Response>,
+  onAuthenticated = vi.fn(),
+  onMfaRequired = vi.fn(),
+) {
   const fetchFn = setupFetch(handler);
   const result = render(
-    <MemoryRouter initialEntries={['/login']}>
+    <MemoryRouter>
       <ToastProvider>
         <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/mfa" element={<MfaPage />} />
-            <Route path="/home" element={<div>HOME-CONTENT</div>} />
-          </Routes>
+          <OtpSignIn onAuthenticated={onAuthenticated} onMfaRequired={onMfaRequired} />
         </AuthProvider>
       </ToastProvider>
     </MemoryRouter>,
   );
-  return { fetchFn, ...result };
+  return { fetchFn, onAuthenticated, onMfaRequired, ...result };
 }
 
-const anonMe = async (url: string, init?: RequestInit) => {
+const anonMe = async (url: string) => {
   if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
   return null;
 };
@@ -67,11 +67,11 @@ beforeEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('sign in with a code (web)', () => {
-  it('requests a code, verifies it, and lands on the protected home route', async () => {
+describe('sign in with a code (legacy component)', () => {
+  it('requests a code, verifies it, and signals authentication', async () => {
     const user = userEvent.setup();
-    const { fetchFn } = renderLogin(async (url, init) => {
-      const me = await anonMe(url, init);
+    const { fetchFn, onAuthenticated } = renderOtp(async (url, init) => {
+      const me = await anonMe(url);
       if (me) return me;
       if (url.includes('/auth/otp/request')) {
         expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'alice@example.com' });
@@ -84,9 +84,7 @@ describe('sign in with a code (web)', () => {
       return jsonResponse({ data: {} });
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: 'Use a sign-in code instead' }));
-
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send sign-in code' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.click(screen.getByRole('button', { name: 'Send sign-in code' }));
 
@@ -94,15 +92,15 @@ describe('sign in with a code (web)', () => {
     await user.type(screen.getByLabelText('6-digit code'), '123456');
     await user.click(screen.getByRole('button', { name: 'Verify code' }));
 
-    await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
+    await waitFor(() => expect(onAuthenticated).toHaveBeenCalled());
     expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/otp/request', expect.objectContaining({ method: 'POST' }));
     expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/otp/verify', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('routes MFA-enabled accounts into the existing TOTP challenge instead of mocking a session', async () => {
+  it('routes MFA-enabled accounts into the existing TOTP challenge', async () => {
     const user = userEvent.setup();
-    renderLogin(async (url, init) => {
-      const me = await anonMe(url, init);
+    const { onMfaRequired } = renderOtp(async (url, init) => {
+      const me = await anonMe(url);
       if (me) return me;
       if (url.includes('/auth/otp/request')) {
         return jsonResponse({ data: { sent: true, resendableAfterMs: 60000, expiresInSeconds: 600 } });
@@ -113,16 +111,14 @@ describe('sign in with a code (web)', () => {
       return jsonResponse({ data: {} });
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: 'Use a sign-in code instead' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send sign-in code' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
     await user.click(screen.getByRole('button', { name: 'Send sign-in code' }));
     await waitFor(() => expect(screen.getByLabelText('6-digit code')).toBeInTheDocument());
     await user.type(screen.getByLabelText('6-digit code'), '123456');
     await user.click(screen.getByRole('button', { name: 'Verify code' }));
 
-    await waitFor(() => expect(screen.getByText('Two-factor verification')).toBeInTheDocument());
-    expect(screen.queryByText('HOME-CONTENT')).not.toBeInTheDocument();
+    await waitFor(() => expect(onMfaRequired).toHaveBeenCalledWith('mfa_ch.abc', 'alice@example.com'));
   });
 
   it('clears the resend countdown interval when the component unmounts', async () => {
@@ -130,8 +126,8 @@ describe('sign in with a code (web)', () => {
     const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
     const user = userEvent.setup();
     try {
-      const { unmount } = renderLogin(async (url, init) => {
-        const me = await anonMe(url, init);
+      const { unmount } = renderOtp(async (url) => {
+        const me = await anonMe(url);
         if (me) return me;
         if (url.includes('/auth/otp/request')) {
           return jsonResponse({ data: { sent: true, resendableAfterMs: 60000, expiresInSeconds: 600 } });
@@ -139,8 +135,7 @@ describe('sign in with a code (web)', () => {
         return jsonResponse({ data: {} });
       });
 
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-      await user.click(screen.getByRole('button', { name: 'Use a sign-in code instead' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Send sign-in code' })).toBeInTheDocument());
       await user.type(screen.getByLabelText('Email'), 'alice@example.com');
       await user.click(screen.getByRole('button', { name: 'Send sign-in code' }));
 

@@ -296,6 +296,30 @@ describe('keyword login', () => {
   });
 });
 
+describe('login contract — regression for "Invalid request payload"', () => {
+  it('accepts the zero-domain payload { handle, keyword } and never trips a schema rejection', async () => {
+    db.state.resolve = (text) => (text.includes('user_auth_identities') ? [identityRow()] : []);
+    const result = await loginWithKeyword({ handle: HANDLE, keyword: KEYWORD }, fakeReq());
+    expect(result.kind).toBe('authenticated');
+    // The generic rejection seen in the wild came from the legacy email+password
+    // schema being fed a handle; the identity endpoint takes handle+keyword and
+    // validates them with its own policy, not with the email schema.
+    expect(result).not.toHaveProperty('invalidPayload');
+  });
+
+  it('answers a wrong keyword with the same generic message as an unknown handle (no payload wording)', async () => {
+    db.state.resolve = (text) => (text.includes('user_auth_identities') ? [identityRow()] : []);
+    const wrong = await loginWithKeyword({ handle: HANDLE, keyword: 'WrongKeyword123' }, fakeReq()).catch((e) => e);
+    expect(wrong.errorCode).toBe('invalid_credentials');
+    expect(String(wrong.message).toLowerCase()).not.toContain('invalid request payload');
+
+    db.state.resolve = () => [];
+    const unknown = await loginWithKeyword({ handle: 'nobody', keyword: KEYWORD }, fakeReq()).catch((e) => e);
+    expect(unknown.errorCode).toBe('invalid_credentials');
+    expect(String(unknown.message)).toBe(String(wrong.message));
+  });
+});
+
 describe('identity enrollment', () => {
   it('stores only a hash of the keyword', async () => {
     db.state.resolve = (text) => (text.includes('SELECT 1 FROM user_auth_identities') ? [] : [{ id: 'uai_1' }]);

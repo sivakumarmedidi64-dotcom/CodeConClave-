@@ -110,42 +110,34 @@ describe('login UI', () => {
     const user = userEvent.setup();
     const { fetchFn } = renderAuthApp(['/login'], async (url, init) => {
       if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-      if (url.includes('/auth/login')) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({ email: 'alice@example.com', password: 'Secret123!' });
+      if (url.includes('/auth/identity/login')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ handle: 'alice_01', keyword: 'CorrectHorse9Battery' });
         return jsonResponse({ data: { user: USER } });
       }
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByText('HOME-CONTENT')).toBeInTheDocument());
-    expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/login', expect.objectContaining({ method: 'POST' }));
+    expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/identity/login', expect.objectContaining({ method: 'POST' }));
   });
 
   it('surfaces invalid credentials without navigating', async () => {
     const user = userEvent.setup();
     renderAuthApp(['/login'], async (url) => {
       if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-      if (url.includes('/auth/login')) {
-        return jsonResponse({ error: { code: 'bad_credentials', message: 'Incorrect email or password' } }, 401);
+      if (url.includes('/auth/identity/login')) {
+        return jsonResponse({ error: { code: 'invalid_credentials', message: 'Sign-in details are incorrect' } }, 401);
       }
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Wrong123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'WrongKeyword1');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
-    await waitFor(() => expect(screen.getByText('Incorrect email or password')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Sign-in details are incorrect')).toBeInTheDocument());
     expect(screen.queryByText('HOME-CONTENT')).not.toBeInTheDocument();
   });
 
@@ -155,7 +147,7 @@ describe('login UI', () => {
       ['/chat'],
       async (url) => {
         if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-        if (url.includes('/auth/login')) return jsonResponse({ data: { user: USER } });
+        if (url.includes('/auth/identity/login')) return jsonResponse({ data: { user: USER } });
         return jsonResponse({ data: {} });
       },
       <Route
@@ -168,12 +160,8 @@ describe('login UI', () => {
       />,
     );
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByText('CHAT-CONTENT')).toBeInTheDocument());
   });
@@ -184,22 +172,18 @@ describe('MFA challenge flow', () => {
     const user = userEvent.setup();
     renderAuthApp(['/login'], async (url, init) => {
       if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-      if (url.includes('/auth/login')) {
-        return jsonResponse({ data: { mfaRequired: true, challengeToken: 'mfa_ch.abc' } });
+      if (url.includes('/auth/identity/login')) {
+        return jsonResponse({ data: { mfaRequired: true, challengeToken: 'imfa_ch.abc', method: 'totp', reason: null } });
       }
-      if (url.includes('/auth/mfa/verify')) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({ challengeToken: 'mfa_ch.abc', code: '123456' });
+      if (url.includes('/auth/identity/mfa/verify')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ challengeToken: 'imfa_ch.abc', code: '123456' });
         return jsonResponse({ data: { user: { ...USER, mfaEnabled: true } } });
       }
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByText('Two-factor verification')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Authenticator code'), '123456');
@@ -211,20 +195,18 @@ describe('MFA challenge flow', () => {
     const user = userEvent.setup();
     renderAuthApp(['/login'], async (url, init) => {
       if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-      if (url.includes('/auth/login')) return jsonResponse({ data: { mfaRequired: true, challengeToken: 'mfa_ch.abc' } });
-      if (url.includes('/auth/mfa/verify')) {
-        expect(JSON.parse(String(init?.body))).toMatchObject({ recoveryCode: 'ABCD1234EF' });
+      if (url.includes('/auth/identity/login')) {
+        return jsonResponse({ data: { mfaRequired: true, challengeToken: 'imfa_ch.abc', method: 'totp', reason: null } });
+      }
+      if (url.includes('/auth/identity/mfa/verify')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ challengeToken: 'imfa_ch.abc', recoveryCode: 'ABCD1234EF' });
         return jsonResponse({ data: { user: { ...USER, mfaEnabled: true } } });
       }
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByText('Two-factor verification')).toBeInTheDocument());
     await user.type(screen.getByLabelText('…or recovery code'), 'ABCD1234EF');
@@ -236,19 +218,17 @@ describe('MFA challenge flow', () => {
     const user = userEvent.setup();
     renderAuthApp(['/login'], async (url) => {
       if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
-      if (url.includes('/auth/login')) return jsonResponse({ data: { mfaRequired: true, challengeToken: 'mfa_ch.abc' } });
-      if (url.includes('/auth/mfa/verify')) {
+      if (url.includes('/auth/identity/login')) {
+        return jsonResponse({ data: { mfaRequired: true, challengeToken: 'imfa_ch.abc', method: 'totp', reason: null } });
+      }
+      if (url.includes('/auth/identity/mfa/verify')) {
         return jsonResponse({ error: { code: 'mfa_failed', message: 'MFA verification failed' } }, 401);
       }
       return jsonResponse({ data: {} });
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument());
-    // The public entry now leads with the zero-domain identity form; these
-    // cases cover the retained email + password alternative.
-    await user.click(screen.getByRole('button', { name: /use email \+ password instead/i }));
-    await waitFor(() => expect(screen.getByLabelText('Password')).toBeInTheDocument());
-    await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
+    await user.type(await screen.findByLabelText('Email or handle'), 'alice_01');
+    await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     await waitFor(() => expect(screen.getByText('Two-factor verification')).toBeInTheDocument());
     await user.type(screen.getByLabelText('Authenticator code'), '000000');
@@ -280,7 +260,6 @@ describe('registration UI', () => {
     await user.type(screen.getByLabelText('Display name'), 'Alice');
     await user.selectOptions(screen.getByLabelText('Your role'), 'Developer');
     await user.selectOptions(screen.getByLabelText('Primary use case'), 'Build software');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.type(screen.getByLabelText('Handle'), 'alice_01');
     await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
@@ -304,7 +283,6 @@ describe('registration UI', () => {
     });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument());
     await user.type(screen.getByLabelText('Email'), 'alice@example.com');
-    await user.type(screen.getByLabelText('Password'), 'Secret123!');
     await user.type(screen.getByLabelText('Handle'), 'alice_01');
     await user.type(screen.getByLabelText('Keyword'), 'CorrectHorse9Battery');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
