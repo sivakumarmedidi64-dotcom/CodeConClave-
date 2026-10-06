@@ -171,6 +171,18 @@ describe('login — identifier, keyword, account-key challenge', () => {
     await user.click(screen.getByRole('button', { name: /use a sign-in code instead/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: /send sign-in code/i })).toBeDefined());
   });
+
+  it('offers direct login only — no create-account path from sign-in', async () => {
+    const { container } = renderEntry('/login', async (url) => {
+      if (url.includes('/auth/me')) return jsonResponse({ data: { user: USER } });
+      return jsonResponse({ data: {} });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText('Email or handle')).toBeDefined());
+    expect(container.querySelectorAll('a[href*="/register"]')).toHaveLength(0);
+    expect(screen.queryByRole('link', { name: /create an? account/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /create an? account/i })).toBeNull();
+  });
 });
 
 describe('register — identity, handle, keyword, one-time account key', () => {

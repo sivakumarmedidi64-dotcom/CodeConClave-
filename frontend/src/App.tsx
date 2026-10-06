@@ -1,8 +1,9 @@
 /**
  * CodeConClave — application shell + routing.
  * Sidebar is the canonical frozen 22-item navigation (see Sidebar.tsx +
- * Sidebar.test.tsx EXPECTED_ORDER); /login,/register,/mfa are standalone auth
- * routes. The shell hosts the command palette, focus mode (collapsed sidebar,
+ * Sidebar.test.tsx EXPECTED_ORDER); /login,/mfa are standalone auth routes
+ * (direct login only: /register redirects to /login so no "create account"
+ * surface reaches customers until sign-up is turned back on). The shell hosts the command palette, focus mode (collapsed sidebar,
  * persisted server-side) and the mobile drawer.
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
@@ -22,7 +23,6 @@ import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
 import { LoginPage } from './pages/LoginPage';
 import { LandingPage } from './pages/LandingPage';
-import { RegisterPage } from './pages/RegisterPage';
 import { MfaPage } from './pages/MfaPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { HomePage } from './pages/HomePage';
@@ -290,7 +290,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/register" element={<Navigate to="/login" replace />} />
           <Route path="/mfa" element={<MfaPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/*" element={<Shell />} />

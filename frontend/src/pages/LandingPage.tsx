@@ -8,6 +8,11 @@
  * is handled server-side by temporary demo mode. Commercial plans stay in the
  * backend and reappear with the payment surface when demo mode is switched off.
  *
+ * Entry is DIRECT LOGIN ONLY: no "create account" / self-sign-up is exposed
+ * from this page (or from /login, which no longer links to /register). The
+ * backend /register API is untouched and the page stays registered for the
+ * tour once sign-up is turned back on. Every CTA here lands on /login.
+ *
  * Styling is scoped to styles/landing.css so the in-app IDE theme is untouched.
  */
 import { useEffect, useState } from 'react';
@@ -34,7 +39,7 @@ const CHOICES = [
     description: 'Run CodeConClave instantly in your browser.',
     points: ['No installation', 'Instant access', 'Works across devices', 'Easiest way to start'],
     cta: 'Open Web App',
-    to: '/register',
+    to: '/login',
     external: false,
   },
   {
@@ -55,7 +60,7 @@ const CHOICES = [
       'Early access status',
     ],
     cta: 'Request Access',
-    to: '/register',
+    to: '/login',
     external: false,
   },
 ] as const;
@@ -168,10 +173,7 @@ export function LandingPage() {
             <a className="lp-nav__link lp-nav__link--secondary" href="#lp-features">
               Features
             </a>
-            <Link to="/login" className="lp-btn lp-btn--ghost lp-btn--sm">
-              Sign in
-            </Link>
-            <Link to="/register" className="lp-btn lp-btn--primary lp-btn--sm">
+            <Link to="/login" className="lp-btn lp-btn--primary lp-btn--sm">
               Enter CodeConClave
             </Link>
           </nav>
@@ -196,7 +198,7 @@ export function LandingPage() {
               preserves context.
             </p>
             <div className="lp-hero__actions">
-              <Link to="/register" className="lp-btn lp-btn--primary">
+              <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
               <Link to="/login" className="lp-btn lp-btn--ghost">
@@ -390,10 +392,10 @@ export function LandingPage() {
           <div className="lp-shell lp-cta__inner">
             <h2 className="lp-section__title">CodeConClave is currently available in Early Access</h2>
             <p className="lp-section__sub">
-              Create an account and go straight into the workspace. No payment is required during early access.
+              Sign in and go straight into the workspace. No payment is required.
             </p>
             <div className="lp-hero__actions">
-              <Link to="/register" className="lp-btn lp-btn--primary">
+              <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
               <a href="#lp-choose" className="lp-btn lp-btn--ghost">
@@ -410,8 +412,6 @@ export function LandingPage() {
           <span>© {new Date().getFullYear()} CodeConClave</span>
           <nav className="lp-footer__links" aria-label="Footer">
             <Link to="/login">Sign in</Link>
-            <Link to="/register">Create account</Link>
-            <Link to="/register">Request Desktop Access</Link>
           </nav>
         </div>
       </footer>

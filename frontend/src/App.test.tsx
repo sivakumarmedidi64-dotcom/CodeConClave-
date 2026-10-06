@@ -40,6 +40,17 @@ describe('App shell', () => {
     expect(screen.getByRole('heading', { name: /Choose how you want to use CodeConClave/i })).toBeInTheDocument();
   });
 
+  it('serves direct login on /register — no sign-up surface', async () => {
+    renderApp(['/register']);
+    // Either outcome is fine (sign-in form, or workspace if the session is
+    // already established), but the register/sign-up surface must never render.
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Create account' })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/create an? account/i)).not.toBeInTheDocument();
+    expect(document.querySelectorAll('a[href*="/register"]').length).toBe(0);
+  });
+
   it('renders the 404 page for unknown routes', async () => {
     renderApp(['/does-not-exist']);
     await waitFor(() => expect(screen.getByText('404 — page not found')).toBeInTheDocument());

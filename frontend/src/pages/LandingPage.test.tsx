@@ -50,8 +50,18 @@ describe('LandingPage', () => {
       renderLanding();
       const enter = screen.getAllByRole('link', { name: 'Enter CodeConClave' });
       expect(enter.length).toBeGreaterThan(0);
-      for (const link of enter) expect(link.getAttribute('href')).toBe('/register');
+      for (const link of enter) expect(link.getAttribute('href')).toBe('/login');
       expect(screen.getAllByRole('link', { name: 'Explore CodeConClave' })[0]!.getAttribute('href')).toBe('/login');
+    });
+
+    it('is direct login only — no account-creation path from the landing page', () => {
+      renderLanding();
+      const links = screen.getAllByRole('link');
+      const registerLinks = links.filter((l) => (l.getAttribute('href') ?? '').endsWith('/register'));
+      expect(registerLinks).toHaveLength(0);
+      const loginLinks = links.filter((l) => (l.getAttribute('href') ?? '') === '/login');
+      expect(loginLinks.length).toBeGreaterThanOrEqual(6);
+      expect(document.body.textContent).not.toMatch(/create an? account/i);
     });
   });
 
@@ -107,7 +117,7 @@ describe('LandingPage', () => {
       for (const point of ['No installation', 'Instant access', 'Works across devices', 'Easiest way to start']) {
         expect(within(card).getByText(point)).toBeDefined();
       }
-      expect(within(card).getByRole('link', { name: 'Open Web App' }).getAttribute('href')).toBe('/register');
+      expect(within(card).getByRole('link', { name: 'Open Web App' }).getAttribute('href')).toBe('/login');
     });
 
     it('offers the desktop app with its documented benefits', () => {
@@ -123,9 +133,9 @@ describe('LandingPage', () => {
         expect(within(card).getByText(point)).toBeDefined();
       }
       // No installer is published, so the CTA must be truthful Early Access wording
-      // and must NOT link the 404ing download endpoint.
+      // and must NOT link the 404ing download endpoint. Direct login only.
       const cta = within(card).getByRole('link', { name: 'Request Access' });
-      expect(cta.getAttribute('href')).toBe('/register');
+      expect(cta.getAttribute('href')).toBe('/login');
       expect(card.textContent).not.toContain('Get Desktop App');
       expect(card.textContent).not.toContain('/api/v1/downloads/desktop');
     });
@@ -319,13 +329,14 @@ describe('LandingPage', () => {
       }
     });
 
-    it('routes entry into authentication, not through extra pages', () => {
+    it('routes every entry action into direct sign-in, with no sign-up surface', () => {
       renderLanding();
       const authLinks = screen.getAllByRole('link').filter((l) => {
         const href = l.getAttribute('href') ?? '';
         return href === '/login' || href === '/register';
       });
       expect(authLinks.length).toBeGreaterThanOrEqual(4);
+      expect(authLinks.every((l) => (l.getAttribute('href') ?? '') === '/login')).toBe(true);
     });
   });
 
