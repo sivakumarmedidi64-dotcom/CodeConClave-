@@ -22,6 +22,7 @@ import {
 } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { PluginLogo } from '../components/PluginLogo';
+import { useEarlyAccess } from '../lib/accessMode';
 
 const STATE_COLORS: Record<string, string> = {
   CONNECTED: '#16a34a',
@@ -85,6 +86,7 @@ export function PluginsPage() {
   const [popularOnly, setPopularOnly] = useState(false);
   const [showUnsupported, setShowUnsupported] = useState(false);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const earlyAccess = useEarlyAccess();
   const [connecting, setConnecting] = useState<PluginType | null>(null);
   const [connectForm, setConnectForm] = useState<ConnectState>({ type: 'github', name: '', kind: 'token', value: '' });
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -142,6 +144,10 @@ export function PluginsPage() {
   // authoritative; ranking only changes display order).
   const ranked = useMemo(() => {
     let list = catalogue;
+    // Early access / demo build: no OAuth connector surfaces (google) for now.
+    // Presentation-only; the backend OAuth + plugin API is untouched. When early
+    // access is turned off the OAuth plugin row returns with the rest of the feed.
+    if (earlyAccess) list = list.filter((p) => p.plugin_type !== 'google');
     if (!showUnsupported) list = list.filter((p) => p.integration !== 'UNSUPPORTED');
     if (!query.trim()) return list;
     const q = query.trim();
@@ -153,7 +159,7 @@ export function PluginsPage() {
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((r) => r.p);
-  }, [catalogue, query, showUnsupported]);
+  }, [catalogue, query, showUnsupported, earlyAccess]);
 
   const categories = useMemo(() => [...new Set(catalogue.map((c) => c.category).filter(Boolean))] as string[], [catalogue]);
   const capabilities = useMemo(() => [...new Set(catalogue.flatMap((c) => c.capabilities))].sort(), [catalogue]);
@@ -499,9 +505,11 @@ export function PluginsPage() {
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="cc-select" aria-label="Sandbox plugin type" value={sbType} onChange={(e) => setSbType(e.target.value)}>
-            {['github', 'cloudflare', 'discord', 'google', 'resend'].map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
+            {['github', 'cloudflare', 'discord', 'google', 'resend']
+              .filter((t) => !earlyAccess || t !== 'google')
+              .map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
           </select>
           <input
             className="cc-input"

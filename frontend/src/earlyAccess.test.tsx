@@ -17,6 +17,8 @@ import { FreeLimitMoon } from './components/FreeLimitMoon';
 import { CommandPalette } from './components/CommandPalette';
 import { ToastProvider } from './components/Toast';
 import { SettingsPage } from './pages/SettingsPage';
+import { PluginsPage } from './pages/PluginsPage';
+import type { PluginCatalogueEntry } from './lib/types';
 import { parseVoiceCommand, getVoiceCommandHelp } from './lib/voiceCommands';
 
 vi.mock('./auth/AuthProvider', () => ({
@@ -205,6 +207,77 @@ describe('early access — usage limit moment', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue with Pro' }));
     expect(onUpgrade).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('early access — no OAuth plugin surface', () => {
+  const googleEntry: PluginCatalogueEntry = {
+    plugin_type: 'google',
+    name: 'Google',
+    description: 'Gmail, Calendar, Drive connectors (OAuth)',
+    capabilities: ['gmail', 'calendar'],
+    enabled: true,
+    category: 'Productivity',
+    popular: true,
+    required_permissions: [],
+    state: 'DISCONNECTED',
+    status: 'NOT_CONNECTED',
+    adapterAvailable: true,
+    serverConfigured: false,
+    integration: 'NOT_CONFIGURED',
+  };
+  const githubEntry: PluginCatalogueEntry = {
+    plugin_type: 'github',
+    name: 'GitHub',
+    description: 'Repos, issues and workflows (token)',
+    capabilities: ['repos'],
+    enabled: true,
+    category: 'Developer Tools',
+    popular: true,
+    required_permissions: [],
+    state: 'DISCONNECTED',
+    status: 'NOT_CONNECTED',
+    adapterAvailable: true,
+    serverConfigured: false,
+    integration: 'NOT_CONFIGURED',
+  };
+
+  async function pluginsHandler(url: string): Promise<Response> {
+    if (url.includes('/api/v1/plugins/catalogue')) {
+      return jsonResponse({ plugins: [googleEntry, githubEntry] });
+    }
+    if (url.includes('/api/v1/control/plugins/sandbox/runs')) return jsonResponse({ runs: [] });
+    if (url.includes('/api/v1/plugins/connections')) return jsonResponse({ connections: [] });
+    return jsonResponse({ data: {} });
+  }
+
+  function renderPlugins(earlyAccess: boolean) {
+    vi.stubGlobal('fetch', vi.fn(pluginsHandler));
+    return render(
+      <AccessModeProvider earlyAccess={earlyAccess}>
+        <ToastProvider>
+          <PluginsPage />
+        </ToastProvider>
+      </AccessModeProvider>,
+    );
+  }
+
+  it('hides the OAuth (google) plugin and every authorize action while early access is open', async () => {
+    renderPlugins(true);
+    await screen.findByText('GitHub');
+    expect(screen.queryByText('Google')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Connect + Authorize' })).toBeNull();
+    expect(screen.queryAllByRole('option', { name: 'google' }).length).toBe(0);
+  });
+
+  it('restores the google OAuth plugin and its authorize action once demo mode is off', async () => {
+    renderPlugins(false);
+    await screen.findByText('Google');
+    const connectButtons = screen.getAllByRole('button', { name: '+ Connect' });
+    expect(connectButtons.length).toBeGreaterThanOrEqual(2);
+    await userEvent.click(connectButtons[0]!);
+    expect(screen.getByRole('button', { name: 'Connect + Authorize' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'google' }).length).toBeGreaterThan(0);
   });
 });
 
