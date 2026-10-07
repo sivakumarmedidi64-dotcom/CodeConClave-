@@ -248,6 +248,38 @@ describe('executeTask — persisted plan + parallel groups', () => {
     expect(autoSaveTaskDna).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'tsk_1' }));
   });
 
+  it('keeps the task heartbeat fresh DURING a long coworker stage so the recovery watchdog cannot reset a healthy RUNNING task', async () => {
+    vi.useFakeTimers();
+    try {
+      const task = taskRow('tsk_hb');
+      db.state.resolve = standardResolver(task);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      coworkers.runCoworker.mockImplementation(() => gate);
+
+      const run = executeTask(task as never);
+      // Let plan generation + first-stage wiring settle; the first coworker is
+      // now parked on the gate (a stand-in for a slow LLM stage).
+      await vi.advanceTimersByTimeAsync(0);
+
+      // No heartbeat may have fired yet: the stage has only just begun.
+      const before = db.state.calls.filter((c) => c.text.includes('SET last_heartbeat_at = now(), updated_at = now()')).length;
+
+      // Advance well past HEARTBEAT_TTL_MS (30s) while the stage is still in
+      // flight. The worker must keep proving liveness on its own.
+      await vi.advanceTimersByTimeAsync(35_000);
+      const after = db.state.calls.filter((c) => c.text.includes('SET last_heartbeat_at = now(), updated_at = now()')).length;
+      expect(after - before).toBeGreaterThanOrEqual(3);
+
+      release();
+      await run;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('runs same-group coworkers concurrently (never sequentially)', async () => {
     const task = taskRow('tsk_par');
     db.state.resolve = standardResolver(task);

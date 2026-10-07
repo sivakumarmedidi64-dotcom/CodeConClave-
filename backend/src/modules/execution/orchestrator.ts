@@ -135,6 +135,14 @@ export async function executeTask(task: TaskRow): Promise<void> {
   const executeStartedAt = Date.now();
   const attempt = await beginAttempt(task.id);
   const steps: string[] = [];
+  // Liveness for the WHOLE run, not only between stages. A single coworker LLM
+  // stage routinely runs past HEARTBEAT_TTL_MS (30s): plan generation and long
+  // ARCHITECT/CODER calls do. Without an in-flight heartbeat the watchdog
+  // (recoverStaleTasks) resets a healthy RUNNING task back to CREATED, so the
+  // completing worker then hits an illegal `CREATED -> VERIFIED` transition and
+  // the task is dead-lettered. The worker itself stays the liveness source; a
+  // genuinely dead worker still stops heart-beating and is recovered within TTL.
+  const heartbeat = setInterval(() => void touchTask(task.id).catch(() => undefined), 10_000);
 
   try {
     // Phase 16: durable resume — a checkpointed previous attempt skips the
@@ -463,6 +471,8 @@ export async function executeTask(task: TaskRow): Promise<void> {
       detail: { error: message, decision },
     });
     logger.error('task failed', { taskId: task.id, err: message, decision });
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
