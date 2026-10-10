@@ -223,6 +223,7 @@ function configuredAiProviders(): string[] {
     ox_alpha: env.OX_ALPHA_API_KEY,
     manus: env.MANUS_API_KEY,
     z_code_5_3: env.Z_AI_API_KEY,
+    muse_spark: env.MUSE_SPARK_API_KEY,
   };
   return env.AI_PROVIDERS_ENABLED.split(',')
     .map((s) => s.trim())

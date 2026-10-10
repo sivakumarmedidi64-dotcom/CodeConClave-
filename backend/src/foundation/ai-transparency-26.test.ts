@@ -240,6 +240,7 @@ describe('PROVIDER STATUS SNAPSHOT — /api/v1/ai/providers data', () => {
         'kimi',
         'manus',
         'mistral',
+        'muse_spark',
         'nemotron',
         'north',
         'openai',

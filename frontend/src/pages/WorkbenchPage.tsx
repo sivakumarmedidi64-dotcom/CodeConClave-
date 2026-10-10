@@ -42,6 +42,8 @@ import { DiffViewer } from '../components/workbench/DiffViewer';
 import { PreviewPanel } from '../components/PreviewPanel';
 import { IntegratedTerminalPanel } from '../components/IntegratedTerminalPanel';
 import { RuntimeWorkspacePanel } from '../components/RuntimeWorkspacePanel';
+import { LocalWorkspacePanel } from '../components/LocalWorkspacePanel';
+import { ActionRuntimePanel } from '../components/ActionRuntimePanel';
 import {
   TaskPanel,
   AgentPanel,
@@ -55,7 +57,7 @@ import type { ActivityEvent, AuditEvent, CoworkerHandoff, ReviewDiff } from '../
 
 type CenterTab = 'code' | 'diff' | 'preview';
 type RightTab = 'task' | 'agents' | 'verification' | 'artifact' | 'memory';
-type BottomTab = 'terminal' | 'runtime' | 'activity' | 'audit';
+type BottomTab = 'terminal' | 'runtime' | 'local' | 'actions' | 'activity' | 'audit';
 
 const ACTIVE_POLL_MS = 8_000;
 const FALLBACK_POLL_MS = 25_000;
@@ -539,6 +541,8 @@ export function WorkbenchPage() {
               tabs={[
                 { id: 'terminal', label: 'Terminal' },
                 { id: 'runtime', label: 'Runtime' },
+                { id: 'local', label: 'Local' },
+                { id: 'actions', label: 'Actions' },
                 { id: 'activity', label: 'Activity' },
                 { id: 'audit', label: 'Audit' },
               ]}
@@ -561,6 +565,22 @@ export function WorkbenchPage() {
                   </div>
                 ) : (
                   <p className="cc-hint">Select a project.</p>
+                ))}
+              {bottomTab === 'local' &&
+                (projectId ? (
+                  <div className="cc-card wb-pane" style={{ overflow: 'auto' }}>
+                    <LocalWorkspacePanel projectId={projectId} />
+                  </div>
+                ) : (
+                  <p className="cc-hint">Select a project.</p>
+                ))}
+              {bottomTab === 'actions' &&
+                (projectId ? (
+                  <div className="cc-card wb-pane" style={{ overflow: 'auto' }} data-testid="workbench-actions">
+                    <ActionRuntimePanel projectId={projectId} />
+                  </div>
+                ) : (
+                  <p className="cc-hint">Select a project to route an action.</p>
                 ))}
               {bottomTab === 'activity' && <ActivityPanel events={activity} loading={panelsLoading} />}
               {bottomTab === 'audit' && <AuditPanel events={audit} loading={panelsLoading} />}

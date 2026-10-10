@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 
 
-const PORT = process.env.PORT || 8080;
+const PREFERRED_PORT = Number(process.env.PORT) || 8080;
+const MAX_FALLBACK_STEPS = 8;
 const DIST = path.join(__dirname, 'dist');
+let announced = false;
 
 const BACKEND_ORIGIN = process.env.FRONTEND_PROXY_TARGET || 'http://localhost:4000';
 const BACKEND = new URL(BACKEND_ORIGIN);
@@ -104,7 +106,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  let filePath = path.join(DIST, req.url === '/' ? 'index.html' : urlPath);
+  // Contain static reads inside DIST: the raw URL path is decoded, rejected
+  // when malformed/NUL-bearing, then normalized and required to stay under
+  // DIST, so `/../../..` cannot read files outside the bundle directory.
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath);
+  } catch {
+    res.writeHead(400, withSecurityHeaders({ 'Content-Type': 'text/plain' }));
+    res.end('Bad path');
+    return;
+  }
+  if (decoded.includes('\0')) {
+    res.writeHead(400, withSecurityHeaders({ 'Content-Type': 'text/plain' }));
+    res.end('Bad path');
+    return;
+  }
+
+  let filePath = path.normalize(path.join(DIST, decoded === '/' ? 'index.html' : decoded.slice(1)));
+  if (filePath !== DIST && !filePath.startsWith(DIST + path.sep)) {
+    res.writeHead(400, withSecurityHeaders({ 'Content-Type': 'text/plain' }));
+    res.end('Bad path');
+    return;
+  }
+
   const ext = path.extname(filePath);
 
   if (!ext && !urlPath.includes('.')) filePath += '.html';
@@ -148,14 +173,20 @@ server.on('upgrade', (req, socket, head) => {
   };
   const proxy = (BACKEND.protocol === 'https:' ? https : http).request(reqOpts);
   proxy.on('upgrade', (backendRes, backendSocket, backendHead) => {
-    socket.write(Buffer.concat([
-      Buffer.from(
-        'HTTP/1.1 101 Switching Protocols\r\n' +
-          'Upgrade: websocket\r\n' +
-          'Connection: Upgrade\r\n',
-      ),
-    ]));
-    if (backendHead.length) backendSocket.write(backendHead);
+    // Forward the BACKEND's own 101 with its computed Sec-WebSocket-Accept
+    // (derived from the client's key); a hardcoded 101 would break the browser
+    // handshake for the /agent hub through the embedded proxy.
+    const responseHead =
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+      Object.entries(backendRes.headers || {})
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join('; ') : v}\r\n`)
+        .join('') +
+      '\r\n';
+    socket.write(Buffer.concat([Buffer.from(responseHead)]));
+    // Any bytes the backend sent right behind its 101 (first WebSocket frames)
+    // arrive buffered as backendHead: those belong to the CLIENT socket, not the
+    // backend socket we just drained them from.
+    if (backendHead.length) socket.write(backendHead);
     backendSocket.pipe(socket);
     socket.pipe(backendSocket);
   });
@@ -167,4 +198,31 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 
-server.listen(PORT, () => console.log(`Frontend running on port ${PORT} (proxy -> ${BACKEND_ORIGIN})`));
+// Bind loopback only: this server both serves the SPA and proxies to the local
+// backend, so exposing it on every interface put a same-origin proxy on the LAN.
+// Port discovery: start at the preferred port; if it (or the next few) is taken
+// by another process, fall forward a bounded number of steps. The desktop shell
+// reads the REAL bound port from the machine-readable marker on stdout instead
+// of assuming the preferred port ever bound.
+function startListening(port, step) {
+  server.once('error', (err) => {
+    if (err && err.code === 'EADDRINUSE' && step < MAX_FALLBACK_STEPS) {
+      startListening(port + 1, step + 1);
+      return;
+    }
+    console.error(`[frontend] cannot listen on port ${port} (${err && err.code ? err.code : err})`);
+    process.exitCode = 1;
+  });
+  server.listen(port, '127.0.0.1', () => {
+    // A failed listen attempt can later fire a stale 'listening' thunk whose
+    // planned port no longer matches the live handle, so report the address the
+    // server is ACTUALLY bound to, and only once. The desktop shell relies on
+    // this marker to load the real origin.
+    const bound = server.address();
+    if (announced || !bound) return;
+    announced = true;
+    process.stdout.write(`__BOUND_PORT_START__${bound.port}__BOUND_PORT_END__\n`);
+    console.log(`Frontend running on port ${bound.port} (proxy -> ${BACKEND_ORIGIN})`);
+  });
+}
+startListening(PREFERRED_PORT, 0);

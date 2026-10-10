@@ -10,7 +10,7 @@ export type RuntimeEvent =
   | { type: 'verification'; id: string; projectId: string; status: string; ts: string }
   | { type: 'capture'; projectId: string; channel: 'console' | 'network'; ts: string }
   | { type: 'preview'; projectId: string; state: string; ts: string }
-  | { type: 'task'; id: string; projectId: string; status: string; ts: string }
+  | { type: 'task'; id: string; projectId: string; status: string; ts: string; progress?: Record<string, unknown> }
   | { type: 'coworker'; id: string; runId: string; projectId: string; state: string; ts: string };
 
 const subscribers = new Map<string, Set<(event: RuntimeEvent) => void>>();

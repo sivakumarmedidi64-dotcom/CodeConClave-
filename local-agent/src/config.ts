@@ -21,6 +21,28 @@ export interface WorkspaceGrant {
   capabilities: string[];
 }
 
+/** Browser control grant (P1) — which ops, on which origins, a device allows. */
+export interface BrowserGrant {
+  /** Optional label, e.g. "WebQA". */
+  name: string;
+  /** Subset of the 9 browser capabilities this device claims. */
+  capabilities: string[];
+  /**
+   * Origin allowlist. `*` = public sites only (loopback/private/internal
+   * targets are never reachable through a public grant). Equals treated as
+   * scope bands; `http://127.0.0.1:*` matches that origin on any port.
+   */
+  allowedOrigins: string[];
+}
+
+/** Desktop control grant (P2) — which window/app ops a device allows. */
+export interface DesktopGrant {
+  /** Optional label, e.g. "Workstation". */
+  name: string;
+  /** Subset of `desktop.inspect`, `desktop.open_app`, `desktop.focus_window`. */
+  capabilities: string[];
+}
+
 export interface AgentConfig {
   version: string;
   deviceId: string;
@@ -30,6 +52,10 @@ export interface AgentConfig {
   backendUrl?: string;
   token?: string;
   workspaces?: WorkspaceGrant[];
+  /** Browser control grants the device advertises at register time (P1). */
+  browser?: BrowserGrant[];
+  /** Desktop control grants the device advertises at register time (P2). */
+  desktop?: DesktopGrant[];
 }
 
 export function loadConfig(): AgentConfig | null {

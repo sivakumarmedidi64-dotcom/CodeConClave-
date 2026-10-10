@@ -10,6 +10,7 @@ import { withTenant, pool, queryOne } from '../../shared/db.js';
 import { logger } from '../../shared/logger.js';
 import {
   beginAttempt,
+  attemptGeneration,
   finishAttempt,
   addStep,
   finishStep,
@@ -123,12 +124,45 @@ async function abortIfCancelled(taskId: string, attemptId: string): Promise<void
 }
 
 /**
+ * Lease fence. `beginAttempt` is the only writer of `tasks.attempt_count`, so
+ * the counter is the row's attempt generation: a higher value means a heartbeat
+ * gap let the watchdog recover this task and another worker begin a newer
+ * attempt while ours was still running. The superseded attempt must stop before
+ * burning further side effects, must not stamp terminal state (it would write a
+ * false COMPLETED over the newer attempt's work), and must not drive
+ * retry/dead-letter for a task the newer attempt now owns.
+ */
+async function assertStillOwnsAttempt(taskId: string, attemptNumber: number): Promise<void> {
+  const generation = await attemptGeneration(taskId);
+  // Strictly greater only: a smaller value is a stale read (the row was not
+  // re-read after our own beginAttempt), which must keep the old behaviour
+  // rather than misfire as supersession.
+  if (generation > attemptNumber) {
+    throw AppError.conflict('attempt_superseded', 'A newer attempt owns this task; this attempt stops');
+  }
+}
+
+/**
+ * P0 local execution fabric hook: when LOCAL_EXECUTION_ENABLED, hand a parked
+ * LOCAL task to an eligible online device. Default OFF → the task simply stays
+ * WAITING_FOR_LOCAL_AGENT (honest offline). Never throws into the caller.
+ */
+async function dispatchLocalIfEnabled(taskId: string): Promise<void> {
+  const { localExecutionEnabled, dispatchLocalTask } = await import('../agent/dispatch.js');
+  if (!localExecutionEnabled()) return;
+  const { agentWs } = await import('../agent/ws.js');
+  const hub = agentWs();
+  await dispatchLocalTask(taskId, (u, d) => hub.isOnline(u, d)).catch(() => undefined);
+}
+
+/**
  * Execute a claimed cloud task. Never swallows errors: failures are persisted,
  * and the retry policy (backoff, then dead-letter queue) is applied.
  */
 export async function executeTask(task: TaskRow): Promise<void> {
   if (task.execution_mode === 'LOCAL') {
     await setTaskStatus(task.id, 'WAITING_FOR_LOCAL_AGENT');
+    await dispatchLocalIfEnabled(task.id);
     return;
   }
 
@@ -142,7 +176,10 @@ export async function executeTask(task: TaskRow): Promise<void> {
   // completing worker then hits an illegal `CREATED -> VERIFIED` transition and
   // the task is dead-lettered. The worker itself stays the liveness source; a
   // genuinely dead worker still stops heart-beating and is recovered within TTL.
-  const heartbeat = setInterval(() => void touchTask(task.id).catch(() => undefined), 10_000);
+  const heartbeat = setInterval(
+    () => void touchTask(task.id, attempt.attempt_number).catch(() => undefined),
+    10_000,
+  );
 
   try {
     // Phase 16: durable resume — a checkpointed previous attempt skips the
@@ -197,6 +234,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
     let previousGroupLast: CoworkerRunRow | null = null;
     for (const group of runsByGroup) {
       await abortIfCancelled(task.id, attempt.id);
+      await assertStillOwnsAttempt(task.id, attempt.attempt_number);
       if (previousGroupLast) {
         const summary =
           (previousGroupLast.output && (previousGroupLast.output as { handoff?: string }).handoff) ||
@@ -232,7 +270,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
       previousGroupLast = group[group.length - 1]!;
       // Phase 16: heartbeat + durable progress after every completed stage —
       // a crashed worker resumes here instead of restarting from scratch.
-      await touchTask(task.id);
+      await touchTask(task.id, attempt.attempt_number);
       const completedOrderIndexes = group.map((r) => Number(r.order_index)).filter((n) => Number.isFinite(n));
       const runIdsByOrder: Record<string, string> = { ...resumedRuns };
       for (const run of group) runIdsByOrder[String(run.order_index)] = run.id;
@@ -383,6 +421,7 @@ export async function executeTask(task: TaskRow): Promise<void> {
     // 6. complete (re-check: a cancel during verification/artifacts must not
     // be overwritten by completion writes)
     await abortIfCancelled(task.id, attempt.id);
+    await assertStillOwnsAttempt(task.id, attempt.attempt_number);
     // Make the final task row truthful before writing the terminal status: a
     // retried task still carried the PREVIOUS attempt's failure_reason and
     // recovery_status='RETRYING' while reporting COMPLETED. Attempt history
@@ -458,6 +497,37 @@ export async function executeTask(task: TaskRow): Promise<void> {
       return;
     }
     const message = err instanceof Error ? err.message : String(err);
+    // Lease fence: a superseded attempt must never drive retry/dead-letter —
+    // that would fail or kill a task the newer attempt is actively executing.
+    // If the check itself cannot run (DB blip) fall back to the previous
+    // behaviour rather than changing failure handling on an unavailable read.
+    let owned = !(err instanceof AppError && err.errorCode === 'attempt_superseded');
+    if (owned) {
+      try {
+        owned = (await attemptGeneration(task.id)) <= attempt.attempt_number;
+      } catch {
+        owned = true;
+      }
+    }
+    if (!owned) {
+      await finishAttempt(attempt.id, 'FAILURE', 'superseded_by_newer_attempt');
+      recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
+      await recordAudit({
+        action: AuditAction.TASK_FAILED,
+        actorUserId: null,
+        scope: 'SYSTEM',
+        tenantId: null,
+        resourceType: 'task',
+        resourceId: task.id,
+        detail: { attemptId: attempt.id, at: 'superseded', error: message.slice(0, 200) },
+      });
+      logger.warn('attempt superseded by a newer attempt; skipping retry/dead-letter', {
+        taskId: task.id,
+        attempt: attempt.attempt_number,
+        err: message,
+      });
+      return;
+    }
     await finishAttempt(attempt.id, 'FAILURE', message.slice(0, 500));
     recordLatencyMetric('task_execute_ms', Date.now() - executeStartedAt);
     const decision = await retryOrDeadLetter(task.id, 'coworker_error', message.slice(0, 200));
@@ -480,15 +550,17 @@ export async function executeTask(task: TaskRow): Promise<void> {
 export async function createTaskFromChat(input: {
   userId: string;
   projectId: string;
-  conversationId: string;
+  conversationId: string | null;
   title: string;
   description?: string | null;
   riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  executionMode?: 'CLOUD' | 'LOCAL' | 'HYBRID';
   pipeline?: unknown;
+  localInstruction?: unknown;
   priority?: number;
   dependsOn?: string[];
 }): Promise<TaskRow> {
-  const { createTask } = await import('./tasks.js');
+  const { createTask, setTaskStatus } = await import('./tasks.js');
   const { enqueueTask } = await import('../../shared/queue.js');
   const task = await createTask({
     userId: input.userId,
@@ -497,11 +569,19 @@ export async function createTaskFromChat(input: {
     title: input.title,
     description: input.description,
     riskLevel: input.riskLevel ?? 'MEDIUM',
+    executionMode: input.executionMode ?? 'CLOUD',
     coworkerPipeline: normalizePipeline(input.pipeline),
+    localInstruction: input.localInstruction,
     priority: input.priority,
     dependsOn: input.dependsOn,
   });
-  if (!task.required_approval) {
+  if (task.execution_mode === 'LOCAL') {
+    // LOCAL tasks park honestly: the queue only claims CLOUD/HYBRID, so a
+    // LOCAL task waits (WAITING_FOR_LOCAL_AGENT) for a paired agent instead
+    // of silently running a cloud pipeline or stalling in CREATED.
+    await setTaskStatus(task.id, 'WAITING_FOR_LOCAL_AGENT');
+    await dispatchLocalIfEnabled(task.id);
+  } else if (!task.required_approval) {
     // Enqueue for the worker; the in-process worker claims within its poll
     // interval (2s). Inline execution from the HTTP path is intentionally not
     // used: it spawned unbounded concurrent executions (one per create) that

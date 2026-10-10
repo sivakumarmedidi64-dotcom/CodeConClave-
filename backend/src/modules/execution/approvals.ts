@@ -197,9 +197,11 @@ export async function decideApproval(
   if (approval.task_id) {
     if (decision === 'APPROVE') {
       try {
-        const { approveLinkTask, getTaskInternal } = await import('./tasks.js');
+        const { approveLinkTask, getTaskInternal, setTaskStatus } = await import('./tasks.js');
         await approveLinkTask(approval.task_id, approvalId);
-        if ((await getTaskInternal(approval.task_id)).execution_mode !== 'LOCAL') {
+        if ((await getTaskInternal(approval.task_id)).execution_mode === 'LOCAL') {
+          await setTaskStatus(approval.task_id, 'WAITING_FOR_LOCAL_AGENT');
+        } else {
           const { enqueueTask } = await import('../../shared/queue.js');
           await enqueueTask(approval.task_id);
         }

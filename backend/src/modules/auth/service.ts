@@ -30,7 +30,7 @@ import { recordAudit } from '../audit/service.js';
 import { AuditAction, ONBOARDING_ROLES, ONBOARDING_USE_CASES } from '@codeconclave/shared';
 import type { Response } from 'express';
 import { incMetric } from '../../observability/metrics.js';
-import { isFounderAccount, isFounderEmail } from '../entitlements/service.js';
+import { isFounderAccount, isFounderEmail, temporaryDemoModeEnabled } from '../entitlements/service.js';
 import { validateHandle, validateKeyword, randomSecurityKey } from './identity-policy.js';
 
 /** Upgrade a legacy scrypt v1 hash to the current v2 parameters after a
@@ -376,6 +376,71 @@ export async function register(input: {
     detail: identity ? { handle: identity.handle, via: 'registration', keyIssued: registrationKey !== null } : undefined,
   });
   return { user, sessionToken: created.token, sessionId: created.sessionId, ...(registrationKey ? { securityKey: registrationKey } : {}) };
+}
+
+/** Fixed account used by the temporary demo auto-login (no credential is meaningful). */
+export const DEMO_ACCOUNT_EMAIL = 'demo@codeconclave.app';
+
+/**
+ * TEMPORARY DEMO / EARLY ACCESS — silent sign-in.
+ *
+ * Active ONLY while TEMPORARY_DEMO_MODE is on; with the flag off it fails closed
+ * (404) so production auth is completely unchanged. It never bypasses anything
+ * for a real account: it signs into exactly ONE dedicated demo account that has
+ * no MFA and no meaningful secret. The account is created on first use and is
+ * idempotent thereafter.
+ */
+export async function demoLogin(req: Request): Promise<AuthResult> {
+  if (!temporaryDemoModeEnabled()) {
+    throw AppError.notFound();
+  }
+  const email = DEMO_ACCOUNT_EMAIL;
+
+  await withTenant(null, async (q) => {
+    await q.query(
+      `INSERT INTO users (id, email, password_hash, display_name, email_verified, is_founder)
+        VALUES ($1,$2,$3,$4,true,false)
+        ON CONFLICT DO NOTHING`,
+       [newId(PREFIX.USER), email, hashSecret(randomToken(32)), 'Demo'],
+    );
+  });
+
+  const found = await pool.query('SELECT id FROM users WHERE lower(email) = $1 AND deleted_at IS NULL', [email]);
+  const userId = found.rows[0]?.id as string | undefined;
+  if (!userId) throw AppError.unavailable('demo_account_unavailable', 'Could not prepare the demo account');
+
+  // Idempotent: make sure the account has the entitlement + preferences rows
+  // every normal account gets, so it is a completely ordinary user.
+  await withTenant(null, async (q) => {
+    await q.query(
+      `INSERT INTO entitlements (id, user_id, plan_id, state)
+       SELECT $1, $2, 'free', 'FREE'
+       WHERE NOT EXISTS (SELECT 1 FROM entitlements WHERE user_id = $2)`,
+      [newId(PREFIX.ENTITLEMENT), userId],
+    );
+    await q.query(
+      `INSERT INTO user_preferences (id, owner_id, prefs)
+       SELECT $1, $2, '{}'::jsonb
+       WHERE NOT EXISTS (SELECT 1 FROM user_preferences WHERE owner_id = $2)`,
+      [newId(PREFIX.PREFERENCE), userId],
+    );
+  });
+
+  const created = await createSessionForUser(userId, req, await deviceForRequest(userId, req));
+  const user = await getUserById(userId);
+  await recordAudit({
+    action: AuditAction.AUTH_LOGIN,
+    actorUserId: userId,
+    scope: 'USER',
+    tenantId: userId,
+    resourceType: 'user',
+    resourceId: userId,
+    ip: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+    correlationId: req.ctx?.correlationId ?? null,
+    detail: { via: 'temporary_demo_autologin' },
+  });
+  return { user, sessionToken: created.token, sessionId: created.sessionId };
 }
 
 /**

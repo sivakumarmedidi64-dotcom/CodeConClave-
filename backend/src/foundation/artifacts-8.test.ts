@@ -303,4 +303,18 @@ describe('downloadArtifact + references', () => {
     db.state.resolve = null;
     await expect(downloadArtifact('u2', 'art_zz')).rejects.toMatchObject({ status: 404 });
   });
+
+  it('binds the tenant user id before the artifact id on the access check', async () => {
+    db.state.resolve = (text) => {
+      if (text.includes('FROM artifacts a')) return [artifactRow('art_1', { content: 'x' })];
+      if (text.includes('SELECT content, storage_key FROM artifacts')) return [{ content: 'x', storage_key: null }];
+      return null;
+    };
+    await downloadArtifact('u1', 'art_1');
+    const access = callsMatching('FROM artifacts a').find((c) => c.text.includes('p.owner_id'));
+    expect(access).toBeTruthy();
+    // ARTIFACT_TENANT references $1: it must be the user, not the artifact.
+    expect(access!.params[0]).toBe('u1');
+    expect(access!.params[1]).toBe('art_1');
+  });
 });

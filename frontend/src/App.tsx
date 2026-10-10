@@ -1,7 +1,6 @@
 /**
  * CodeConClave — application shell + routing.
  * Sidebar is the canonical frozen 22-item navigation (see Sidebar.tsx +
- * Sidebar.test.tsx EXPECTED_ORDER); /login,/register,/mfa are standalone auth
  * routes. Registration is a zero-domain flow (identifier -> handle -> keyword
  * -> 32-character account key) with no third-party identity provider. The
  * shell hosts the command palette, focus mode (collapsed sidebar, persisted
@@ -9,6 +8,7 @@
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { ToastProvider } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
@@ -23,7 +23,6 @@ import { api } from './lib/api';
 import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
 import { LoginPage } from './pages/LoginPage';
-import { RegisterPage } from './pages/RegisterPage';
 import { LandingPage } from './pages/LandingPage';
 import { MfaPage } from './pages/MfaPage';
 import { VerifyEmailPage } from './pages/VerifyEmailPage';
@@ -288,14 +287,39 @@ function Shell() {
   );
 }
 
+/**
+ * TEMPORARY DEMO BUILD entry gate.
+ *
+ * In the demo build the silent demo auto-login means there is no landing,
+ * login or register step: every public entry point funnels straight into
+ * /home. It waits for the auth bootstrap (so an already-demo-logged-in user
+ * never flashes the marketing page) and, if the demo sign-in is unavailable
+ * (for example the flag is off), falls back to rendering the normal page.
+ * In a non-demo build this is a transparent passthrough — production routing
+ * is unchanged.
+ */
+function DemoEntry({ children }: { children: ReactNode }) {
+  const { status } = useAuth();
+  if (!__DEMO_BUILD__) return <>{children}</>;
+  if (status === 'loading') {
+    return (
+      <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="cc-spinner" />
+      </div>
+    );
+  }
+  if (status === 'authed') return <Navigate to="/home" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
         <Routes>
-<Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/" element={<DemoEntry><LandingPage /></DemoEntry>} />
+          <Route path="/login" element={<DemoEntry><LoginPage /></DemoEntry>} />
+
           <Route path="/mfa" element={<MfaPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/*" element={<Shell />} />

@@ -381,6 +381,7 @@ export const ProviderId = {
   OX_ALPHA: 'ox_alpha',
   MANUS: 'manus',
   Z_CODE_5_3: 'z_code_5_3',
+  MUSE_SPARK: 'muse_spark',
 } as const;
 export type ProviderId = (typeof ProviderId)[keyof typeof ProviderId];
 
@@ -891,6 +892,62 @@ export const MAX_TEAM_DESCRIPTION_LENGTH = 2000;
 export const MAX_PROJECT_TAGS = 10;
 export const MAX_TAG_LENGTH = 40;
 
+export const BrowserCapability = {
+  OPEN: 'browser.open',
+  NAVIGATE: 'browser.navigate',
+  READ: 'browser.read',
+  INSPECT: 'browser.inspect',
+  CLICK: 'browser.click',
+  TYPE: 'browser.type',
+  SUBMIT: 'browser.submit',
+  DOWNLOAD: 'browser.download',
+  UPLOAD: 'browser.upload',
+} as const;
+export type BrowserCapability = (typeof BrowserCapability)[keyof typeof BrowserCapability];
+
+/** Every browser instruction action op the managed session can perform. */
+export const BrowserActionOp = {
+  OPEN: 'open',
+  NAVIGATE: 'navigate',
+  BACK: 'back',
+  FORWARD: 'forward',
+  RELOAD: 'reload',
+  READ: 'read',
+  INSPECT: 'inspect',
+  SEARCH: 'search',
+  EXTRACT: 'extract',
+  SCROLL: 'scroll',
+  CLICK: 'click',
+  TYPE: 'type',
+  SELECT: 'select',
+  SUBMIT: 'submit',
+  SCREENSHOT: 'screenshot',
+  DOWNLOAD: 'download',
+  UPLOAD: 'upload',
+} as const;
+export type BrowserActionOp = (typeof BrowserActionOp)[keyof typeof BrowserActionOp];
+
+/**
+ * Desktop-control capabilities (P2). A deliberately minimal, safe surface:
+ * enumerate/inspect windows, launch an explicitly allow-listed application,
+ * and focus an already-open window. There is intentionally NO free-form
+ * "run anything on the desktop" capability.
+ */
+export const DesktopCapability = {
+  INSPECT: 'desktop.inspect',
+  OPEN_APP: 'desktop.open_app',
+  FOCUS_WINDOW: 'desktop.focus_window',
+} as const;
+export type DesktopCapability = (typeof DesktopCapability)[keyof typeof DesktopCapability];
+
+/** Every desktop instruction action op the local agent can perform. */
+export const DesktopActionOp = {
+  LIST_WINDOWS: 'list_windows',
+  OPEN_APP: 'open_app',
+  FOCUS_WINDOW: 'focus_window',
+} as const;
+export type DesktopActionOp = (typeof DesktopActionOp)[keyof typeof DesktopActionOp];
+
 export const AuditAction = {
   AUTH_LOGIN: 'auth.login',
   AUTH_LOGOUT: 'auth.logout',
@@ -971,6 +1028,38 @@ export const AuditAction = {
   AGENT_CONNECTED: 'agent.connected',
   AGENT_DISCONNECTED: 'agent.disconnected',
   LOCAL_EDIT: 'local.edit',
+  LOCAL_TASK_ASSIGNED: 'local.task_assigned',
+  LOCAL_TASK_CLAIMED: 'local.task_claimed',
+  LOCAL_TASK_HEARTBEAT: 'local.task_heartbeat',
+  LOCAL_TASK_PROGRESS: 'local.task_progress',
+  LOCAL_TASK_ARTIFACT: 'local.task_artifact',
+  LOCAL_TASK_COMPLETED: 'local.task_completed',
+  LOCAL_TASK_FAILED: 'local.task_failed',
+  LOCAL_TASK_CANCELLED: 'local.task_cancelled',
+  LOCAL_TASK_EXPIRED: 'local.task_expired',
+  LOCAL_TASK_RECOVERED: 'local.task_recovered',
+  BROWSER_PERMISSION_REQUESTED: 'browser.permission_requested',
+  BROWSER_PERMISSION_GRANTED: 'browser.permission_granted',
+  BROWSER_PERMISSION_DENIED: 'browser.permission_denied',
+  BROWSER_PERMISSION_REVOKED: 'browser.permission_revoked',
+  BROWSER_SESSION_STARTED: 'browser.session_started',
+  BROWSER_SESSION_DISCONNECTED: 'browser.session_disconnected',
+  BROWSER_ACTION_REQUESTED: 'browser.action_requested',
+  BROWSER_ACTION_STARTED: 'browser.action_started',
+  BROWSER_ACTION_SUCCEEDED: 'browser.action_succeeded',
+  BROWSER_ACTION_FAILED: 'browser.action_failed',
+  BROWSER_ACTION_CANCELLED: 'browser.action_cancelled',
+  BROWSER_EVIDENCE_CAPTURED: 'browser.evidence_captured',
+  DESKTOP_ACTION_REQUESTED: 'desktop.action_requested',
+  DESKTOP_ACTION_STARTED: 'desktop.action_started',
+  DESKTOP_ACTION_SUCCEEDED: 'desktop.action_succeeded',
+  DESKTOP_ACTION_FAILED: 'desktop.action_failed',
+  DESKTOP_ACTION_CANCELLED: 'desktop.action_cancelled',
+  UNIFIED_ACTION_ROUTED: 'action.routed',
+  UNIFIED_ACTION_STOP_ALL: 'action.stop_all',
+  LOCAL_FILE_READ: 'local.file_read',
+  LOCAL_FILE_WRITTEN: 'local.file_written',
+  LOCAL_COMMAND_EXECUTED: 'local.command_executed',
   TASK_SCHEDULED: 'task.scheduled',
   POLICY_DENIED: 'policy.denied',
   SECURITY_VIOLATION: 'security.violation',

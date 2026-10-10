@@ -110,23 +110,22 @@ const ABOUT = [
  * Feature showcase. `status` is rendered as visible text, never colour-only, so
  * availability stays honest and legible: anything not fully live is labelled.
  */
-const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Available now' | 'Plan dependent' | 'Proposed' | 'Early access' }> = [
-  { title: 'AI agent orchestration', body: 'Specialized agent roles run as an ordered pipeline over a shared project task.', status: 'Available now' },
-  { title: 'Project memory', body: 'Durable project knowledge, decisions and digests that persist between sessions.', status: 'Available now' },
-  { title: 'Persistent context', body: 'Project state and prior-stage context carry forward instead of resetting per turn.', status: 'Available now' },
-  { title: 'Task execution', body: 'Structured tasks with risk levels, required approvals and human-in-the-loop dispatch.', status: 'Available now' },
-  { title: 'Verification', body: 'Review passes, tests and diagnostics that check produced work rather than assuming it.', status: 'Available now' },
-  { title: 'Artifact tracking', body: 'Produced artifacts are stored with a SHA-256 digest and byte count so output stays verifiable.', status: 'Available now' },
-  { title: 'Continuity', body: 'Long-running and background work continues across refreshes, restarts and sessions.', status: 'Available now' },
-  { title: 'Background work', body: 'A worker loop and scheduler claim queued tasks and report back into the workspace.', status: 'Available now' },
-  { title: 'Terminal and tools', body: 'Integrated terminal access and tool-driven execution inside the project workspace.', status: 'Available now' },
-  { title: 'Git and development workflows', body: 'Repository-aware code workspace and release workflows around your project.', status: 'Available now' },
-  { title: 'Security', body: 'Secret guarding, security review roles and security operations reporting.', status: 'Available now' },
-  { title: 'Auditability', body: 'An audit trail records what ran, what changed and what was verified.', status: 'Available now' },
-  { title: 'Team workflows', body: 'Shared projects, team agents and collaborative task tracking.', status: 'Available now' },
-  { title: 'API access', body: 'Programmatic access through managed API keys, released as its own plan.', status: 'Plan dependent' },
-  { title: 'Desktop environment', body: 'The desktop environment is in Early Access. A downloadable build is not published yet.', status: 'Early access' },
-  { title: 'Web environment', body: 'The complete workspace in a browser, served same-origin with the API.', status: 'Available now' },
+const FEATURES: ReadonlyArray<{ title: string; body: string; status: 'Ready to use' | 'Plan dependent' | 'Proposed' | 'Early access' }> = [
+  { title: 'AI agent orchestration', body: 'Specialized agent roles run as an ordered pipeline over a shared project task.', status: 'Ready to use' },
+  { title: 'Project memory', body: 'Durable project knowledge, decisions and digests that persist between sessions.', status: 'Ready to use' },
+  { title: 'Persistent context', body: 'Project state and prior-stage context carry forward instead of resetting per turn.', status: 'Ready to use' },
+  { title: 'Task execution', body: 'Structured tasks with risk levels, required approvals and human-in-the-loop dispatch.', status: 'Ready to use' },
+  { title: 'Verification', body: 'Review passes, tests and diagnostics that check produced work rather than assuming it.', status: 'Ready to use' },
+  { title: 'Artifact tracking', body: 'Produced artifacts are stored with a SHA-256 digest and byte count so output stays verifiable.', status: 'Ready to use' },
+  { title: 'Continuity', body: 'Long-running and background work continues across refreshes, restarts and sessions.', status: 'Ready to use' },
+  { title: 'Background work', body: 'A worker loop and scheduler claim queued tasks and report back into the workspace.', status: 'Ready to use' },
+  { title: 'Terminal and tools', body: 'Integrated terminal access and tool-driven execution inside the project workspace.', status: 'Ready to use' },
+  { title: 'Git and development workflows', body: 'Repository-aware code workspace and release workflows around your project.', status: 'Ready to use' },
+  { title: 'Security', body: 'Secret guarding, security review roles and security operations reporting.', status: 'Ready to use' },
+  { title: 'Auditability', body: 'An audit trail records what ran, what changed and what was verified.', status: 'Ready to use' },
+  { title: 'Team workflows', body: 'Shared projects, team agents and collaborative task tracking.', status: 'Ready to use' },
+  { title: 'Desktop shell', body: 'Electron shell for offline-capable workflows and a local-first experience.', status: 'Ready to use' },
+  { title: 'Web environment', body: 'The complete workspace in a browser, served same-origin with the API.', status: 'Ready to use' },
   { title: 'Deployment integrations', body: 'Kuberns deployment is a proposed integration and partnership capability, not live today.', status: 'Proposed' },
 ];
 
@@ -203,9 +202,7 @@ export function LandingPage() {
               <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
-              <Link to="/register" className="lp-btn lp-btn--ghost">
-                Create an account
-              </Link>
+              
             </div>
             <ul className="lp-pillars" aria-label="Core concepts">
               {PILLARS.map((p) => (
@@ -379,7 +376,7 @@ export function LandingPage() {
                   <h3 className="lp-feature__title">{f.title}</h3>
                   <p className="lp-feature__body">{f.body}</p>
                   <p
-                    className={`lp-feature__status${f.status === 'Available now' ? ' lp-feature__status--live' : ''}`}
+                    className={`lp-feature__status${f.status === 'Ready to use' ? ' lp-feature__status--live' : ''}`}
                   >
                     {f.status}
                   </p>
@@ -400,9 +397,7 @@ export function LandingPage() {
               <Link to="/login" className="lp-btn lp-btn--primary">
                 Enter CodeConClave
               </Link>
-              <Link to="/register" className="lp-btn lp-btn--ghost">
-                Create an account
-              </Link>
+              
             </div>
             <p className="lp-cta__note">Early access. Capabilities are labelled individually above.</p>
           </div>
@@ -414,10 +409,11 @@ export function LandingPage() {
           <span>© {new Date().getFullYear()} CodeConClave</span>
           <nav className="lp-footer__links" aria-label="Footer">
             <Link to="/login">Sign in</Link>
-            <Link to="/register">Create an account</Link>
+            
           </nav>
         </div>
       </footer>
     </div>
   );
 }
+

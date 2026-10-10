@@ -73,6 +73,11 @@ const envSchema = z.object({
   OX_ALPHA_API_KEY: z.string().optional(),
   MANUS_API_KEY: z.string().optional(),
   Z_AI_API_KEY: z.string().optional(),
+  // Meta Muse Spark (optional reasoning/coding provider). Dedicated
+  // server-side credential; NEVER exposed to the browser, logs, or audit
+  // content. MUSE_SPARK_ENABLED gates adapter construction (default OFF).
+  MUSE_SPARK_API_KEY: z.string().optional(),
+  MUSE_SPARK_ENABLED: z.string().default('false'),
   // Launch provider set (production): Gemini, Nemotron, Mistral only. Everything
   // else stays implementable by explicit env override, never on by default.
   AI_PROVIDERS_ENABLED: z.string().default('google,nemotron,mistral'),
@@ -313,6 +318,29 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().optional(),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().default(0.1),
   SENTRY_ENABLED: z.string().default('false'),
+
+  // ---------------------------------------------------------------- HYBRID CONTROL PLANE
+  // Feature gates for the local/browser/desktop/preview control surfaces.
+  // Default OFF: every capability is additive, must pass its own tests, and
+  // when disabled must report NOT ENABLED rather than pretend to work. The
+  // backend NEVER bypasses the local agent's own deny-by-default policy.
+  LOCAL_EXECUTION_ENABLED: z.string().default('false'),
+  BROWSER_CONTROL_ENABLED: z.string().default('false'),
+  DESKTOP_CONTROL_ENABLED: z.string().default('false'),
+  LIVE_PREVIEW_ENABLED: z.string().default('false'),
+  UNIFIED_ACTION_RUNTIME_ENABLED: z.string().default('false'),
+  // Desktop control is deny-by-default: even with the gate on, only the
+  // applications named in this comma-separated allowlist may be launched.
+  DESKTOP_ALLOWED_APPS: z.string().default(''),
+  // Kuberns adapter boundary (P2/P4). Declared but disabled by default; with no
+  // API URL/token the integration reports CONFIGURATION_REQUIRED and never
+  // fabricates a connected or deployed state.
+  KUBERNS_ADAPTER_ENABLED: z.string().default('false'),
+  KUBERNS_API_URL: z.string().default(''),
+  KUBERNS_API_TOKEN: z.string().default(''),
+  // Local task assignment lease: how long an assignment stays claimable before
+  // the recovery sweep re-parks the task (honest offline semantics preserved).
+  LOCAL_TASK_LEASE_MS: z.coerce.number().int().positive().default(120_000),
 
   RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().int().default(300),
   RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().int().default(10),

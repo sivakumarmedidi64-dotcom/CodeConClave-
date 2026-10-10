@@ -136,6 +136,30 @@ describe('session restoration', () => {
     await waitFor(() => expect(getState()?.status).toBe('anon'));
     expect(getState()?.user).toBeNull();
   });
+
+  it('auto-signs in via the demo endpoint when the deployment enables it', async () => {
+    const { fetchFn, getState } = renderHarness('/home', null, async (url, init) => {
+      if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
+      if (url.includes('/auth/demo-login')) {
+        expect(init?.method).toBe('POST');
+        return jsonResponse({ data: { user: USER } });
+      }
+      return jsonResponse({ data: {} });
+    });
+    await waitFor(() => expect(getState()?.status).toBe('authed'));
+    expect(getState()?.user?.email).toBe('alice@example.com');
+    expect(fetchFn).toHaveBeenCalledWith('/api/v1/auth/demo-login', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('stays anonymous when the demo endpoint is refused (non-demo deployment)', async () => {
+    const { getState } = renderHarness('/home', null, async (url) => {
+      if (url.includes('/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'no' } }, 401);
+      if (url.includes('/auth/demo-login')) return jsonResponse({ error: { code: 'not_found', message: 'no' } }, 404);
+      return jsonResponse({ data: {} });
+    });
+    await waitFor(() => expect(getState()?.status).toBe('anon'));
+    expect(getState()?.user).toBeNull();
+  });
 });
 
 describe('login / logout', () => {

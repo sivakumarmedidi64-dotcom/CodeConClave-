@@ -53,4 +53,46 @@ describe('gateTerminalInput — Phase 4B terminal policy gate', () => {
       expect(d.reason).toContain('not allowlisted');
     }
   });
+
+  it('does not let a nested shell command hide a denied command', () => {
+    const critical = [
+      'bash -c "rm -rf /"',
+      "bash -c'rm -rf /'",
+      'sh -c "dd if=/dev/zero of=/dev/sda"',
+      'bash -c "sudo rm -rf /"',
+      "bash -c \"sh -c 'rm -rf /'\"",
+      'node -e "rm -rf /"',
+      'python3 -c "rm -rf /"',
+    ];
+    for (const cmd of critical) {
+      const d = gateTerminalInput(cmd);
+      expect(d.allowed, cmd).toBe(false);
+      expect(d.risk, cmd).toBe('CRITICAL');
+    }
+    const denied = [
+      'cmd /c del /f /q C:\\Windows',
+      'powershell -Command "Stop-Computer"',
+      'node -e "process.exit(1)"',
+      'python3 -c "import os"',
+      'bash -c "rm -rf /" || true',
+    ];
+    for (const cmd of denied) {
+      expect(gateTerminalInput(cmd).allowed, cmd).toBe(false);
+    }
+  });
+
+  it('still allows a safe command executed through a nested shell', () => {
+    for (const cmd of ['bash -c "npm test"', 'powershell -Command "Get-ChildItem"']) {
+      const d = gateTerminalInput(cmd);
+      expect(d.allowed, cmd).toBe(true);
+    }
+  });
+
+  it('does not flag commands that merely share flag-shaped arguments', () => {
+    for (const cmd of ['python3 -m pytest', 'node build.js', 'git status']) {
+      const d = gateTerminalInput(cmd);
+      expect(d.allowed, cmd).toBe(true);
+      expect(d.risk, cmd).toBe('LOW');
+    }
+  });
 });

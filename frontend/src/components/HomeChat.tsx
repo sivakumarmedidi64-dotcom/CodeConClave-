@@ -35,8 +35,8 @@ export function HomeChat() {
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    else el.scrollTop = el.scrollHeight;
+    if (typeof el.scrollTo === 'function') el.scrollTo({ top: 0, behavior: 'smooth' });
+    else el.scrollTop = 0;
   }, [rows]);
 
   useEffect(() => {
@@ -161,10 +161,10 @@ export function HomeChat() {
 
       {rows.length > 0 && (
         <div className="cc-homechat__log" ref={listRef}>
-          {rows.map((row) => (
+          {[...rows].reverse().map((row) => (
             <div key={row.key} className={`cc-homechat__row cc-homechat__row--${row.role}`}>
               {row.role === 'assistant' && row.thinking ? (
-                <div className="cc-homechat__bubble cc-homechat__thinking">
+                <div className="cc-homechat__bubble cc-homechat__bubble--assistant cc-homechat__thinking">
                   <span className="cc-think-dots">
                     <i /><i /><i />
                   </span>

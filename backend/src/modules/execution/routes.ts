@@ -32,7 +32,7 @@ export const executionRoutes = (): Router => {
   router.post(
     '/tasks',
     asyncRoute(async (req, res) => {
-      const { projectId, title, description, riskLevel, executionMode, coworkerPipeline, priority, dependsOn } = req.body ?? {};
+      const { projectId, title, description, riskLevel, executionMode, coworkerPipeline, priority, dependsOn, localInstruction, deviceId } = req.body ?? {};
       if (!projectId || !title) throw AppError.badRequest('invalid_input', 'projectId and title are required');
       if (riskLevel && !['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(riskLevel)) {
         throw AppError.badRequest('invalid_risk', 'riskLevel must be LOW, MEDIUM, HIGH, or CRITICAL');
@@ -43,6 +43,52 @@ export const executionRoutes = (): Router => {
       if (dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.some((d) => typeof d !== 'string'))) {
         throw AppError.badRequest('invalid_dependencies', 'dependsOn must be an array of task ids');
       }
+      const mode = (executionMode ?? 'CLOUD') as string;
+      if (!['CLOUD', 'LOCAL', 'HYBRID'].includes(mode)) {
+        throw AppError.badRequest('invalid_execution_mode', 'executionMode must be CLOUD, LOCAL, or HYBRID');
+      }
+
+      let instruction: unknown = undefined;
+      if (localInstruction !== undefined && localInstruction !== null) {
+        const kind = (localInstruction as { type?: unknown }).type;
+        let parsed: { ok: true; instruction: unknown } | { ok: false; reason: string };
+        if (kind === 'desktop') {
+          const { desktopControlEnabled, parseDesktopInstruction, DESKTOP_PERMISSION_MAX_LIFETIME_MS } = await import('../agent/desktop-policy.js');
+          if (!desktopControlEnabled()) {
+            throw AppError.forbidden('desktop_control_disabled', 'Paired-device desktop control is disabled on this deployment');
+          }
+          if (mode !== 'LOCAL') {
+            throw AppError.badRequest('desktop_requires_local', 'A desktop instruction requires executionMode LOCAL');
+          }
+          parsed = parseDesktopInstruction(localInstruction);
+          if (!parsed.ok) {
+            throw AppError.badRequest('invalid_desktop_instruction', `Invalid desktop instruction: ${parsed.reason}`);
+          }
+          ((parsed.instruction as { grants?: { lifetimeMs?: number } }).grants as { lifetimeMs?: number }).lifetimeMs ??= DESKTOP_PERMISSION_MAX_LIFETIME_MS;
+        } else {
+          const { browserControlEnabled, parseBrowserInstruction, BROWSER_PERMISSION_MAX_LIFETIME_MS } = await import('../agent/browser-policy.js');
+          if (!browserControlEnabled()) {
+            throw AppError.forbidden('browser_control_disabled', 'Paired-device browser control is disabled on this deployment');
+          }
+          if (mode !== 'LOCAL') {
+            throw AppError.badRequest('browser_requires_local', 'A browser instruction requires executionMode LOCAL');
+          }
+          parsed = parseBrowserInstruction(localInstruction);
+          if (!parsed.ok) {
+            throw AppError.badRequest('invalid_browser_instruction', `Invalid browser instruction: ${parsed.reason}`);
+          }
+          ((parsed.instruction as { grants?: { lifetimeMs?: number } }).grants as { lifetimeMs?: number }).lifetimeMs ??= BROWSER_PERMISSION_MAX_LIFETIME_MS;
+        }
+        if (deviceId !== undefined && deviceId !== null && deviceId !== '') {
+          const owned = await withTenant<{ rows: { id: string }[] }>(req.ctx.user!.id, (q) =>
+            q.query<{ id: string }>('SELECT id FROM devices WHERE id = $1 AND user_id = $2 AND state = \'PAIRED\'', [deviceId, req.ctx.user!.id]),
+          );
+          if (!owned.rows[0]) throw AppError.badRequest('device_not_paired', 'deviceId must reference one of your paired devices');
+          (parsed.instruction as { pinnedDeviceId?: string }).pinnedDeviceId = deviceId;
+        }
+        instruction = parsed.instruction;
+      }
+
       const { createTaskFromChat } = await import('./orchestrator.js');
       const task = await createTaskFromChat({
         userId: req.ctx.user!.id,
@@ -51,7 +97,9 @@ export const executionRoutes = (): Router => {
         title,
         description: description ?? null,
         riskLevel,
+        executionMode: mode as 'CLOUD' | 'LOCAL' | 'HYBRID',
         pipeline: coworkerPipeline,
+        localInstruction: instruction,
         priority: priority ?? 0,
         dependsOn,
       });
@@ -70,6 +118,15 @@ export const executionRoutes = (): Router => {
     '/tasks/:id',
     asyncRoute(async (req, res) => {
       res.json(jsonResult(await getTaskTimeline(req.ctx.user!.id, req.params.id!)));
+    }),
+  );
+
+  router.get(
+    '/tasks/:id/local',
+    asyncRoute(async (req, res) => {
+      await assertTaskOwner(req.ctx.user!.id, req.params.id!);
+      const { getAssignmentForUser } = await import('../agent/dispatch.js');
+      res.json(jsonResult({ local: await getAssignmentForUser(req.ctx.user!.id, req.params.id!) }));
     }),
   );
 

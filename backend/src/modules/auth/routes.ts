@@ -9,6 +9,7 @@ import {
   completeMfa,
   confirmMfa,
   createDevice,
+  demoLogin,
   disableMfa,
   getUserById,
   listDevices,
@@ -119,8 +120,24 @@ router.post(
   );
 
   /**
- * @openapi
- * /api/v1/auth/login:
+   * TEMPORARY DEMO / EARLY ACCESS — silent sign-in with NO email, password or
+   * registration. Only effective while the server reports TEMPORARY_DEMO_MODE;
+   * with the flag off the service throws 404 so the route is inert in
+   * production. It issues a real session for the single dedicated demo account.
+   */
+  router.post(
+    '/demo-login',
+    authLimit(),
+    asyncRoute(async (req, res) => {
+      const result = await demoLogin(req);
+      applyAuthResponse(res, result);
+      res.json(jsonResult({ user: result.user }));
+    }),
+  );
+
+  /**
+   * @openapi
+   * /api/v1/auth/login:
  *   post:
  *     summary: User login
  *     description: Authenticate user with email and password. Returns session cookie on success.

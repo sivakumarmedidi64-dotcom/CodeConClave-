@@ -99,6 +99,18 @@ const COHERE_URL = 'https://api.cohere.com/v2/chat';
 const QWEN_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const ZAI_URL = 'https://api.z.ai/api/v1/chat/completions';
+/**
+ * Meta Muse Spark (Model API) — OpenAI-compatible Chat Completions.
+ * Official docs: https://dev.meta.ai/docs/protocols/chat-completions
+ * POST {base}/chat/completions with Bearer auth, `model: muse-spark-1.3`,
+ * OpenAI-shaped messages/streaming/usage. Only behaviours stated in those
+ * docs are used here (text, streaming SSE, tool calling, response_format
+ * structured output, usage with reasoning tokens counted as output).
+ * Gated by MUSE_SPARK_ENABLED (default OFF) — see museSparkEnabled().
+ */
+const MUSE_SPARK_BASE = 'https://api.meta.ai/v1';
+const MUSE_SPARK_CHAT_URL = `${MUSE_SPARK_BASE}/chat/completions`;
+export const MUSE_SPARK_DEFAULT_MODEL = 'muse-spark-1.3';
 
 const MANUS_V2_BASE = 'https://api.manus.ai/v2';
 
@@ -572,6 +584,66 @@ function openaiCompatAdapter(providerId: string, label: string, baseUrl: string,
 }
 
 /**
+ * Meta Muse Spark adapter (Model API Chat Completions).
+ * Dedicated adapter (not the generic OpenAI-compat one) so the documented
+ * Muse Spark wire facts stay explicit: Bearer auth, `model: muse-spark-1.3`,
+ * OpenAI-shaped SSE deltas + usage. Timeout/cancellation/429 classification
+ * reuse the shared sseReader + httpError + gateway fallback rails — nothing
+ * billable is retried blindly and an HTTP-200 non-SSE error body is never
+ * swallowed as an empty success.
+ */
+function museSparkAdapter(model: string, apiKey: string): ProviderAdapter {
+  return {
+    providerId: 'muse_spark',
+    // Documented: Chat Completions covers tool calling + structured output
+    // (response_format). The gateway's typed tool-call flow sends a JSON-only
+    // instruction and parses JSON — supported by this endpoint.
+    supportsToolCalls: true,
+    async *complete(req, signal) {
+      const response = await fetch(MUSE_SPARK_CHAT_URL, {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          max_tokens: req.maxTokens ?? 4096,
+          temperature: req.temperature ?? 0.7,
+          stream: true,
+          messages: openAiMessages(req.messages),
+        }),
+      });
+      let outputTokens = 0;
+      let sawDelta = false;
+      for await (const chunk of sseReader(response, 'Muse Spark', (json) => {
+        const data = json as {
+          choices?: { delta?: { content?: string } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        const delta = data.choices?.[0]?.delta?.content;
+        if (delta) {
+          outputTokens += 1;
+          return { delta, inputTokens: data.usage?.prompt_tokens, outputTokens };
+        }
+        return null;
+      }, signal)) {
+        if (chunk.delta) sawDelta = true;
+        yield chunk;
+      }
+      // Honest guard: an HTTP 200 with a JSON error body that is not SSE must
+      // surface as a failure, never as an empty successful completion.
+      if (!sawDelta && outputTokens === 0) {
+        throw AppError.unavailable('provider_error', 'Muse Spark returned an empty completion (HTTP 200)', { status: 200 });
+      }
+    },
+  };
+}
+
+/** Master flag: Muse Spark is opt-in and OFF by default. */
+export function museSparkEnabled(): boolean {
+  return String(env.MUSE_SPARK_ENABLED ?? 'false').toLowerCase() === 'true';
+}
+
+/**
  * Cohere v2 SSE adapter (north models). v2 emits `message-start` events and
  * `content-delta` events with `type: 'text'`; usage arrives on `message-end`.
  */
@@ -830,6 +902,15 @@ export function getAdapter(providerId: string, model: string): ProviderAdapter {
     case 'manus':
       if (!env.MANUS_API_KEY) throw AppError.unavailable('provider_not_configured', 'Manus is not configured');
       return manusAdapter(env.MANUS_API_KEY);
+    case 'muse_spark':
+      // Feature-flag gate FIRST: default OFF. A disabled Muse Spark reports
+      // CONFIGURATION REQUIRED (provider_not_configured) — never a fake
+      // success and never a billable call.
+      if (!museSparkEnabled()) {
+        throw AppError.unavailable('provider_not_configured', 'Muse Spark is disabled (MUSE_SPARK_ENABLED=false)');
+      }
+      if (!env.MUSE_SPARK_API_KEY) throw AppError.unavailable('provider_not_configured', 'Muse Spark is not configured');
+      return museSparkAdapter(model, env.MUSE_SPARK_API_KEY);
     default:
       throw AppError.badRequest('unknown_provider', `Unknown provider ${providerId}`);
   }

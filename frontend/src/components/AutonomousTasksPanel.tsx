@@ -63,7 +63,7 @@ export function AutonomousTasksPanel() {
 
   return (
     <div data-testid="autonomy-panel" className="space-y-4">
-      <h2 className="text-lg font-semibold">24/7 Autonomous Cowork</h2>
+      <h2 className="text-lg font-semibold">Autonomous Cowork</h2>
 
       {state === 'loading' && <p data-testid="autonomy-loading">Loading autonomy status…</p>}
       {state === 'error' && <p data-testid="autonomy-error" className="text-sm text-red-600">{error ?? 'Autonomy status unavailable'}</p>}

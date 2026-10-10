@@ -100,7 +100,85 @@ const BUILTIN_OR_CMDLET = [
   'Get-Service', 'Get-CimInstance', '$PSVersionTable', '$?', '$PID',
 ];
 
-export function classifyCommand(command: string): Decision {
+/**
+ * Shells and interpreters that execute a *nested command string* taken from a
+ * later argument. Classifying only the first token would let
+ * `bash -c "rm -rf /"` through as a safe `bash`, so whenever one of these is
+ * the effective command and a nested-command flag is present, the nested line
+ * is gated recursively instead of being trusted.
+ */
+const NESTED_COMMAND_SHELLS = new Set([
+  'bash', 'zsh', 'sh', 'dash', 'ksh', 'csh', 'tcsh', 'fish',
+  'powershell', 'pwsh', 'cmd',
+  'node', 'python', 'python3', 'perl', 'ruby', 'php',
+]);
+
+/** Flags whose following argument is itself a command string (longest first). */
+const NESTED_COMMAND_FLAG =
+  /(?:^|\s)(-encodedcommand|-command|-eval|--command|--eval|-c|-e|\/c|\/k)(?=\s|$|["'])/i;
+
+/** Nesting depth cap — guards against pathological `bash -c "bash -c …"`. */
+const MAX_NESTED_DEPTH = 5;
+
+const RISK_ORDER: Record<Risk, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+
+function maxRisk(a: Risk, b: Risk): Risk {
+  return RISK_ORDER[a] >= RISK_ORDER[b] ? a : b;
+}
+
+/** Strip one *matching* pair of surrounding quotes, if present. */
+function unquote(value: string): string {
+  const t = value.trim();
+  if (t.length >= 2) {
+    const [a, b] = [t[0], t[t.length - 1]];
+    if ((a === '"' && b === '"') || (a === "'" && b === "'")) return t.slice(1, -1);
+  }
+  return t;
+}
+
+/**
+ * Returns the command string handed to a nested-shell flag (`bash -c …`,
+ * `cmd /c …`, `node -e …`), or `null` when the command is not a nested-shell
+ * invocation. `line` must already have any `sudo` prefix removed, so the flag
+ * search cannot be confused by it.
+ */
+function extractNestedCommand(first: string, line: string): string | null {
+  const rest = line.slice(first.length);
+  const match = NESTED_COMMAND_FLAG.exec(rest);
+  if (!match) return null;
+  const inner = unquote(rest.slice(match.index + match[0].length));
+  return inner ? inner : null;
+}
+
+/**
+ * Gate a nested command extracted from a shell/interpreter invocation.
+ * Returns `null` when there is no nested command to gate.
+ */
+function gateNested(
+  first: string,
+  effective: string,
+  base: string,
+  depth: number,
+  evaluate: (line: string, depth: number) => Decision,
+): Decision | null {
+  if (!NESTED_COMMAND_SHELLS.has(base)) return null;
+  const nested = extractNestedCommand(first, effective);
+  if (nested === null) return null;
+  if (depth + 1 > MAX_NESTED_DEPTH) {
+    return { allowed: false, risk: 'MEDIUM', reason: 'nested command depth limit exceeded' };
+  }
+  const inner = evaluate(nested, depth + 1);
+  if (!inner.allowed) {
+    return { allowed: false, risk: inner.risk, reason: `${base}: ${inner.reason}` };
+  }
+  return {
+    allowed: true,
+    risk: maxRisk('LOW', inner.risk),
+    reason: `nested command via ${base}: ${inner.reason}`,
+  };
+}
+
+export function classifyCommand(command: string, depth = 0): Decision {
   const trimmed = command.trim();
   if (!trimmed) return { allowed: true, risk: 'LOW', reason: 'empty command' };
   if (DANGEROUS_COMMANDS.some((re) => re.test(trimmed))) {
@@ -110,6 +188,12 @@ export function classifyCommand(command: string): Decision {
   const effective = isSudo ? trimmed.replace(/^sudo\s+/, '') : trimmed;
   const first = effective.split(/\s+/)[0] ?? '';
   const base = first.split(/[/\\]/).pop() ?? first;
+  const nested = gateNested(first, effective, base, depth, (line, nextDepth) =>
+    classifyCommand(line, nextDepth),
+  );
+  if (nested) {
+    return isSudo && nested.allowed ? { ...nested, risk: 'HIGH' } : nested;
+  }
   if (SAFE_COMMAND_PREFIX.includes(base)) {
     if (isSudo) return { allowed: true, risk: 'HIGH', reason: 'sudo requires explicit approval' };
     return { allowed: true, risk: 'LOW', reason: 'allowlisted command' };
@@ -126,7 +210,7 @@ export function classifyCommand(command: string): Decision {
  * Allowlisted child commands and shell builtins/cmdlets pass; unknown commands
  * are denied by default.
  */
-export function gateTerminalInput(line: string): Decision {
+export function gateTerminalInput(line: string, depth = 0): Decision {
   const trimmed = line.trim();
   if (!trimmed) return { allowed: true, risk: 'LOW', reason: 'empty input' };
   if (DANGEROUS_COMMANDS.some((re) => re.test(trimmed))) {
@@ -137,6 +221,10 @@ export function gateTerminalInput(line: string): Decision {
   }
   const first = trimmed.split(/\s+/)[0] ?? '';
   const base = first.split(/[/\\]/).pop() ?? first;
+  const nested = gateNested(first, trimmed, base, depth, (inner, nextDepth) =>
+    gateTerminalInput(inner, nextDepth),
+  );
+  if (nested) return nested;
   if (SAFE_COMMAND_PREFIX.includes(base) || BUILTIN_OR_CMDLET.includes(base)) {
     return { allowed: true, risk: 'LOW', reason: 'allowlisted command or shell builtin' };
   }

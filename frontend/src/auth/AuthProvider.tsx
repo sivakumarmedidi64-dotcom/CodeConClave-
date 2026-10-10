@@ -9,7 +9,7 @@
  * The legacy path is retained because removing it would lock out existing
  * accounts; nothing in the new path may assume the old one was used.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { User } from '../lib/types';
@@ -80,6 +80,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<'loading' | 'anon' | 'authed'>('loading');
   const [user, setUser] = useState<User | null>(null);
+  const demoLoginAttempted = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -88,6 +89,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('authed');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        // TEMPORARY DEMO / EARLY ACCESS: with no session, try the silent demo
+        // sign-in so the app opens straight into the workspace with no email,
+        // password or registration. The server only honours it while its
+        // temporary-demo flag is on — otherwise it 404s and this stays truly
+        // anonymous, so production behaviour is unchanged. Attempt once per
+        // provider instance to avoid a retry loop.
+        if (!demoLoginAttempted.current) {
+          demoLoginAttempted.current = true;
+          try {
+            const res = await api<{ user: User }>('/api/v1/auth/demo-login', { method: 'POST' });
+            if (res.user) {
+              setUser(res.user);
+              setStatus('authed');
+              return;
+            }
+          } catch {
+            /* not a demo deployment — fall through to anonymous */
+          }
+        }
         setUser(null);
         setStatus('anon');
         return;

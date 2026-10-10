@@ -217,4 +217,36 @@ describe('workbenchStream', () => {
     stream.close();
     fake.EventSource = original;
   });
+
+  it('reconnects after an error with backoff and reports the transport state honestly', async () => {
+    vi.useFakeTimers();
+    const states: boolean[] = [];
+    const events: WorkbenchEvent[] = [];
+    const stream = workbenchStream('p1', { onEvent: (e) => events.push(e), onState: (s) => states.push(s) });
+    const first = ControlledES.last!;
+    first.emit('open', {});
+    expect(states).toEqual([true]);
+    expect(ControlledES.last).toBe(first);
+
+    first.emit('error', {});
+    expect(states).toEqual([true, false]);
+
+    // Backoff schedules a reconnect (a fresh EventSource is constructed).
+    const delay1 = 1000 * 2 ** Math.min(1, 5);
+    await vi.advanceTimersByTimeAsync(delay1 + 5);
+    const second = ControlledES.last!;
+    expect(second).not.toBe(first);
+    second.emit('open', {});
+    expect(states.at(-1)).toBe(true);
+
+    second.emit('error', {});
+    // Second failure doubles the backoff window (retry grows monotonically).
+    const delay2 = 1000 * 2 ** Math.min(2, 5);
+    await vi.advanceTimersByTimeAsync(delay2 + 5);
+    expect(ControlledES.last).not.toBe(second);
+    expect(states.at(-1)).toBe(false);
+
+    stream.close();
+    vi.useRealTimers();
+  });
 });

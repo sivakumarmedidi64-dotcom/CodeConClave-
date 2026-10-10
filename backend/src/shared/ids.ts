@@ -34,6 +34,7 @@ export const PREFIX = {
   HANDOFF: 'hnd',
   TASK_DLQ: 'dlq',
   TASK_DEPENDENCY: 'dep',
+  LOCAL_ASSIGNMENT: 'lta',
   PLAN: 'pln',
   PLAN_ENTRY: 'pne',
   RECEIPT: 'rcp',

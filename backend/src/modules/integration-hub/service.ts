@@ -212,11 +212,25 @@ export async function deploymentProviderCapabilities(): Promise<
   Array<{ provider: string; state: string; supportsRollback: boolean; live: boolean; reason: string }>
 > {
   const { listProviderCapabilities } = await import('../release/provider.js');
-  return listProviderCapabilities().map((c) => ({
-    provider: c.provider,
-    state: c.state,
-    supportsRollback: c.supportsRollback,
-    live: c.live,
-    reason: c.reason,
-  }));
+  const { kubernsStatus } = await import('../kuberns/adapter.js');
+  const kuberns = kubernsStatus();
+  // Map the Kuberns boundary state into the hub's fixed provider vocabulary;
+  // the detailed DISABLED/CONFIGURATION_REQUIRED state stays on /kuberns/status.
+  const kubernsHubState = kuberns.state === 'CONFIGURED' ? 'CONFIGURED' : 'UNCONFIGURED';
+  return [
+    ...listProviderCapabilities().map((c) => ({
+      provider: c.provider,
+      state: c.state,
+      supportsRollback: c.supportsRollback,
+      live: c.live,
+      reason: c.reason,
+    })),
+    {
+      provider: 'kuberns',
+      state: kubernsHubState,
+      supportsRollback: true,
+      live: kuberns.live,
+      reason: kuberns.reason,
+    },
+  ];
 }

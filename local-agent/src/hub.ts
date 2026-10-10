@@ -9,6 +9,10 @@ import type { AgentConfig } from './config.js';
 
 export interface HubHandlers {
   handleCommand: (corrId: string, cmd: Record<string, unknown>) => Promise<void>;
+  /** Optional: handle a local task assignment frame pushed by the cloud hub. */
+  handleTask?: (frame: Record<string, unknown>) => void;
+  /** Optional: route a task_ack back to the awaiting local task executor. */
+  handleTaskAck?: (msg: Record<string, unknown>) => void;
 }
 
 export class HubClient {
@@ -22,6 +26,7 @@ export class HubClient {
   constructor(
     private config: AgentConfig,
     private handlers: HubHandlers,
+    private capabilities: string[] = [],
   ) {}
 
   setStateListener(cb: (online: boolean) => void): void {
@@ -51,6 +56,7 @@ export class HubClient {
           type: 'register',
           token: this.config.token ?? '',
           deviceId: this.config.deviceId,
+          ...(this.capabilities.length > 0 ? { capabilities: this.capabilities } : {}),
         }),
       );
     });
@@ -93,6 +99,15 @@ export class HubClient {
           .catch((err) => {
             this.send({ type: 'cmd_result', corrId: msg.corrId, ok: false, error: err instanceof Error ? err.message : 'handler_failed' });
           });
+        return;
+      }
+      case 'task_assign': {
+        if (!this.handlers.handleTask) return;
+        this.handlers.handleTask(msg);
+        return;
+      }
+      case 'task_ack': {
+        this.handlers.handleTaskAck?.(msg);
         return;
       }
       default:

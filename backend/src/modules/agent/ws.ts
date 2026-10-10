@@ -17,6 +17,17 @@ import { registerGrants, revokeGrants } from '../execution/policy.js';
 import { redactSecrets } from '../secretGuard/patterns.js';
 import type { TerminalState } from '@codeconclave/shared';
 import { updateTerminalStatus, appendTerminalHistory } from '../terminal/store.js';
+import { setHub } from './hub.js';
+import {
+  onAgentReady,
+  claimAssignment,
+  heartbeatAssignment,
+  recordAssignmentProgress,
+  reportAssignmentArtifact,
+  completeAssignment,
+  failAssignment,
+  localExecutionEnabled,
+} from './dispatch.js';
 
 const GRANT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TERMINAL_STATES = new Set(['PLANNED', 'STARTING', 'RUNNING', 'COMPLETED', 'FAILED', 'KILLED', 'TIMED_OUT']);
@@ -53,7 +64,7 @@ export class AgentHub {
       ws.close(4001, 'timeout waiting for auth');
       return;
     }
-    let helloMsg: { type: string; token?: string; deviceId?: string };
+    let helloMsg: { type: string; token?: string; deviceId?: string; capabilities?: unknown };
     try {
       helloMsg = JSON.parse(hello.toString());
     } catch {
@@ -71,6 +82,13 @@ export class AgentHub {
       ws.close(4003, 'invalid credentials');
       return;
     }
+
+    // Honest capability advertisement: the agent asserts which operations it
+    // actually supports (e.g. browser.*). The server unions them into the
+    // device record — a device never gains capabilities it did not claim.
+    await mergeAdvertisedCapabilities(device, helloMsg.capabilities).catch((err) =>
+      logger.warn('capability advertisement not persisted', { err: err instanceof Error ? err.message : String(err) }),
+    );
 
     const connectionKey = `${device.user_id}:${device.id}`;
     const grantIds = grantIdsForDevice(device.id);
@@ -106,6 +124,13 @@ export class AgentHub {
     ws.on('error', (err) => logger.warn('agent socket error', { err: err.message }));
 
     this.send(ws, { type: 'ready', workspace: device.user_id, capabilities: device.capabilities });
+    // Reconnect/recovery: re-deliver live assignments and dispatch parked LOCAL
+    // tasks now that a capable device is present. Best-effort; never blocks ready.
+    if (localExecutionEnabled()) {
+      void onAgentReady(device.user_id, device.id).catch((err) =>
+        logger.warn('local task redelivery failed', { err: err instanceof Error ? err.message : String(err) }),
+      );
+    }
   }
 
   private async onMessage(
@@ -200,8 +225,85 @@ export class AgentHub {
         }
         return;
       }
+      case 'task_claim':
+      case 'task_heartbeat':
+      case 'task_progress':
+      case 'task_artifact':
+      case 'task_complete':
+      case 'task_fail': {
+        if (!localExecutionEnabled()) {
+          this.send(ws, { type: 'task_ack', ok: false, error: 'local_execution_disabled' });
+          return;
+        }
+        await this.handleTaskMessage(device, msg, ws);
+        return;
+      }
       default:
         this.send(ws, { type: 'error', reason: 'unknown_message_type' });
+    }
+  }
+
+  /**
+   * Local task protocol handlers. The device is already authenticated; every
+   * operation re-verifies that the device owns the assignment (dispatch.ts).
+   * Replies are always `task_ack` — success or a machine-readable refusal.
+   */
+  private async handleTaskMessage(
+    device: AgentDevice,
+    msg: { type: string; [k: string]: unknown },
+    ws: WebSocket,
+  ): Promise<void> {
+    const assignmentId = String(msg.assignmentId ?? '');
+    const attemptNumber = typeof msg.attemptNumber === 'number' ? msg.attemptNumber : undefined;
+    const base = { assignmentId, userId: device.user_id, deviceId: device.id };
+    try {
+      switch (msg.type) {
+        case 'task_claim': {
+          const r = await claimAssignment(base);
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId, attemptId: r.attemptId, attemptNumber: r.attemptNumber });
+          return;
+        }
+        case 'task_heartbeat': {
+          await heartbeatAssignment({ ...base, attemptNumber });
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId });
+          return;
+        }
+        case 'task_progress': {
+          await recordAssignmentProgress({ ...base, progress: (msg.progress as Record<string, unknown>) ?? {} });
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId });
+          return;
+        }
+        case 'task_artifact': {
+          const r = await reportAssignmentArtifact({ ...base, artifact: (msg.artifact as Record<string, unknown>) ?? {} });
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId, count: r.count });
+          return;
+        }
+        case 'task_complete': {
+          await completeAssignment({
+            ...base,
+            attemptNumber,
+            result: (msg.result as Record<string, unknown>) ?? {},
+            artifacts: Array.isArray(msg.artifacts) ? (msg.artifacts as Record<string, unknown>[]) : undefined,
+          });
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId });
+          return;
+        }
+        case 'task_fail': {
+          const r = await failAssignment({
+            ...base,
+            attemptNumber,
+            errorCode: typeof msg.errorCode === 'string' ? msg.errorCode : undefined,
+            error: String(msg.error ?? 'local_execution_failed'),
+          });
+          this.send(ws, { type: 'task_ack', ok: true, assignmentId, decision: r.decision });
+          return;
+        }
+        default:
+          return;
+      }
+    } catch (err) {
+      const reason = err instanceof AppError ? err.errorCode : 'task_message_failed';
+      this.send(ws, { type: 'task_ack', ok: false, assignmentId, error: reason });
     }
   }
 
@@ -429,6 +531,24 @@ async function authenticateAgent(deviceId: string, token: string): Promise<Agent
   };
 }
 
+/**
+ * Union of the device record's capabilities and the ones the agent claims to
+ * support at register time, persisted back to the device. The default legacy
+ * list is preserved when a device has no stored capabilities and advertises
+ * nothing new.
+ */
+async function mergeAdvertisedCapabilities(device: AgentDevice, advertised: unknown): Promise<void> {
+  const existing = [...device.capabilities];
+  if (Array.isArray(advertised)) {
+    const claimed = advertised.filter((c): c is string => typeof c === 'string' && /^[a-z][a-z0-9_.-]{1,63}$/.test(c));
+    for (const cap of claimed) {
+      if (!existing.includes(cap)) existing.push(cap);
+    }
+    device.capabilities = existing;
+  }
+  await pool.query('UPDATE devices SET capabilities = $2::jsonb, updated_at = now() WHERE id = $1', [device.id, JSON.stringify(existing)]);
+}
+
 function waitForMessage(ws: WebSocket, timeoutMs: number): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -456,6 +576,7 @@ function waitForMessage(ws: WebSocket, timeoutMs: number): Promise<Buffer | null
 let hubInstance: AgentHub | null = null;
 export function agentWs(): AgentHub {
   hubInstance ??= new AgentHub();
+  setHub(hubInstance);
   return hubInstance;
 }
 

@@ -103,3 +103,64 @@ describe('state machine — illegal + terminal guards', () => {
     expect(invalidTransitionReason('CREATED', 'BOGUS')).toMatch(/unknown target status 'BOGUS'/);
   });
 });
+
+describe('state machine — exhaustive matrix over the real ALLOWED map (task-state matrix)', () => {
+  it('every live-status transition either passes the map or is a rejected illegal transition (no silent drift)', () => {
+    for (const from of TASK_STATUS) {
+      for (const to of TASK_STATUS) {
+        if (from === to) continue; // self-rewrites are idempotent by design (below)
+        const reason = invalidTransitionReason(from, to);
+        if (reason) {
+          expect(() => guardTransition(from, to)).toThrow(/invalid_task_transition/);
+        }
+      }
+    }
+    // guardTransition treats same-status live rewrites as an idempotent no-op.
+    for (const from of TASK_STATUS) {
+      if (['COMPLETED', 'CANCELLED', 'FAILED', 'TIMED_OUT'].includes(from)) continue;
+      expect(() => guardTransition(from, from)).not.toThrow();
+    }
+  });
+
+  it('no terminal source may re-enter the lifecycle without an explicit retry path', () => {
+    const retryableRetryTargets = (from: string): string[] => {
+      if (from === 'FAILED') return ['CREATED', 'BLOCKED', 'RECOVERABLE'];
+      if (from === 'TIMED_OUT') return ['CREATED', 'BLOCKED', 'RECOVERABLE', 'FAILED'];
+      return [];
+    };
+    for (const from of TASK_STATUS) {
+      const isTerminal = ['COMPLETED', 'CANCELLED', 'FAILED', 'TIMED_OUT'].includes(from);
+      if (!isTerminal) continue;
+      for (const to of TASK_STATUS) {
+        if (retryableRetryTargets(from).includes(to)) continue;
+        // Including self-transitions: a terminal task must never be "refreshed"
+        // into itself, and COMPLETED/CANCELLED have no exit at all.
+        expect(() => guardTransition(from, to), `${from} -> ${to}`).toThrow(/invalid_task_transition/);
+      }
+    }
+  });
+
+  it('every transition target named in the map is itself a valid, declared status', () => {
+    const reachable = new Set<string>();
+    for (const from of TASK_STATUS) {
+      for (const to of TASK_STATUS) {
+        if (invalidTransitionReason(from, to) === null) reachable.add(to);
+      }
+    }
+    for (const reached of reachable) {
+      expect(isValidTaskStatus(reached), `'${reached}' is not a declared TASK_STATUS`).toBe(true);
+    }
+  });
+
+  it('the canonical lifecycle chain is complete and every branch status is reachable from a live status', () => {
+    const chain = ['CREATED', 'PLANNED', 'WAITING_APPROVAL', 'RUNNING', 'TESTING', 'VERIFIED', 'COMPLETED'];
+    for (let i = 0; i < chain.length - 1; i++) {
+      expect(invalidTransitionReason(chain[i]!, chain[i + 1]!), `${chain[i]} -> ${chain[i + 1]}`).toBeNull();
+    }
+    // Branch statuses must be reachable (honest states are used, never dead).
+    for (const branch of ['FAILED', 'TIMED_OUT', 'CANCELLED', 'BLOCKED', 'WAITING_FOR_LOCAL_AGENT', 'REQUIRES_REVIEW', 'PAUSED']) {
+      const reachable = TASK_STATUS.some((from) => invalidTransitionReason(from, branch) === null);
+      expect(reachable, `'${branch}' is unreachable from every status`).toBe(true);
+    }
+  });
+});

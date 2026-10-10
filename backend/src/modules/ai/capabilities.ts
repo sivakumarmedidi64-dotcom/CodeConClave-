@@ -75,6 +75,13 @@ export const VERIFIED_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
   'ox_alpha',
   'manus',
   'z_code_5_3',
+  // Endpoint identity per the official Meta Model API docs
+  // (https://dev.meta.ai/docs/protocols/chat-completions: base
+  // https://api.meta.ai/v1, POST /chat/completions, Bearer auth, model
+  // muse-spark-1.3) plus a live unauthenticated TLS/HTTP probe (host answers
+  // HTTP 404 at /v1 without credentials — no billable call). Real-call
+  // verification is still pending an authorized smoke test.
+  'muse_spark',
 ]);
 
 /**

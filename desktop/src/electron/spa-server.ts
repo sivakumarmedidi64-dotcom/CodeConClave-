@@ -21,6 +21,9 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const EMBEDDED_ORIGIN = 'http://localhost:8080';
+const EMBEDDED_PORT = 8080;
+/** Machine-readable bound-port marker emitted by server.cjs on stdout. */
+const BOUND_PORT_RE = /__BOUND_PORT_START__(\d+)__BOUND_PORT_END__/;
 
 /** Hosted production backend. Packaged installs reach it directly; the override
  *  CC_DESKTOP_BACKEND_URL always wins; un-packaged dev builds stay local. */
@@ -55,6 +58,31 @@ function isEmbeddedOrigin(appUrl: string): boolean {
   }
 }
 
+/** Read the port the embedded server actually bound (belt-and-braces: even if
+ *  server.cjs falls back because 8080 is taken, the shell loads the real port). */
+function detectBoundPort(child: ChildProcess): Promise<number> {
+  return new Promise((resolve) => {
+    let output = '';
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(EMBEDDED_PORT);
+    }, READY_TIMEOUT_MS);
+    const onData = (d: Buffer) => {
+      output += d.toString();
+      const match = BOUND_PORT_RE.exec(output);
+      if (match) {
+        cleanup();
+        resolve(Number(match[1]));
+      }
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stdout?.off('data', onData);
+    };
+    child.stdout?.on('data', onData);
+  });
+}
+
 function waitUntilAlive(base: string): Promise<void> {
   return new Promise((resolve_ready, reject) => {
     const started = Date.now();
@@ -72,7 +100,7 @@ function waitUntilAlive(base: string): Promise<void> {
     };
     const retry = () => {
       if (Date.now() - started > READY_TIMEOUT_MS) {
-        reject(new Error(`embedded web UI did not become ready on ${EMBEDDED_ORIGIN}`));
+        reject(new Error(`embedded web UI did not become ready on ${base}`));
         return;
       }
       setTimeout(attempt, READY_INTERVAL_MS);
@@ -96,7 +124,7 @@ export async function ensureEmbeddedApp(
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
-      PORT: '8080',
+      PORT: String(EMBEDDED_PORT),
       FRONTEND_PROXY_TARGET: PROXY_TARGET,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -105,16 +133,17 @@ export async function ensureEmbeddedApp(
   child.stderr?.on('data', (d) => log(`[spa] ${String(d).toString().trimEnd()}`));
 
   try {
-    await waitUntilAlive(EMBEDDED_ORIGIN);
+    const boundPort = await detectBoundPort(child);
+    const boundOrigin = `http://localhost:${boundPort}`;
+    await waitUntilAlive(boundOrigin);
+    return {
+      url: boundOrigin,
+      stop: () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      },
+    };
   } catch (err) {
     if (child.exitCode === null) child.kill();
     throw err;
   }
-
-  return {
-    url: EMBEDDED_ORIGIN,
-    stop: () => {
-      if (child.exitCode === null && child.signalCode === null) child.kill();
-    },
-  };
 }

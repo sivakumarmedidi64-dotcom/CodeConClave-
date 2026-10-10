@@ -51,19 +51,17 @@ describe('LandingPage', () => {
       const enter = screen.getAllByRole('link', { name: 'Enter CodeConClave' });
       expect(enter.length).toBeGreaterThan(0);
       for (const link of enter) expect(link.getAttribute('href')).toBe('/login');
-      const register = screen.getAllByRole('link', { name: 'Create an account' });
-      expect(register.length).toBeGreaterThan(0);
-      for (const link of register) expect(link.getAttribute('href')).toBe('/register');
+      const register = screen.queryAllByRole('link', { name: 'Create an account' });
+      expect(register.length).toBe(0);
     });
 
     it('offers the zero-domain register path and no third-party login', () => {
       renderLanding();
       const links = screen.getAllByRole('link');
       const registerLinks = links.filter((l) => (l.getAttribute('href') ?? '').endsWith('/register'));
-      expect(registerLinks.length).toBeGreaterThanOrEqual(2);
+      expect(registerLinks.length).toBe(0);
       const loginLinks = links.filter((l) => (l.getAttribute('href') ?? '') === '/login');
       expect(loginLinks.length).toBeGreaterThanOrEqual(6);
-      expect(document.body.textContent).toMatch(/create an? account/i);
       expect(document.body.textContent).not.toMatch(/sign in with google/i);
       expect(document.body.textContent).not.toMatch(/continue with google/i);
     });
@@ -278,9 +276,9 @@ describe('LandingPage', () => {
         'Security',
         'Auditability',
         'Team workflows',
-        'API access',
-        'Desktop environment',
+        'Desktop shell',
         'Web environment',
+        'Deployment integrations',
       ]) {
         expect(within(grid).getByRole('heading', { name: title })).toBeDefined();
       }
@@ -291,11 +289,11 @@ describe('LandingPage', () => {
       const grid = features();
       const statusOf = (title: string) => {
         const card = within(grid).getByRole('heading', { name: title }).closest('.lp-feature') as HTMLElement;
-        return within(card).getByText(/^(Available now|Plan dependent|Proposed|Early access)$/).textContent;
+        return within(card).getByText(/^(Ready to use|Plan dependent|Proposed|Early access)$/).textContent;
       };
 
-      expect(statusOf('Project memory')).toBe('Available now');
-      expect(statusOf('API access')).toBe('Plan dependent');
+      expect(statusOf('Project memory')).toBe('Ready to use');
+      expect(statusOf('Desktop shell')).toBe('Ready to use');
       expect(statusOf('Deployment integrations')).toBe('Proposed');
     });
   });

@@ -67,6 +67,7 @@ import { productionIntelligenceRoutes } from './modules/production-intelligence/
 import { deploymentWizardRoutes } from './modules/deployment-wizard/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
 import { agentWs } from './modules/agent/ws.js';
+import { startLocalRecoverySweep } from './modules/agent/dispatch.js';
 import { browserRelay } from './modules/agent/browser.js';
 import { agentRoutes } from './modules/agent/routes.js';
 import { reviewRoutes } from './modules/reviews/routes.js';
@@ -84,6 +85,9 @@ import { runtimeRoutes } from './modules/runtime/routes.js';
 import { environmentRoutes } from './modules/environment/routes.js';
 import { releaseRoutes } from './modules/release/routes.js';
 import { integrationHubRoutes } from './modules/integration-hub/routes.js';
+import { kubernsRoutes } from './modules/kuberns/routes.js';
+import { actionRoutes } from './modules/actions/routes.js';
+import { localWorkspaceRoutes } from './modules/local-workspace/routes.js';
 import { remoteRoutes } from './modules/remote/routes.js';
 import { registerCoreTools } from './modules/execution/tools.js';
 import { storage } from './integrations/storage.js';
@@ -304,6 +308,9 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/environment', paid, environmentRoutes());
   app.use('/api/v1/release', paid, releaseRoutes());
   app.use('/api/v1/integrations', paid, integrationHubRoutes());
+  app.use('/api/v1/kuberns', paid, kubernsRoutes());
+  app.use('/api/v1/actions', paid, actionRoutes());
+  app.use('/api/v1/local-workspace', paid, localWorkspaceRoutes());
   app.use('/api/v1/agents', paid, multiAgentRoutes());
   app.use('/api/v1/scheduling', paid, schedulingRoutes());
   app.use('/api/v1/preview', paid, previewRoutes());
@@ -328,7 +335,13 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/production-intelligence', paid, productionIntelligenceRoutes());
   app.use('/api/v1/deployment-wizard', paid, deploymentWizardRoutes());
   app.use('/api/v1/control', paid, controlRoutes());
-  app.use('/api/v1/agent', paid, agentRoutes());
+  // Local Agent surface. NOT behind `paid`: `requireWorkspaceEntitlement()`
+  // rejects any request without `req.ctx.user`, but POST /pair is called by the
+  // CLI, which has no browser session — so the gate made pairing permanently
+  // unreachable (401) regardless of entitlement. The router authenticates each
+  // route itself: /pair by the 6-digit pairing code + attempt cap, /status by
+  // requireAuth. Neither route returns workspace/project data.
+  app.use('/api/v1/agent', agentRoutes());
   app.use('/api/v1/terminal', paid, terminalRoutes());
   app.use('/api/v1/remote', paid, remoteRoutes());
   app.use('/api/v1/reviews', paid, reviewRoutes());
@@ -385,6 +398,8 @@ export function attachAgentHub(server: Server): void {
     socket.destroy();
   });
   logger.info('agent ws hub attached (/agent, /agent-browser)');
+  // P0 local execution fabric: lease-expiry recovery (no-op unless enabled).
+  startLocalRecoverySweep();
 }
 
 let toolsRegistered = false;

@@ -64,6 +64,7 @@ export const EXISTING_PROVIDER_IDS = [
   'ox_alpha',
   'manus',
   'z_code_5_3',
+  'muse_spark',
 ] as const;
 
 /**
@@ -246,6 +247,7 @@ const KEY_BY_PROVIDER: Record<string, string | undefined> = {
   ox_alpha: env.OX_ALPHA_API_KEY,
   manus: env.MANUS_API_KEY,
   z_code_5_3: env.Z_AI_API_KEY,
+  muse_spark: env.MUSE_SPARK_API_KEY,
 };
 
 function hasUsableKey(value: string | undefined): boolean {

@@ -182,3 +182,40 @@ describe('PHASE 17 local execution — task revalidation after reconnect', () =>
     expect((tasks[0] as Record<string, unknown>).status).toBe('WAITING_FOR_LOCAL_AGENT');
   });
 });
+
+describe('PHASE 17 local execution — creation contract honors executionMode', () => {
+  it('createTaskFromChat with executionMode LOCAL parks the task instead of enqueueing it', async () => {
+    const { tasks } = setup();
+    const { createTaskFromChat } = await import('../modules/execution/orchestrator.js');
+    const task = await createTaskFromChat({
+      userId: USER_ID,
+      projectId: 'p1',
+      conversationId: '',
+      title: 'Run locally from the UI',
+      riskLevel: 'LOW',
+      executionMode: 'LOCAL',
+    });
+    expect(task.execution_mode).toBe('LOCAL');
+    const stored = tasks[0] as Record<string, unknown>;
+    expect(stored.status).toBe('WAITING_FOR_LOCAL_AGENT');
+    expect(task.status).toBe('WAITING_FOR_LOCAL_AGENT');
+    // Nothing claimed or executed offline, and no attempt/coworker run was made.
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_attempts'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO coworker_runs'))).toBe(false);
+  });
+
+  it('createTaskFromChat defaults CLOUD tasks to the enqueued worker path (never parked)', async () => {
+    setup();
+    const { createTaskFromChat } = await import('../modules/execution/orchestrator.js');
+    const task = await createTaskFromChat({
+      userId: USER_ID,
+      projectId: 'p1',
+      conversationId: '',
+      title: 'Cloud task',
+      riskLevel: 'LOW',
+    });
+    expect(task.execution_mode).toBe('CLOUD');
+    const parked = db.state.calls.some((c) => c.params[1] === 'WAITING_FOR_LOCAL_AGENT');
+    expect(parked).toBe(false);
+  });
+});

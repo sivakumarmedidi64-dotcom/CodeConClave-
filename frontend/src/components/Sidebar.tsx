@@ -131,9 +131,11 @@ export function Sidebar({ user }: { user: User }) {
           <span className="cc-sidebar__label">More</span>
           <Icon name={moreOpen ? 'close' : 'plus'} size={12} />
         </button>
-        {moreOpen && MORE_ITEMS.map((item) => (
-          <NavRow key={item.to} item={item} />
-        ))}
+        <div className={`cc-sidebar__more-list${moreOpen ? ' cc-sidebar__more-list--open' : ''}`}>
+          {MORE_ITEMS.map((item) => (
+            <NavRow key={item.to} item={item} />
+          ))}
+        </div>
 
         {isAdmin && (
           <div>

@@ -29,6 +29,7 @@ export interface TaskRow {
   approval_id: string | null;
   coworker_pipeline: unknown[] | null;
   execution_mode: 'CLOUD' | 'LOCAL' | 'HYBRID';
+  local_instruction: unknown;
   timeout_ms: number;
   started_at: Date | null;
   completed_at: Date | null;
@@ -63,6 +64,7 @@ export async function createTask(input: {
   riskLevel?: Risky;
   executionMode?: 'CLOUD' | 'LOCAL' | 'HYBRID';
   coworkerPipeline?: unknown[];
+  localInstruction?: unknown;
   maxAttempts?: number;
   priority?: number;
   dependsOn?: string[];
@@ -95,8 +97,8 @@ export async function createTask(input: {
       `INSERT INTO tasks (
          id, project_id, conversation_id, owner_id, title, description, status,
          risk_level, required_approval, coworker_pipeline, execution_mode, timeout_ms,
-         max_attempts, priority
-       ) VALUES ($1,$2,$3,$4,$5,$6,'CREATED',$7,$8,$9::jsonb,$10,$11,$12,$13)`,
+         max_attempts, priority, local_instruction
+       ) VALUES ($1,$2,$3,$4,$5,$6,'CREATED',$7,$8,$9::jsonb,$10,$11,$12,$13,$14::jsonb)`,
       [
         id,
         input.projectId,
@@ -113,6 +115,9 @@ export async function createTask(input: {
         TASK_TIMEOUT_MS,
         input.maxAttempts ?? RetryPolicy.DEFAULT_MAX_ATTEMPTS,
         input.priority ?? 0,
+        input.localInstruction === undefined || input.localInstruction === null
+          ? null
+          : JSON.stringify(input.localInstruction),
       ],
     ),
   );
@@ -834,8 +839,31 @@ export async function listSteps(taskId: string): Promise<StepRow[]> {
 }
 
 /** Worker/poll paths: keep the task's heartbeat fresh (watchdog recovery signal). */
-export async function touchTask(taskId: string): Promise<void> {
-  await withSystem(async (q) => q.query(`UPDATE tasks SET last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [taskId]));
+export async function touchTask(taskId: string, attemptNumber?: number): Promise<void> {
+  // Fenced when the caller names its attempt: a superseded attempt (the row was
+  // recovered and re-claimed after a heartbeat gap) must not keep refreshing the
+  // liveness of a task another attempt now owns.
+  await withSystem(async (q) =>
+    attemptNumber === undefined
+      ? q.query(`UPDATE tasks SET last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [taskId])
+      : q.query(
+          `UPDATE tasks SET last_heartbeat_at = now(), updated_at = now() WHERE id = $1 AND attempt_count = $2`,
+          [taskId, attemptNumber],
+        ),
+  );
+}
+
+/**
+ * Current attempt generation of a task. `beginAttempt` is the only writer of
+ * `attempt_count`, so the counter doubles as a lease generation: a higher value
+ * means a newer attempt began while this one was still running, i.e. the row
+ * was recovered and re-claimed and the older attempt no longer owns it.
+ */
+export async function attemptGeneration(taskId: string): Promise<number> {
+  const rows = await withSystem<{ rows: { n: number | null }[] }>(async (q) =>
+    q.query<{ n: number | null }>('SELECT attempt_count AS n FROM tasks WHERE id = $1', [taskId]),
+  );
+  return rows.rows[0]?.n ?? -1;
 }
 
 /** Watchdog: refresh heartbeats of RUNNING tasks so long-running work isn't reclaimed. */

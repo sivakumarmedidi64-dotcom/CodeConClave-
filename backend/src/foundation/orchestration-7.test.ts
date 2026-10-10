@@ -155,6 +155,9 @@ function standardResolver(task: Record<string, unknown>): (text: string, params:
       return [{ id: String(params[0]), task_id: task.id, attempt_id: 'atp_1', kind: 'x', title: 'y', status: 'RUNNING', started_at: new Date() }];
     }
     if (text.includes('FROM users')) return [{ plan_id: 'free' }];
+    // beginAttempt bumped the lease generation; the in-memory task row is
+    // stale (it still reads attempt_count: 0), so model the post-attempt value.
+    if (text.includes('SELECT attempt_count')) return [{ n: 1 }];
     if (text.includes('FROM plans')) {
       plansReads += 1;
       // first read (loadOrGeneratePlan) finds no plan → PLANNER runs and persists
@@ -355,5 +358,239 @@ describe('executeTask — failure goes through the retry policy', () => {
     expect(db.state.calls.some((c) => c.text.includes("recovery_status = 'DEAD_LETTERED'"))).toBe(true);
     expect(notify).toHaveBeenCalledWith('u1', 'task.failed', expect.anything(), expect.anything());
     expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'task.dead_lettered' }));
+  });
+});
+
+describe('executeTask — lease fence: a superseded attempt never owns the outcome', () => {
+  it('stops before running anything when a newer attempt already owns the row', async () => {
+    const task = taskRow('tsk_sup');
+    const base = standardResolver(task);
+    // Another worker claimed this row after a heartbeat gap and began attempt 2.
+    db.state.resolve = (text, params) => (text.includes('SELECT attempt_count') ? [{ n: 2 }] : base(text, params));
+
+    await executeTask(task as never);
+
+    // No side effects, no terminal state, and above all no retry/dead-letter of
+    // a task the newer attempt is actively executing.
+    expect(coworkers.runCoworker).not.toHaveBeenCalled();
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'CREATED'"))).toBe(false);
+    for (const status of ['VERIFIED', 'COMPLETED', 'FAILED']) {
+      expect(
+        db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === status),
+        status,
+      ).toBe(false);
+    }
+    // Our attempt is closed honestly with the reason the outcome was not ours.
+    const finish = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'FAILURE')!;
+    expect(finish).toBeDefined();
+    expect(finish.params[2]).toBe('superseded_by_newer_attempt');
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ at: 'superseded' }) }),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'attempt superseded by a newer attempt; skipping retry/dead-letter',
+      expect.objectContaining({ taskId: 'tsk_sup' }),
+    );
+  });
+
+  it('stops mid-pipeline when the row is re-claimed, so the stage never runs twice', async () => {
+    const task = taskRow('tsk_sup_mid');
+    const base = standardResolver(task);
+    let generationReads = 0;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT attempt_count')) {
+        generationReads += 1;
+        return [{ n: generationReads === 1 ? 1 : 2 }];
+      }
+      return base(text, params);
+    };
+
+    await executeTask(task as never);
+
+    // The first group ran; the re-claim happened before the second group, which
+    // must not execute (that would be a duplicate execution of the pipeline).
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(1);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'VERIFIED')).toBe(false);
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ at: 'superseded' }) }),
+    );
+  });
+
+  it('keeps the normal path intact when the generation never moves past our attempt', async () => {
+    const task = taskRow('tsk_owned');
+    const base = standardResolver(task);
+    db.state.resolve = (text, params) => (text.includes('SELECT attempt_count') ? [{ n: 1 }] : base(text, params));
+
+    await executeTask(task as never);
+
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(4);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(true);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+  });
+});
+
+describe('executeTask — heartbeat / lease stress race matrix (A–P)', () => {
+  async function waitFor(fn: () => boolean): Promise<void> {
+    const deadline = Date.now() + 3000;
+    while (!fn()) {
+      if (Date.now() > deadline) throw new Error('timed out waiting for condition');
+      await new Promise((r) => setImmediate(r));
+    }
+  }
+
+  it('A: a stage running for two heartbeat TTLs (>60s) is never reclaimed: liveness continues the whole time', async () => {
+    vi.useFakeTimers();
+    try {
+      const task = taskRow('tsk_hb2');
+      db.state.resolve = standardResolver(task);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      coworkers.runCoworker.mockImplementation(() => gate);
+
+      const run = executeTask(task as never);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(65_000);
+      const beats = db.state.calls.filter((c) => c.text.includes('AND attempt_count = $2')).length;
+      // interval = 10s; across 65s the worker must have proven liveness >= 6 times
+      expect(beats).toBeGreaterThanOrEqual(6);
+      release();
+      await run;
+      // Once the slow stage finally resolves, the whole pipeline finishes normally.
+      expect(coworkers.runCoworker).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('B: a stale worker that drains AFTER a newer attempt claimed the row stops at the next boundary; only the new attempt completes', async () => {
+    const task = taskRow('tsk_race');
+    const base = standardResolver(task);
+    let phase: 'A' | 'B' = 'A';
+    let maxReads = 0;
+    db.state.resolve = (text, params) => {
+      if (text.includes('COALESCE(MAX(attempt_number)')) {
+        maxReads += 1;
+        return [{ n: maxReads === 1 ? 0 : 1 }];
+      }
+      if (text.includes('SELECT attempt_count')) return [{ n: phase === 'A' ? 1 : 2 }];
+      if (text.includes('FROM task_attempts') && text.includes('WHERE id = $1')) {
+        const n = phase === 'A' ? 1 : 2;
+        return [{ id: String(params[0]), task_id: task.id, attempt_number: n, started_at: new Date(Date.now() - 1000) }];
+      }
+      return base(text, params);
+    };
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    coworkers.runCoworker.mockImplementation(() => gate);
+
+    const runA = executeTask(task as never);
+    // Worker A is now parked inside its first stage (a slow LLM call). The
+    // watchdog lost A's heartbeat, recovered the row, and worker B began a
+    // newer attempt (#2) — the row now reports generation 2.
+    await waitFor(() => coworkers.runCoworker.mock.calls.length === 1);
+    phase = 'B';
+    release();
+    await runA;
+
+    // A ran only the stage already in flight; the later groups never executed
+    // (that would be a duplicate execution) and A stamped no terminal state.
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(1);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    const superseded = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'FAILURE')!;
+    expect(superseded).toBeDefined();
+    expect(superseded.params[2]).toBe('superseded_by_newer_attempt');
+
+    // Worker B (attempt 2) owns the row and completes the full pipeline.
+    coworkers.runCoworker.mockImplementation(async () => {});
+    const taskB = taskRow('tsk_race_b');
+    await executeTask(taskB as never);
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(5);
+    expect(db.state.calls.filter((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED').length).toBe(1);
+  });
+
+  it('C: a stale worker that THROWS after a newer attempt claimed the row never retries or dead-letters the new owner\'s task', async () => {
+    const task = taskRow('tsk_race_throw');
+    const base = standardResolver(task);
+    let phase: 'A' | 'B' = 'A';
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT attempt_count')) return [{ n: phase === 'A' ? 1 : 2 }];
+      return base(text, params);
+    };
+    coworkers.runCoworker.mockImplementationOnce(async () => {
+      phase = 'B'; // reclaim happens while this old worker is still running
+      throw new Error('old worker crashed after reclaim');
+    });
+
+    await executeTask(task as never);
+
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(1);
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'CREATED'"))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
+    const finish = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'FAILURE')!;
+    expect(finish).toBeDefined();
+    expect(finish.params[2]).toBe('superseded_by_newer_attempt');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'attempt superseded by a newer attempt; skipping retry/dead-letter',
+      expect.anything(),
+    );
+  });
+
+  it('D: supersession detected exactly at the terminal write — the final fence, not a stage boundary, blocks the false COMPLETED', async () => {
+    const task = taskRow('tsk_race_term');
+    const base = standardResolver(task);
+    let generationReads = 0;
+    db.state.resolve = (text, params) => {
+      if (text.includes('SELECT attempt_count')) {
+        generationReads += 1;
+        // 3 group boundaries pass; the 4th read is the pre-terminal fence.
+        return [{ n: generationReads >= 4 ? 2 : 1 }];
+      }
+      return base(text, params);
+    };
+
+    await executeTask(task as never);
+
+    // Every stage ran (supersession was only detectable at the end)…
+    expect(coworkers.runCoworker).toHaveBeenCalledTimes(4);
+    // …but the row was re-claimed before the terminal writes, so the stale
+    // worker must not stamp VERIFIED/COMPLETED over the newer attempt.
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'VERIFIED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    const finish = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'FAILURE')!;
+    expect(finish).toBeDefined();
+    expect(finish.params[2]).toBe('superseded_by_newer_attempt');
+  });
+
+  it('E: a DB failure on the fenced liveness write never fakes success — the attempt fails and routes through the retry policy', async () => {
+    const task = taskRow('tsk_race_db');
+    const base = standardResolver(task);
+    db.state.resolve = (text, params) => {
+      if (text.includes('AND attempt_count = $2')) {
+        throw new Error('connection reset during heartbeat write');
+      }
+      return base(text, params);
+    };
+
+    await executeTask(task as never);
+
+    // Attempt recorded FAILURE with the DB error…
+    const finish = db.state.calls.find((c) => c.text.includes('UPDATE task_attempts') && c.params[1] === 'FAILURE')!;
+    expect(finish).toBeDefined();
+    expect(String(finish.params[2])).toContain('connection reset during heartbeat write');
+    // …retried with backoff, never dead-lettered (budget remains), never completed.
+    expect(db.state.calls.some((c) => c.text.includes("SET status = 'CREATED'"))).toBe(true);
+    expect(db.state.calls.some((c) => c.text.includes('INSERT INTO task_dlq'))).toBe(false);
+    expect(db.state.calls.some((c) => c.text.includes('UPDATE tasks SET status = $2') && c.params[1] === 'COMPLETED')).toBe(false);
   });
 });

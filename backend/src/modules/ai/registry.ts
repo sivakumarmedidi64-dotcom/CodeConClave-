@@ -9,7 +9,7 @@ import { AppError } from '../../shared/errors.js';
 import type { AiModelDescriptor } from '@codeconclave/shared';
 import { cache } from '../../shared/cache.js';
 import { isProviderVisible } from './gate.js';
-import { HEALTH_RETRY_COOLDOWN_MS } from './providers.js';
+import { HEALTH_RETRY_COOLDOWN_MS, museSparkEnabled } from './providers.js';
 
 export interface RegistryRow {
   model_id: string;
@@ -188,8 +188,14 @@ export function configuredProviders(): string[] {
     ox_alpha: env.OX_ALPHA_API_KEY,
     manus: env.MANUS_API_KEY,
     z_code_5_3: env.Z_AI_API_KEY,
+    muse_spark: env.MUSE_SPARK_API_KEY,
   };
-  return resolveConfiguredProviders(enabledProviders, keyByProvider).filter(isProviderVisible);
+  const configured = resolveConfiguredProviders(enabledProviders, keyByProvider).filter(isProviderVisible);
+  // Muse Spark is additionally gated by MUSE_SPARK_ENABLED (default OFF): a
+  // present key alone must not change default routing until explicitly enabled.
+  // When the flag is off the provider reports NOT_CONFIGURED downstream.
+  if (!museSparkEnabled()) return configured.filter((p) => p !== 'muse_spark');
+  return configured;
 }
 
 /**

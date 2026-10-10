@@ -24,6 +24,10 @@ import { expireIdempotencyKeys } from '../modules/idempotency/service.js';
 import { sweepScheduledRuns } from '../modules/scheduling/executor.js';
 import { sweepAutomations } from '../modules/automations/executor.js';
 import { sweepAutopsies } from '../modules/recovery/autopsy.js';
+import { expireDurableCounters } from '../shared/durable-counters.js';
+import { expireChallengeUses } from '../shared/durable-challenges.js';
+import { expireStaleApiKeyConcurrency } from '../shared/durable-concurrency.js';
+import { expirePaymentTokens } from '../shared/durable-payment-tokens.js';
 import { incMetric } from '../observability/metrics.js';
 
 const SWEEP_MS = 15_000;
@@ -82,6 +86,26 @@ export async function sweepOnce(): Promise<Record<string, number>> {
   await sweep('scheduledRuns', out, () => sweepScheduledRuns());
   await sweep('automations', out, () => sweepAutomations());
   await sweep('autopsies', out, () => sweepAutopsies());
+  // Deterministic TTL cleanup for the durable state that replaces the Redis
+  // store. Every one of these predicates is indexed on expires_at, bounded, and
+  // idempotent, so running them from several instances concurrently is safe and
+  // cleanup never depends on Render local disk.
+  await sweep('durableCounters', out, async () => {
+    const counters = await expireDurableCounters();
+    return {
+      durableCountersExpired: counters.counters,
+      durableLastSeenExpired: counters.lastSeen,
+    };
+  });
+  await sweep('durableChallenges', out, () => expireChallengeUses());
+  await sweep('apiKeyConcurrency', out, () => expireStaleApiKeyConcurrency());
+  await sweep('paymentTokens', out, async () => {
+    const tokens = await expirePaymentTokens();
+    return {
+      demoActivationsExpired: tokens.demo,
+      selfServiceTokensExpired: tokens.selfService,
+    };
+  });
   lastRunAt = Date.now();
   const totals = Object.values(out).reduce((a, b) => a + b, 0);
   if (totals > 0) logger.info('watchdog sweep', { out });

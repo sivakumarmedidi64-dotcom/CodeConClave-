@@ -68,6 +68,15 @@ function handler(url: string): Response {
   if (url.includes('/api/v1/audit')) return json({ events: [] });
   if (url.includes('/api/v1/environment/status')) return json({ environment: 'development', status: 'VERIFIED', requiredVars: [], declaredEnv: null, blockEnvironmentSensitive: false, checkedAt: '2026-01-01T00:00:00.000Z' });
   if (url.includes('/api/v1/runtime/executions')) return json([]);
+  if (url.includes('/api/v1/actions/surfaces'))
+    return json({
+      enabled: true,
+      surfaces: [
+        { surface: 'CLOUD', title: 'Cloud execution', description: 'cloud', executionMode: 'CLOUD', enabled: true, reason: 'always available' },
+        { surface: 'LOCAL', title: 'Local terminal', description: 'shell', executionMode: 'LOCAL', enabled: false, reason: 'LOCAL_EXECUTION_ENABLED is disabled on this deployment' },
+      ],
+    });
+  if (url.includes('/api/v1/local-workspace/devices')) return json({ devices: [] });
   return json({});
 }
 
@@ -112,5 +121,13 @@ describe('WorkbenchPage', () => {
     renderWorkbench();
     await waitFor(() => expect(screen.getByTestId('workbench-transport')).toBeInTheDocument());
     expect(screen.getByTestId('workbench-transport')).toHaveTextContent('connecting');
+  });
+
+  it('opens the unified action runtime from the Actions bottom tab', async () => {
+    renderWorkbench();
+    await waitFor(() => expect(screen.getByTestId('workbench-page')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab', { name: 'Actions' }));
+    await waitFor(() => expect(screen.getByTestId('action-runtime')).toBeInTheDocument());
+    expect(await screen.findByTestId('action-surface-LOCAL-state')).toHaveTextContent('disabled');
   });
 });

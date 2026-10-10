@@ -72,8 +72,8 @@ describe('WorkPage', () => {
   it('renders the honest WAITING_FOR_LOCAL_AGENT state for LOCAL tasks', async () => {
     stubFetch(workHandler());
     renderWork();
-    await waitFor(() => expect(screen.getByText('Fix the pipeline')).toBeInTheDocument());
-    expect(screen.getByText('WAITING_FOR_LOCAL_AGENT')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Fix the pipeline').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('WAITING_FOR_LOCAL_AGENT').length).toBeGreaterThan(0);
     expect(screen.getByText(/waiting for a paired Local Agent/)).toBeInTheDocument();
   });
 
@@ -137,9 +137,8 @@ describe('WorkPage', () => {
   it('is honest for backend raw rows where coworker_pipeline is null', async () => {
     stubFetch(workHandler([{ ...TASK, id: 't3', title: 'No pipeline task', coworkerPipeline: null }]));
     renderWork();
-    await waitFor(() => expect(screen.getByText('No pipeline task')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText('No pipeline task').length).toBeGreaterThan(0));
     expect(screen.getByText(/pipeline: default/)).toBeInTheDocument();
-    expect(screen.getByText('No pipeline task')).toBeInTheDocument();
   });
 
   it('shows the empty queue while no project is selected', async () => {

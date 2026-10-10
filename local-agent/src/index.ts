@@ -8,12 +8,18 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join, normalize, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { VERSION, loadConfig, saveConfig, type AgentConfig } from './config.js';
+import { VERSION, loadConfig, saveConfig, type AgentConfig, type BrowserGrant, type DesktopGrant } from './config.js';
 import { resolveWorkspacePath, classifyCommand, isProtectedPath, gateTerminalInput } from './policy.js';
+import { workspaceFor, requestedWithin, grantHasCap } from './serve-scope.js';
 import { sha256 } from './diff.js';
 import { listDirectory, readFile, proposeEdit, applyEdit, fileMetadata } from './files.js';
+import { scanWorkspace } from './scan.js';
 import { TerminalSession, runCommandOnce } from './terminal.js';
 import { HubClient } from './hub.js';
+import { createLocalTaskExecutor } from './tasks.js';
+import { advertisedBrowserCapabilities } from './browser/contract.js';
+import { runBrowserInstruction } from './browser/task-bridge.js';
+import { advertisedDesktopCapabilities, runDesktopInstruction } from './desktop/runner.js';
 
 const DEFAULT_BACKEND = process.env.CODECONCLAVE_BACKEND_URL ?? 'http://localhost:4000';
 const DEFAULT_SHELL = process.platform === 'win32' ? 'powershell' : 'bash';
@@ -43,6 +49,7 @@ function cmdInit(backendUrl: string): void {
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     backendUrl: backendUrl || existing?.backendUrl,
     workspaces: existing?.workspaces ?? [],
+    browser: existing?.browser ?? [],
   };
   saveConfig(config);
   console.log('');
@@ -77,6 +84,20 @@ function cmdStatus(): void {
   }
   if ((config.workspaces ?? []).length === 0) {
     console.log('    (none — add one with `codeconclave-agent workspaces add <path>`)');
+  }
+  console.log('  browser grants:');
+  for (const g of config.browser ?? []) {
+    console.log(`    - ${g.name}: ${(g.capabilities ?? []).join(', ') || '(none)'} on ${(g.allowedOrigins ?? []).join(', ') || '(none)'}`);
+  }
+  if ((config.browser ?? []).length === 0) {
+    console.log('    (none — enable with `codeconclave-agent browser enable <name> --caps <...> --origins <...>`)');
+  }
+  console.log('  desktop grants:');
+  for (const g of config.desktop ?? []) {
+    console.log(`    - ${g.name}: ${(g.capabilities ?? []).join(', ') || '(none)'}`);
+  }
+  if ((config.desktop ?? []).length === 0) {
+    console.log('    (none — enable with `codeconclave-agent desktop enable <name> --caps <...>`)');
   }
 }
 
@@ -166,6 +187,170 @@ function cmdWorkspaces(action: string, arg: string): void {
   }
 }
 
+// ------------------------------------------------------------------ browser grants
+
+const ALL_BROWSER_CAPS = [
+  'browser.open',
+  'browser.navigate',
+  'browser.read',
+  'browser.inspect',
+  'browser.click',
+  'browser.type',
+  'browser.submit',
+  'browser.download',
+  'browser.upload',
+];
+
+function cmdBrowser(action: string, args: string[]): void {
+  const config = loadConfig();
+  if (!config) {
+    console.error('Not initialized. Run `codeconclave-agent init` first.');
+    process.exit(1);
+  }
+  config.browser ??= [];
+  switch (action) {
+    case 'list':
+      cmdStatus();
+      return;
+    case 'enable': {
+      const name = args[0];
+      const capsIdx = args.indexOf('--caps');
+      const origIdx = args.indexOf('--origins');
+      if (!name || capsIdx < 0 || origIdx < 0) {
+        console.error('usage: codeconclave-agent browser enable <name> --caps <comma,list> --origins <comma,list>');
+        process.exit(1);
+      }
+      const caps = (args[capsIdx + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+      const origins = (args[origIdx + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+      const unknown = caps.filter((c) => !ALL_BROWSER_CAPS.includes(c));
+      if (unknown.length > 0) {
+        console.error('unknown capabilities: ' + unknown.join(', ') + ' (known: ' + ALL_BROWSER_CAPS.join(', ') + ')');
+        process.exit(1);
+      }
+      if (caps.length === 0) {
+        console.error('at least one capability is required');
+        process.exit(1);
+      }
+      const invalidOrigin = origins.find((o) => !isValidOrigin(o));
+      if (invalidOrigin) {
+        console.error('invalid origin pattern: ' + invalidOrigin + ' (use * for public sites, or a concrete origin like https://example.com or http://127.0.0.1:*)');
+        process.exit(1);
+      }
+      if (origins.length === 0) {
+        console.error('at least one origin is required');
+        process.exit(1);
+      }
+      const grant: BrowserGrant = { name, capabilities: caps, allowedOrigins: origins };
+      config.browser = config.browser.filter((g) => g.name !== name);
+      config.browser.push(grant);
+      saveConfig(config);
+      console.log('Enabled browser grant: ' + name);
+      console.log('  capabilities: ' + caps.join(', '));
+      console.log('  origins     : ' + origins.join(', '));
+      console.log('The server only allows BROWSER control while BROWSER_CONTROL_ENABLED is on.');
+      console.log('Restart `codeconclave-agent serve` so the device re-advertises these capabilities.');
+      return;
+    }
+    case 'revoke': {
+      const name = args[0];
+      if (!name) {
+        console.error('usage: codeconclave-agent browser revoke <name>');
+        process.exit(1);
+      }
+      const before = config.browser.length;
+      config.browser = config.browser.filter((g) => g.name !== name);
+      if (config.browser.length === before) {
+        console.error('No browser grant named: ' + name);
+        process.exit(1);
+      }
+      saveConfig(config);
+      console.log('Revoked browser grant: ' + name);
+      console.log('Restart `codeconclave-agent serve` so the device stops advertising these capabilities.');
+      return;
+    }
+    default:
+      console.error('usage: codeconclave-agent browser <enable|revoke|list> [args]');
+      process.exit(1);
+  }
+}
+
+// ------------------------------------------------------------------ desktop grants
+
+const ALL_DESKTOP_CAPS = ['desktop.inspect', 'desktop.open_app', 'desktop.focus_window'];
+
+function cmdDesktop(action: string, args: string[]): void {
+  const config = loadConfig();
+  if (!config) {
+    console.error('Not initialized. Run `codeconclave-agent init` first.');
+    process.exit(1);
+  }
+  config.desktop ??= [];
+  switch (action) {
+    case 'list':
+      cmdStatus();
+      return;
+    case 'enable': {
+      const name = args[0];
+      const capsIdx = args.indexOf('--caps');
+      if (!name || capsIdx < 0) {
+        console.error('usage: codeconclave-agent desktop enable <name> --caps <comma,list>');
+        process.exit(1);
+      }
+      const caps = (args[capsIdx + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+      const unknown = caps.filter((c) => !ALL_DESKTOP_CAPS.includes(c));
+      if (unknown.length > 0) {
+        console.error('unknown capabilities: ' + unknown.join(', ') + ' (known: ' + ALL_DESKTOP_CAPS.join(', ') + ')');
+        process.exit(1);
+      }
+      if (caps.length === 0) {
+        console.error('at least one capability is required');
+        process.exit(1);
+      }
+      const grant: DesktopGrant = { name, capabilities: caps };
+      config.desktop = config.desktop.filter((g) => g.name !== name);
+      config.desktop.push(grant);
+      saveConfig(config);
+      console.log('Enabled desktop grant: ' + name);
+      console.log('  capabilities: ' + caps.join(', '));
+      console.log('The server only allows DESKTOP control while DESKTOP_CONTROL_ENABLED is on,');
+      console.log('and only launches apps named in the server DESKTOP_ALLOWED_APPS allowlist.');
+      console.log('Restart `codeconclave-agent serve` so the device re-advertises these capabilities.');
+      return;
+    }
+    case 'revoke': {
+      const name = args[0];
+      if (!name) {
+        console.error('usage: codeconclave-agent desktop revoke <name>');
+        process.exit(1);
+      }
+      const before = config.desktop.length;
+      config.desktop = config.desktop.filter((g) => g.name !== name);
+      if (config.desktop.length === before) {
+        console.error('No desktop grant named: ' + name);
+        process.exit(1);
+      }
+      saveConfig(config);
+      console.log('Revoked desktop grant: ' + name);
+      console.log('Restart `codeconclave-agent serve` so the device stops advertising these capabilities.');
+      return;
+    }
+    default:
+      console.error('usage: codeconclave-agent desktop <enable|revoke|list> [args]');
+      process.exit(1);
+  }
+}
+
+function isValidOrigin(origin: string): boolean {
+  const o = origin.trim();
+  if (o === '*') return true;
+  try {
+    const url = o.endsWith('/*') ? new URL(o.slice(0, -2)) : o.endsWith(':*') ? new URL(o.slice(0, -2)) : new URL(o);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.search && !url.hash && url.pathname === '/' && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 // ------------------------------------------------------------------ selftest
 
 function cmdSelfTest(): void {
@@ -212,7 +397,22 @@ async function cmdServe(): Promise<void> {
   }
 
   const terminals = new Map<string, TerminalSession>();
-  const handlers: { handleCommand: (corrId: string, cmd: Record<string, unknown>) => Promise<void> } = {
+  const browserRunner = (instruction: Record<string, unknown>, cfg: AgentConfig, assignmentId: string, attemptNumber: number) =>
+    runBrowserInstruction(instruction, cfg, assignmentId, attemptNumber, {
+      send: (msg) => hub.send(msg),
+      reportProgress: (progress) => hub.send({ type: 'task_progress', assignmentId, attemptNumber, progress }),
+    });
+  const desktopRunner = (instruction: Record<string, unknown>, cfg: AgentConfig, assignmentId: string, attemptNumber: number) =>
+    runDesktopInstruction(instruction, cfg, assignmentId, attemptNumber, {
+      send: (msg) => hub.send(msg),
+      reportProgress: (progress) => hub.send({ type: 'task_progress', assignmentId, attemptNumber, progress }),
+    });
+  const taskExecutor = createLocalTaskExecutor((msg) => hub.send(msg), browserRunner, desktopRunner);
+  const handlers: {
+    handleCommand: (corrId: string, cmd: Record<string, unknown>) => Promise<void>;
+    handleTask: (frame: Record<string, unknown>) => void;
+    handleTaskAck: (msg: Record<string, unknown>) => void;
+  } = {
     handleCommand: async (corrId, cmd) => {
       const kind = String(cmd.kind ?? '');
       const root = workspaceFor(config, String(cmd.path ?? ''));
@@ -222,6 +422,16 @@ async function cmdServe(): Promise<void> {
         hub.send({ type: 'cmd_stream', corrId, channel, text, tabId });
 
       switch (kind) {
+        case 'workspaces.list': {
+          relay({
+            workspaces: (config.workspaces ?? []).map((w) => ({
+              root: w.root,
+              name: w.name,
+              capabilities: w.capabilities ?? [],
+            })),
+          });
+          return;
+        }
         case 'terminal.start': {
           const tabId = String(cmd.tabId ?? 'tab_1');
           if (terminals.size >= MAX_TERMINAL_TABS) return relayError('too many terminal tabs');
@@ -262,9 +472,13 @@ async function cmdServe(): Promise<void> {
           } catch {
             return relayError('policy_denied: malformed URL');
           }
+          // Open with no shell in the chain: on Windows `cmd /c start` would
+          // re-parse the URL as shell syntax, so a crafted http URL could run
+          // arbitrary commands. FileProtocolHandler takes the URL as a plain
+          // argv element (the default-handler equivalent of `start`).
           const opener =
             process.platform === 'win32'
-              ? { command: 'cmd', args: ['/c', 'start', '', url] }
+              ? { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
               : process.platform === 'darwin'
                 ? { command: 'open', args: [url] }
                 : { command: 'xdg-open', args: [url] };
@@ -341,7 +555,7 @@ async function cmdServe(): Promise<void> {
         }
         case 'file.read': {
           if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
-          if (!hasCap(config, root.abs, 'file_read')) return relayError('capability file_read not granted for this workspace');
+          if (!grantHasCap(root.grant, 'file_read')) return relayError('capability file_read not granted for this workspace');
           const result = readFile(root.abs, requestedWithin(root, String(cmd.path ?? '')));
           if (!result.ok) return relayError(result.error);
           relay(result);
@@ -349,15 +563,18 @@ async function cmdServe(): Promise<void> {
         }
         case 'file.diff': {
           if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
-          if (!hasCap(config, root.abs, 'file_write')) return relayError('capability file_write not granted for this workspace');
+          if (!grantHasCap(root.grant, 'file_write')) return relayError('capability file_write not granted for this workspace');
           const proposal = proposeEdit(root.abs, requestedWithin(root, String(cmd.path ?? '')), String(cmd.content ?? ''));
           relay(proposal);
           return;
         }
         case 'file.write': {
           if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
-          if (!hasCap(config, root.abs, 'file_write')) return relayError('capability file_write not granted for this workspace');
-          const proposal = applyEdit(root.abs, requestedWithin(root, String(cmd.path ?? '')), String(cmd.content ?? ''));
+          if (!grantHasCap(root.grant, 'file_write')) return relayError('capability file_write not granted for this workspace');
+          // applyEdit anchors its backup dir at the scope root: pass the
+          // GRANT root (not the resolved file path) with a workspace-relative
+          // path, or backups land beside the file and the write fails.
+          const proposal = applyEdit(root.grant.root, requestedWithin({ abs: root.grant.root }, String(cmd.path ?? '')), String(cmd.content ?? ''));
           if (!proposal.allowed) return relayError(proposal.reason);
           hub.send({
             type: 'tool_result',
@@ -373,13 +590,30 @@ async function cmdServe(): Promise<void> {
           relay({ path: proposal.path, beforeHash: proposal.beforeHash, afterHash: proposal.afterHash, backupPath: proposal.backupPath ?? null });
           return;
         }
+        case 'project.scan': {
+          // Read-only structural scan of the resolved dir (no new capability:
+          // same posture as file.list — workspace membership is the gate).
+          if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
+          try {
+            const graph = scanWorkspace(root.abs);
+            relay({ ...graph, root: root.abs });
+          } catch (err) {
+            relayError(err instanceof Error ? err.message : 'scan failed');
+          }
+          return;
+        }
         default:
           relayError('unknown_command');
       }
     },
+    handleTask: (frame) => taskExecutor.handle(frame, config),
+    handleTaskAck: (msg) => taskExecutor.ack(msg),
   };
 
-  const hub = new HubClient(config, handlers);
+  const advertisedCapabilities = [
+    ...new Set([...advertisedBrowserCapabilities(config), ...advertisedDesktopCapabilities(config)]),
+  ];
+  const hub = new HubClient(config, handlers, advertisedCapabilities);
 
   hub.setStateListener((online: boolean) => {
     console.log(online ? '● connected to cloud hub' : '○ disconnected from cloud hub (reconnecting with backoff)');
@@ -395,22 +629,6 @@ async function cmdServe(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   await new Promise(() => undefined);
-}
-
-function workspaceFor(config: AgentConfig, path: string): { ok: true; abs: string } | { ok: false; reason: string } {
-  for (const w of config.workspaces ?? []) {
-    const resolved = resolveWorkspacePath(w.root, path);
-    if (resolved.ok) return resolved;
-  }
-  return { ok: false, reason: 'path is not inside any granted workspace' };
-}
-
-function requestedWithin(scope: { abs: string }, path: string): string {
-  return path.startsWith(scope.abs) ? path.slice(scope.abs.length).replace(/^[\\/]/, '') || '.' : path;
-}
-
-function hasCap(config: AgentConfig, root: string, cap: string): boolean {
-  return (config.workspaces ?? []).some((w) => w.root === root && (w.capabilities ?? []).includes(cap));
 }
 
 // ------------------------------------------------------------------ main
@@ -431,6 +649,10 @@ function usage(): void {
       '  workspaces add <abs-path>        grant a workspace (read/write/terminal within it)',
       '  workspaces list                  list granted workspaces',
       '  workspaces remove <abs-path>     revoke a workspace grant',
+      '  browser enable <name> --caps <c1,c2> --origins <o1,o2>',
+      '                                  enable a browser grant (9 browser.* caps; * = public only)',
+      '  browser list                     list browser grants',
+      '  browser revoke <name>            revoke a browser grant',
       '  selftest                         verify policy + configuration before serving',
       '  help                             show this message',
       '',
@@ -476,6 +698,26 @@ async function main(): Promise<void> {
         process.exit(1);
       }
       cmdWorkspaces(action, arg);
+      break;
+    }
+    case 'browser': {
+      const action = args[1];
+      const rest = args.slice(2);
+      if (!action) {
+        console.error('usage: codeconclave-agent browser <enable|revoke|list> [args]');
+        process.exit(1);
+      }
+      cmdBrowser(action, rest);
+      break;
+    }
+    case 'desktop': {
+      const action = args[1];
+      const rest = args.slice(2);
+      if (!action) {
+        console.error('usage: codeconclave-agent desktop <enable|revoke|list> [args]');
+        process.exit(1);
+      }
+      cmdDesktop(action, rest);
       break;
     }
     case 'selftest':

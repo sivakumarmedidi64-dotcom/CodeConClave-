@@ -228,11 +228,11 @@ async function assertArtifactAccess(userId: string, artifactId: string): Promise
   const row = await withTenant<ArtifactRow | null>(userId, (db) =>
     db
       .query<ArtifactRow>(
-        `SELECT a.* FROM artifacts a
-         JOIN tasks t ON t.id = a.task_id
-         JOIN projects p ON p.id = t.project_id
-         WHERE a.id = $1 AND (${ARTIFACT_TENANT})`,
-        [artifactId, userId],
+         `SELECT a.* FROM artifacts a
+          JOIN tasks t ON t.id = a.task_id
+          JOIN projects p ON p.id = t.project_id
+          WHERE a.id = $2 AND (${ARTIFACT_TENANT})`,
+        [userId, artifactId],
       )
       .then((r) => r.rows[0] ?? null),
   );
