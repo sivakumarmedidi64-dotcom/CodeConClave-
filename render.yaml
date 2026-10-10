@@ -9,6 +9,12 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci --include=dev && npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && VITE_DEMO_BUILD=1 npm run build --workspace @codeconclave/frontend
+    # Runs after build, before start, with the service env (DATABASE_URL).
+    # migrateUp is idempotent (SHA-256 ledger + advisory lock): pending
+    # migrations apply, applied ones are skipped. Without this the server
+    # refuses to boot on "pending migrations" (fail-closed) and the deploy
+    # crash-loops with exit 1.
+    preDeployCommand: npm run db:migrate --workspace @codeconclave/backend
     startCommand: npm run start --workspace @codeconclave/backend
     healthCheckPath: /healthz
     envVars:
