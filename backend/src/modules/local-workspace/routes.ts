@@ -22,6 +22,7 @@ import {
   listLocalWorkspaces,
   readLocalFile,
   runLocalCommand,
+  scanLocalProject,
   writeLocalFile,
 } from './service.js';
 
@@ -89,6 +90,16 @@ export const localWorkspaceRoutes = (): Router => {
       const command = requireString(body.command, 'command');
       const cwd = typeof body.cwd === 'string' ? body.cwd : undefined;
       res.json(jsonResult(await runLocalCommand(req.ctx.user!.id, deviceId, command, cwd)));
+    }),
+  );
+
+  router.post(
+    '/scan',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const deviceId = requireString(body.deviceId, 'deviceId');
+      const path = typeof body.path === 'string' && body.path.length > 0 ? body.path : '/';
+      res.json(jsonResult(await scanLocalProject(req.ctx.user!.id, deviceId, path)));
     }),
   );
 

@@ -23,6 +23,7 @@ const PRIMARY = [
 ];
 
 const SECONDARY = [
+  'Coworker',
   'Memory',
   'DNA',
   'Files',

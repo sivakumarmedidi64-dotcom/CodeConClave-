@@ -485,6 +485,27 @@ background: var(--cc-accent-soft);
   color: var(--cc-text);
 }
 
+/* 3D flip on the More indicator: same tokens, pure CSS motion. */
+.cc-sidebar__more-toggle {
+  perspective: 220px;
+}
+
+.cc-sidebar__more-toggle .cc-sidebar__icon {
+  display: inline-block;
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.cc-sidebar__more-toggle[aria-expanded='true'] .cc-sidebar__icon {
+  transform: rotateY(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-sidebar__more-toggle .cc-sidebar__icon {
+    transition: none;
+  }
+}
+
 .cc-shell--collapsed .cc-sidebar__more-toggle {
   justify-content: center;
   padding: 8px 0;
@@ -2748,8 +2769,16 @@ background: var(--cc-accent-soft);
 .cc-homechat__input {
   flex: 1;
   min-width: 160px;
-  max-height: 120px;
+  min-height: 110px;
+  max-height: 220px;
   resize: none;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.cc-homechat__context {
+  font-size: 12px;
+  padding: 0 2px;
 }
 
 .cc-homechat__icon {

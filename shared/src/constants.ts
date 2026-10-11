@@ -1425,6 +1425,8 @@ export const AuditAction = {
   SWARM_COMPLETED: 'autonomy.swarm_completed',
   INBOX_TRIAGED: 'autonomy.inbox_triaged',
   INBOX_DIGEST_CREATED: 'autonomy.inbox_digest_created',
+  EMAIL_TRIAGED: 'comms.email_triaged',
+  LOCAL_PROJECT_SCANNED: 'local.project_scanned',
   NIGHT_SHIFT_COMPLETED: 'autonomy.night_shift_completed',
   RELEASE_FEATURES_FROZEN: 'autonomy.release_features_frozen',
   RELEASE_BRANCH_CREATED: 'autonomy.release_branch_created',

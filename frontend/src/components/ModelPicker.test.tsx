@@ -77,8 +77,8 @@ describe('ModelPicker', () => {
     expect(change).toHaveBeenCalledWith('sonnet');
   });
 
-  it('disables locked (entitlement) and DOWN models', async () => {
-    const { change } = renderPicker(
+  it('hides locked (entitlement) and DOWN models instead of listing them', async () => {
+    renderPicker(
       modelsEndpoint(
         [
           modelFixture({ id: 'opus', label: 'Claude Opus', tier: 'PREMIUM', locked: true }),
@@ -89,12 +89,14 @@ describe('ModelPicker', () => {
       ),
       'mini',
     );
-    const select = await screen.findByLabelText('Model') as HTMLSelectElement;
-    const disabled = Array.from(select.querySelectorAll('option[disabled]')).map((o) => o.textContent ?? '');
-    expect(disabled.some((t) => t.includes('Claude Opus'))).toBe(true);
-    expect(disabled.some((t) => t.includes('· down'))).toBe(true);
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
+    // Only what the user can actually use is listed — nothing disabled, nothing teased.
+    expect(options.some((t) => t.includes('Claude Opus'))).toBe(false);
+    expect(options.some((t) => t.includes('Broken'))).toBe(false);
+    expect(options.some((t) => t.includes('GPT-4o mini (openai)'))).toBe(true);
+    expect(select.querySelectorAll('option[disabled]').length).toBe(0);
     expect(select.value).toBe('mini');
-    void change;
   });
 
   it('applies the server default when the current selection is unusable', async () => {
@@ -113,7 +115,7 @@ describe('ModelPicker', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('mini'));
   });
 
-  it('names a rate-limited provider distinctly instead of generic degraded', async () => {
+  it('hides rate-limited providers instead of showing a throttled option', async () => {
     const handler = async (url: string) => {
       if (url === '/api/v1/ai/models') {
         return jsonResponse({
@@ -133,19 +135,15 @@ describe('ModelPicker', () => {
       return jsonResponse({ data: {} });
     };
     renderPicker(handler, 'small');
-    const select = await screen.findByLabelText('Model') as HTMLSelectElement;
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
     await waitFor(() => {
       const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
-      expect(options.some((t) => t.includes('Mistral Small (mistral)') && t.includes('rate limited — retry later'))).toBe(true);
+      // A throttled model is not offered at all — never a dead option, never a billing confusion.
+      expect(options.some((t) => t.includes('Mistral Small'))).toBe(false);
     });
-    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
-    // Never a CodeConClave billing failure, never generic "degraded".
-    expect(options.some((t) => t.includes('Mistral Small') && t.includes('degraded'))).toBe(false);
-    const mistral = Array.from(select.querySelectorAll('option')).find((o) => (o.textContent ?? '').includes('Mistral Small'))!;
-    expect(mistral.disabled).toBe(true);
   });
 
-  it('names provider quota exhaustion distinctly from CodeConClave limits', async () => {
+  it('hides quota-exhausted providers instead of offering them', async () => {
     const handler = async (url: string) => {
       if (url === '/api/v1/ai/models') {
         return jsonResponse({
@@ -163,10 +161,10 @@ describe('ModelPicker', () => {
       return jsonResponse({ data: {} });
     };
     renderPicker(handler, 'small');
-    const select = await screen.findByLabelText('Model') as HTMLSelectElement;
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
     await waitFor(() => {
       const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
-      expect(options.some((t) => t.includes('Mistral Small (mistral)') && t.includes('quota exhausted — provider billing'))).toBe(true);
+      expect(options.some((t) => t.includes('Mistral Small'))).toBe(false);
     });
   });
 
@@ -176,15 +174,15 @@ describe('ModelPicker', () => {
     expect(select.classList.contains('cc-model-select')).toBe(true);
   });
 
-  it('shows AUTO plus a placeholder while the registry is empty', async () => {
+  it('shows AUTO plus an honest empty state when the registry is empty', async () => {
     renderPicker(modelsEndpoint([], null));
     const select = await screen.findByLabelText('Model') as HTMLSelectElement;
     const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
     expect(options[0]).toBe('AUTO');
-    expect(options.includes('model…')).toBe(true);
+    expect(options.includes('No models available — connect a provider')).toBe(true);
   });
 
-  it('surfaces an honest provider key-state hint from /ai/providers', async () => {
+  it('hides models whose provider key is invalid instead of offering them', async () => {
     const handler = async (url: string) => {
       if (url === '/api/v1/ai/models') {
         return jsonResponse({ data: { models: [modelFixture({ id: 'mini', label: 'GPT-4o mini', providerId: 'openai' })], defaultModel: 'mini' } });
@@ -203,10 +201,11 @@ describe('ModelPicker', () => {
       return jsonResponse({ data: {} });
     };
     renderPicker(handler, 'mini');
-    const select = await screen.findByLabelText('Model') as HTMLSelectElement;
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
     await waitFor(() => {
       const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
-      expect(options.some((t) => t.includes('GPT-4o mini (openai)')) && options.some((t) => t.includes('key invalid'))).toBe(true);
+      // Key-invalid provider: its models are not offered at all.
+      expect(options.some((t) => t.includes('GPT-4o mini'))).toBe(false);
     });
   });
 });

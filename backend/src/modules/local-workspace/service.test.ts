@@ -24,6 +24,7 @@ import {
   listLocalTree,
   readLocalFile,
   runLocalCommand,
+  scanLocalProject,
   writeLocalFile,
 } from './service.js';
 
@@ -89,5 +90,24 @@ describe('local workspace bridge', () => {
   it('maps an offline device to unavailable local_agent_offline', async () => {
     hub.executeCommandResult.mockRejectedValueOnce(new Error('Local Agent is offline'));
     await expect(listLocalWorkspaces('u1', 'd1')).rejects.toMatchObject({ errorCode: 'local_agent_offline' });
+  });
+
+  it('forwards a project scan and audits its real counts', async () => {
+    hub.executeCommandResult.mockResolvedValueOnce({
+      ok: true,
+      output: '',
+      payload: { nodes: ['a.ts', 'b.ts'], edges: [['a.ts', 'b.ts']], cycles: [], deadFiles: ['b.ts'], fileCount: 2, truncated: false },
+      error: null,
+    });
+    const out = await scanLocalProject('u1', 'd1', '/proj') as Record<string, unknown>;
+    expect(out.fileCount).toBe(2);
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'local.project_scanned', resourceType: 'local_scan' }),
+    );
+  });
+
+  it('maps a scan denial like any other agent refusal', async () => {
+    hub.executeCommandResult.mockResolvedValueOnce({ ok: false, output: '', payload: null, error: 'path outside workspace' });
+    await expect(scanLocalProject('u1', 'd1', '/elsewhere')).rejects.toMatchObject({ errorCode: 'local_scope_denied' });
   });
 });

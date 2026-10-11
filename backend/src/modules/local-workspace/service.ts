@@ -140,3 +140,33 @@ export async function runLocalCommand(
   return { output: String(payloadOf(result).output ?? ''), payload: (payloadOf(result).payload as Record<string, unknown> | null) ?? null };
 }
 
+/**
+ * Structural scan of a granted workspace on the device (import graph,
+ * cycles, dead files). Read-only like tree/read: the agent enforces scope
+ * and bounds; the bridge forwards and audits the completed scan with its
+ * real counts (never the graph bytes — those stay device-side in payload).
+ */
+export async function scanLocalProject(userId: string, deviceId: string, path: string) {
+  const result = await runAgentCommand(userId, deviceId, { kind: 'project.scan', path });
+  const payload = payloadOf(result);
+  const countOf = (key: string): number => (Array.isArray(payload[key]) ? (payload[key] as unknown[]).length : 0);
+  const { recordAudit } = await import('../audit/service.js');
+  await recordAudit({
+    action: AuditAction.LOCAL_PROJECT_SCANNED,
+    actorUserId: userId,
+    scope: 'USER',
+    resourceType: 'local_scan',
+    resourceId: path,
+    detail: {
+      deviceId,
+      files: typeof payload.fileCount === 'number' ? payload.fileCount : null,
+      nodes: countOf('nodes'),
+      edges: countOf('edges'),
+      cycles: countOf('cycles'),
+      deadFiles: countOf('deadFiles'),
+      truncated: payload.truncated ?? null,
+    },
+  });
+  return payload;
+}
+

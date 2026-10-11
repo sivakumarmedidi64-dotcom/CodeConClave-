@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent } from '../lib/sse';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
@@ -21,6 +21,7 @@ interface Row {
 export function HomeChat() {
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
+  const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -32,6 +33,13 @@ export function HomeChat() {
     if (id) localStorage.setItem(MODEL_KEY, id);
     else localStorage.removeItem(MODEL_KEY);
   };
+  const handleRouting = useCallback((r: { provider?: string; model?: string; reason?: string } | null) => {
+    setRouting(r);
+  }, []);
+
+  const contextLine = modelId
+    ? `Model: ${modelId}`
+    : `Context: AUTO${routing?.provider ? ` → ${routing.provider}/${routing.model ?? ''}` : ''}${routing?.reason ? ` · ${routing.reason}` : ' · router decides per turn'}`;
 
   useEffect(() => {
     // Follow the conversation upward: newest rows append at the bottom, so
@@ -170,8 +178,7 @@ export function HomeChat() {
       )}
 
       <div className="cc-homechat__bar">
-        <Icon name="spark" size={16} className="cc-homechat__icon" />
-        <textarea
+        <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
           rows={1}
           className="cc-homechat__input"
@@ -186,7 +193,7 @@ export function HomeChat() {
           }}
           placeholder={PLACEHOLDER}
         />
-        <ModelPicker value={modelId} onChange={selectModel} />
+        <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} />
         {streaming ? (
           <button
             className="cc-btn cc-btn--danger cc-btn--sm cc-homechat__action"
@@ -208,6 +215,10 @@ export function HomeChat() {
             Send
           </button>
         )}
+      </div>
+
+      <div className="cc-homechat__context cc-hint" data-testid="homechat-context">
+        {contextLine}
       </div>
 
       <div className="cc-homechat__foot">

@@ -88,6 +88,7 @@ import { integrationHubRoutes } from './modules/integration-hub/routes.js';
 import { kubernsRoutes } from './modules/kuberns/routes.js';
 import { actionRoutes } from './modules/actions/routes.js';
 import { localWorkspaceRoutes } from './modules/local-workspace/routes.js';
+import { commsRoutes } from './modules/comms/routes.js';
 import { remoteRoutes } from './modules/remote/routes.js';
 import { registerCoreTools } from './modules/execution/tools.js';
 import { storage } from './integrations/storage.js';
@@ -311,6 +312,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/kuberns', paid, kubernsRoutes());
   app.use('/api/v1/actions', paid, actionRoutes());
   app.use('/api/v1/local-workspace', paid, localWorkspaceRoutes());
+  app.use('/api/v1/comms', paid, commsRoutes());
   app.use('/api/v1/agents', paid, multiAgentRoutes());
   app.use('/api/v1/scheduling', paid, schedulingRoutes());
   app.use('/api/v1/preview', paid, previewRoutes());
@@ -361,7 +363,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
     '/api/v1/environment', '/api/v1/release', '/api/v1/integrations', '/api/v1/agents',
     '/api/v1/scheduling', '/api/v1/preview', '/api/v1/audit', '/api/v1/ideas',
     '/api/v1/brainstorming', '/api/v1/history', '/api/v1/cleanup', '/api/v1/trash',
-    '/api/v1/activity', '/api/v1/digests', '/api/v1/operations', '/api/v1/automations',
+    '/api/v1/activity', '/api/v1/digests', '/api/v1/comms', '/api/v1/operations', '/api/v1/automations',
     '/api/v1/webhooks', '/api/v1/recovery', '/api/v1/admin', '/api/v1/engineering',
     '/api/v1/apikeys',
     '/api/v1/engineering-intelligence', '/api/v1/security-intelligence',

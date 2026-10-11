@@ -8,7 +8,7 @@
  * server's lock/down state is honored — a locked or down model is disabled,
  * never selected silently.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import type { AiModel } from '../lib/types';
 
@@ -69,9 +69,20 @@ function capabilityTag(m: AiModel): string {
   return classTag || extra;
 }
 
+/** Provider key states under which no model on that provider can serve. */
+const DEAD_KEY = new Set(['KEY_INVALID', 'MISSING_KEY', 'ENVIRONMENT_BLOCKED', 'PROVIDER_UNAVAILABLE']);
+/** Provider snapshot states under which no model on that provider can serve now. */
+const DEAD_SNAPSHOT = new Set(['RATE_LIMITED', 'QUOTA_EXHAUSTED', 'DOWN', 'DEGRADED', 'OFFLINE', 'FAILED']);
+
 /** AUTO sentinel: empty string means "let the router decide". */
 export const AUTO_MODEL = '';
 
+/**
+ * Show ONLY models the user can actually use right now: available, healthy,
+ * and unlocked. Anything else (down, degraded, locked, unconfigured
+ * provider) is hidden rather than shown-disabled — the picker lists what you
+ * have, nothing you can't touch.
+ */
 function usable(m: AiModel): boolean {
   return m.available && m.health !== 'DOWN' && m.health !== 'DEGRADED' && !m.locked;
 }
@@ -89,9 +100,12 @@ interface RoutingPreview {
 export function ModelPicker({
   value,
   onChange,
+  onRouting,
 }: {
   value: string | undefined;
   onChange: (modelId: string) => void;
+  /** Real routing context for the surrounding composer (provider/model/reason). */
+  onRouting?: (r: { provider?: string; model?: string; reason?: string } | null) => void;
 }) {
   const [models, setModels] = useState<AiModel[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | undefined>();
@@ -127,15 +141,11 @@ export function ModelPicker({
         if (!active) return;
         // Show only the providers this deployment actually has configured
         // (server-authoritative). Absent field = old server, show everything.
+        // Usability filtering (health/lock/key/snapshot) happens at render
+        // time in `visible` so both fetches combine regardless of order.
         const configured = Array.isArray(res.configuredProviders) ? new Set(res.configuredProviders) : null;
-        const list = (res.models ?? []).filter((m) => !configured || configured.has(m.providerId));
-        setModels(list);
+        setModels((res.models ?? []).filter((m) => !configured || configured.has(m.providerId)));
         setDefaultModel(res.defaultModel ?? undefined);
-        const current = list.find((m) => m.id === value);
-        const fallback = list.find(usable);
-        if (!current || !usable(current)) {
-          onChange(fallback ? fallback.id : (res.defaultModel ?? ''));
-        }
       })
       .catch(() => undefined);
     // When AUTO is active, surface the routing explanation for this turn.
@@ -143,14 +153,48 @@ export function ModelPicker({
       void api<{ decision: RoutingPreview }>('/api/v1/ai/routing')
         .then((res) => {
           if (!active) return;
-          if (res.decision) setPreview(res.decision);
+          if (res.decision) {
+            setPreview(res.decision);
+            onRouting?.({
+              provider: res.decision.selectedProvider,
+              model: res.decision.selectedModel,
+              reason: res.decision.reason,
+            });
+          }
         })
         .catch(() => undefined);
+    } else {
+      onRouting?.(null);
     }
     return () => {
       active = false;
     };
   }, [value]);
+
+  // The list the user asked for: only models that can actually serve now —
+  // usable row AND a live provider (no dead key, no dead snapshot). Unknown
+  // provider state falls back to the row flags (never hide on missing data).
+  const visible = useMemo(
+    () =>
+      models.filter((m) => {
+        if (!usable(m)) return false;
+        const ks = providerState[m.providerId];
+        if (ks && DEAD_KEY.has(ks)) return false;
+        const snap = providerSnapshot[m.providerId];
+        if (snap && DEAD_SNAPSHOT.has(snap)) return false;
+        return true;
+      }),
+    [models, providerState, providerSnapshot],
+  );
+
+  useEffect(() => {
+    const current = visible.find((m) => m.id === value);
+    const fallback = visible.find(usable);
+    if ((!current || !usable(current)) && (fallback || defaultModel !== undefined)) {
+      onChange(fallback ? fallback.id : (defaultModel ?? ''));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, value, defaultModel]);
 
   const interim = preview ? `Router: ${preview.reason ?? 'automatic routing'}` : 'automatic routing';
 
@@ -163,24 +207,25 @@ export function ModelPicker({
         onChange={(e) => onChange(e.target.value)}
       >
         <option value={AUTO_MODEL}>AUTO</option>
-        {models.length === 0 && <option value="" disabled>model…</option>}
+        {visible.length === 0 && (
+          <option value="" disabled>
+            No models available — connect a provider
+          </option>
+        )}
         {TIER_ORDER.map((tier) => {
-          const group = models.filter((m) => m.tier === tier);
+          const group = visible.filter((m) => m.tier === tier);
           if (group.length === 0) return null;
           return (
             <optgroup key={tier} label={TIER_LABEL[tier]}>
               {group.map((m) => {
                 const snapshotNote = snapshotNoteFor(m.providerId, providerSnapshot);
-                const healthNote =
-                  snapshotNote ?? (m.health === 'DOWN' ? ' · down' : m.health === 'DEGRADED' ? ' · degraded' : '');
-                const lockNote = m.locked ? ' · Pro' : '';
                 const stateNote = stateNoteFor(m.providerId, providerState);
                 const tagNote = capabilityTag(m) ? ` · ${capabilityTag(m)}` : '';
                 const meta = `${CLASS_LABEL[m.computeClass]}${m.description ? ` — ${m.description}` : ''}`;
                 return (
-                  <option key={m.id} value={m.id} disabled={!usable(m)} title={`${meta}${healthNote}${stateNote}${tagNote ? ` · ${tagNote}` : ''}`}>
-                    {m.label} ({m.providerId}){healthNote}
-                    {lockNote}
+                  <option key={m.id} value={m.id} title={`${meta}${snapshotNote ?? ''}${stateNote}${tagNote ? ` · ${tagNote}` : ''}`}>
+                    {m.label} ({m.providerId})
+                    {snapshotNote}
                     {stateNote}
                     {tagNote}
                   </option>

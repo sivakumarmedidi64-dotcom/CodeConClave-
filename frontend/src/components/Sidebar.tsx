@@ -35,6 +35,7 @@ const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
 ];
 
 const MORE_ITEMS: NavItem[] = [
+  { to: '/coworker', label: 'Coworker', icon: 'sparkle' },
   { to: '/memory', label: 'Memory', icon: 'brain' },
   { to: '/dna', label: 'DNA', icon: 'dna' },
   { to: '/files', label: 'Files', icon: 'file' },

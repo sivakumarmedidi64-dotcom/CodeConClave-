@@ -41,6 +41,7 @@ import { AutomationPage } from './pages/AutomationPage';
 import { RecoveryPage } from './pages/RecoveryPage';
 import { ControlPage } from './pages/ControlPage';
 import { CoworkersPage } from './pages/CoworkersPage';
+import { CoworkerPage } from './pages/CoworkerPage';
 import { TeamsPage } from './pages/TeamsPage';
 import { PluginsPage } from './pages/PluginsPage';
 import { RemotePage } from './pages/RemotePage';
@@ -258,6 +259,7 @@ function Shell() {
             <Route path="/workbench" element={<WorkbenchPage />} />
             <Route path="/workbench/:projectId" element={<WorkbenchPage />} />
             <Route path="/coworkers" element={<CoworkersPage />} />
+            <Route path="/coworker" element={<CoworkerPage />} />
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
             <Route path="/control" element={<ControlPage />} />
