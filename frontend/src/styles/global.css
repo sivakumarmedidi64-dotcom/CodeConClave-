@@ -2725,6 +2725,19 @@ background: var(--cc-accent-soft);
   gap: 14px;
 }
 
+/* Empty state: the composer sits centered; once the user chats, the log
+   appears above and the conversation flows upward with the bar pinned below. */
+.cc-homechat--empty {
+  justify-content: center;
+  min-height: calc(100vh - 320px);
+}
+
+.cc-homechat__moon {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0;
+}
+
 .cc-homechat__bar {
   align-items: flex-end;
   flex-wrap: wrap;
@@ -2753,7 +2766,7 @@ background: var(--cc-accent-soft);
 
 .cc-homechat__log {
   display: flex;
-  flex-direction: column-reverse;
+  flex-direction: column;
   gap: 8px;
   max-height: calc(100vh - 280px);
   min-height: 320px;

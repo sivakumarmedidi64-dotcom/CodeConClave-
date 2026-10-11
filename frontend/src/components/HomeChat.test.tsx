@@ -79,8 +79,7 @@ describe('HomeChat', () => {
     expect(body.mode).toBe('CHAT');
   });
 
-  it('surfaces an interrupted stream as a system row', async () => {
-    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  it('surfaces an interrupted stream as a system row', async () => {    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
       if (url.includes('/api/v1/conversations/chat')) return sseResponse('event: thinking_start\ndata: {}\n\n');
@@ -97,5 +96,51 @@ describe('HomeChat', () => {
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'ping');
     await user.click(screen.getByRole('button', { name: /send/i }));
     expect(await screen.findByText(/interrupted/i)).toBeInTheDocument();
+  });
+
+  it('starts centered and empty, then flows upward in chronological order', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.cc-homechat--empty')).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'hi');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    // Centered hero is gone once the conversation exists...
+    expect(container.querySelector('.cc-homechat--empty')).not.toBeInTheDocument();
+    // ...and the user message precedes the assistant reply in DOM order
+    // (oldest at top, newest appended at the bottom, auto-scrolled into view).
+    const userRow = screen.getByText('hi');
+    const asstRow = screen.getByText('Hello from the home chat.');
+    expect(userRow.compareDocumentPosition(asstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the 3D thinking indicator only while a real generation runs', async () => {
+    let release!: (value: Response) => void;
+    const gate = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
+      if (url.includes('/api/v1/conversations/chat')) return gate;
+      return jsonResponse({ data: {} });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'think hard');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    expect(await screen.findByTestId('homechat-thinking-moon')).toBeInTheDocument();
+    release(sseResponse(SSE_BODY));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('homechat-thinking-moon')).not.toBeInTheDocument());
   });
 });

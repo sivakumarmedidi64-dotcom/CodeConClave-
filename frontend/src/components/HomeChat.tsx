@@ -4,6 +4,7 @@ import { streamChat, type ChatStreamEvent } from '../lib/sse';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
 import { ModelPicker } from './ModelPicker';
+import { ThinkingMoon } from './ThinkingMoon';
 import { Icon } from './Icon';
 
 const MODEL_KEY = 'cc:home:model';
@@ -33,10 +34,12 @@ export function HomeChat() {
   };
 
   useEffect(() => {
+    // Follow the conversation upward: newest rows append at the bottom, so
+    // keep the latest visible as messages stream in.
     const el = listRef.current;
     if (!el) return;
-    if (typeof el.scrollTo === 'function') el.scrollTo({ top: 0, behavior: 'smooth' });
-    else el.scrollTop = 0;
+    if (typeof el.scrollTo === 'function') el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight;
   }, [rows]);
 
   useEffect(() => {
@@ -117,8 +120,56 @@ export function HomeChat() {
   };
 
   return (
-    <div className="cc-homechat">
-      <div className="cc-home__command cc-homechat__bar">
+    <div className={`cc-homechat${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
+      {rows.length > 0 && (
+        <div className="cc-homechat__log" ref={listRef}>
+          {rows.map((row) => (
+            <div key={row.key} className={`cc-homechat__row cc-homechat__row--${row.role}`}>
+              {row.role === 'assistant' && row.thinking ? (
+                <div className="cc-homechat__bubble cc-homechat__bubble--assistant cc-homechat__thinking">
+                  <span className="cc-think-dots">
+                    <i /><i /><i />
+                  </span>
+                  <span>CodeConClave is thinking&hellip;</span>
+                </div>
+              ) : (
+                <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
+                  {row.content}
+                  {row.decisionRecorded && (
+                    <Link
+                      className="cc-homechat__decision"
+                      to="/memory"
+                      title="Open Memory to replay, inspect sources, or export"
+                      aria-label={`Decision recorded: ${row.decisionRecorded.title} (${row.decisionRecorded.status}). Open Memory to inspect sources.`}
+                    >
+                      <Icon name="spark" size={12} />
+                      Decision recorded: {row.decisionRecorded.title} ({row.decisionRecorded.status}) — view in Memory
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+          {streaming && rows[rows.length - 1]?.key !== rows.find((r) => r.role === 'assistant' && r.thinking)?.key && (
+            <div className="cc-homechat__row cc-homechat__row--assistant">
+              <div className="cc-homechat__bubble cc-homechat__thinking">
+                <span className="cc-think-dots">
+                  <i /><i /><i />
+                </span>
+                <span>CodeConClave is thinking&hellip;</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {streaming && (
+        <div className="cc-homechat__moon" data-testid="homechat-thinking-moon">
+          <ThinkingMoon active streaming={rows.some((r) => r.role === 'assistant' && !r.thinking && r.content.length > 0)} />
+        </div>
+      )}
+
+      <div className="cc-homechat__bar">
         <Icon name="spark" size={16} className="cc-homechat__icon" />
         <textarea
           ref={inputRef}
@@ -158,48 +209,6 @@ export function HomeChat() {
           </button>
         )}
       </div>
-
-      {rows.length > 0 && (
-        <div className="cc-homechat__log" ref={listRef}>
-          {[...rows].reverse().map((row) => (
-            <div key={row.key} className={`cc-homechat__row cc-homechat__row--${row.role}`}>
-              {row.role === 'assistant' && row.thinking ? (
-                <div className="cc-homechat__bubble cc-homechat__bubble--assistant cc-homechat__thinking">
-                  <span className="cc-think-dots">
-                    <i /><i /><i />
-                  </span>
-                  <span>CodeConClave is thinking&hellip;</span>
-                </div>
-              ) : (
-                <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
-                  {row.content}
-                  {row.decisionRecorded && (
-                    <Link
-                      className="cc-homechat__decision"
-                      to="/memory"
-                      title="Open Memory to replay, inspect sources, or export"
-                      aria-label={`Decision recorded: ${row.decisionRecorded.title} (${row.decisionRecorded.status}). Open Memory to inspect sources.`}
-                    >
-                      <Icon name="spark" size={12} />
-                      Decision recorded: {row.decisionRecorded.title} ({row.decisionRecorded.status}) — view in Memory
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          {streaming && rows[rows.length - 1]?.key !== rows.find((r) => r.role === 'assistant' && r.thinking)?.key && (
-            <div className="cc-homechat__row cc-homechat__row--assistant">
-              <div className="cc-homechat__bubble cc-homechat__thinking">
-                <span className="cc-think-dots">
-                  <i /><i /><i />
-                </span>
-                <span>CodeConClave is thinking&hellip;</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="cc-homechat__foot">
         <Link className="cc-hint cc-homechat__more" to="/chat">

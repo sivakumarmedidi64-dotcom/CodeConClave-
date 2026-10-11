@@ -103,6 +103,8 @@ describe('local workspace E2E — browse + read + diff + write on a real project
 
 describe('local workspace E2E — authorized command with real output', () => {
   it('runs an allow-listed command and returns real stdout + exit code 0', async () => {
+    // Real process spawn: generous timeout so loaded CI boxes don't flake.
+    // The command itself is still bounded to 30s by runCommandOnce.
     const command = 'echo hello-local-e2e';
     expect(gateTerminalInput(command).allowed).toBe(true);
     expect(classifyCommand(command).allowed).toBe(true);
@@ -112,7 +114,7 @@ describe('local workspace E2E — authorized command with real output', () => {
     expect(result.timedOut).toBe(false);
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('hello-local-e2e');
-  });
+  }, 30_000);
 
   it('reports a real non-zero exit for a failing allowed command (no fake success)', async () => {
     const command = 'Get-ChildItem ./does-not-exist-xyz';

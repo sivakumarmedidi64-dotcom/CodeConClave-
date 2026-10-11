@@ -139,6 +139,13 @@ export function WorkPage() {
 
   const openPreview = () => {
     if (!projectId) return;
+    // Never open a dead tab: the content endpoint answers 409 JSON unless a
+    // build actually reached READY. The button is gated the same way; this
+    // guards programmatic callers.
+    if (preview?.state !== 'READY') {
+      setPreviewError('The preview is not READY yet — a new tab cannot render an unbuilt preview.');
+      return;
+    }
     window.open(`/api/v1/preview/${encodeURIComponent(projectId)}/content`, '_blank', 'noopener');
   };
 
@@ -413,7 +420,12 @@ export function WorkPage() {
             <button className="cc-btn cc-btn--ghost cc-btn--sm" disabled={previewLoading || !projectId} onClick={() => void refreshPreview()}>
               {previewLoading ? 'Building…' : 'Rebuild'}
             </button>
-            <button className="cc-btn cc-btn--sm" disabled={!projectId} onClick={openPreview}>
+            <button
+              className="cc-btn cc-btn--sm"
+              disabled={!projectId || preview?.state !== 'READY'}
+              title={preview?.state === 'READY' ? 'Open the running preview in a new tab' : 'Available once the build is READY — a new tab cannot render an unbuilt preview'}
+              onClick={openPreview}
+            >
               Open in new tab
             </button>
           </div>
