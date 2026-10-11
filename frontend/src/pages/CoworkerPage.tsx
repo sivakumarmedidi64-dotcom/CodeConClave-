@@ -143,7 +143,7 @@ export function CoworkerPage() {
         prerequisite (connected mail, paired device, delivered digest) is missing.
       </p>
 
-      <section className="rounded border p-3" data-testid="coworker-email">
+      <section className="rounded border p-3" id="email" data-testid="coworker-email">
         <h3 className="text-sm font-medium">Email triage</h3>
         <p className="cc-hint">Reads unread mail through your connected Gmail account, classifies each thread with reasons, and builds reply drafts. Drafts never send themselves.</p>
         <div className="mt-2 grid gap-2">
@@ -190,7 +190,7 @@ export function CoworkerPage() {
         )}
       </section>
 
-      <section className="rounded border p-3" data-testid="coworker-scan">
+      <section className="rounded border p-3" id="scan" data-testid="coworker-scan">
         <h3 className="text-sm font-medium">Project scan</h3>
         <p className="cc-hint">Real import-graph scan on a paired device: nodes, edges, dependency cycles, dead files.</p>
         <div className="mt-2 grid gap-2">
@@ -233,7 +233,7 @@ export function CoworkerPage() {
         )}
       </section>
 
-      <section className="rounded border p-3" data-testid="coworker-digest">
+      <section className="rounded border p-3" id="digest" data-testid="coworker-digest">
         <h3 className="text-sm font-medium">Latest digest</h3>
         {digestState === 'loading' && <p className="cc-hint">Loading latest digest…</p>}
         {digestState === 'error' && <p className="cc-hint">Could not load digests.</p>}

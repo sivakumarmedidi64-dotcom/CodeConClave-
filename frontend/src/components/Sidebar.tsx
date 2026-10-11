@@ -23,7 +23,6 @@ const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
     label: 'Workspace',
     items: [
       { to: '/home', label: 'Home', icon: 'home' },
-      { to: '/chat', label: 'Chat', icon: 'chat' },
       { to: '/projects', label: 'Projects', icon: 'folder' },
       { to: '/agents', label: 'Agents', icon: 'layers' },
       { to: '/work', label: 'Tasks', icon: 'bolt' },
@@ -36,6 +35,9 @@ const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
 
 const MORE_ITEMS: NavItem[] = [
   { to: '/coworker', label: 'Coworker', icon: 'sparkle' },
+  { to: '/coworker#email', label: 'Email', icon: 'mail' },
+  { to: '/coworker#scan', label: 'Code Map', icon: 'search' },
+  { to: '/coworker#digest', label: 'Reports', icon: 'chart' },
   { to: '/memory', label: 'Memory', icon: 'brain' },
   { to: '/dna', label: 'DNA', icon: 'dna' },
   { to: '/files', label: 'Files', icon: 'file' },

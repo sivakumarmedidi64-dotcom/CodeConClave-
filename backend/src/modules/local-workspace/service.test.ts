@@ -25,6 +25,7 @@ import {
   readLocalFile,
   runLocalCommand,
   scanLocalProject,
+  syncMemoryTranscript,
   writeLocalFile,
 } from './service.js';
 
@@ -109,5 +110,35 @@ describe('local workspace bridge', () => {
   it('maps a scan denial like any other agent refusal', async () => {
     hub.executeCommandResult.mockResolvedValueOnce({ ok: false, output: '', payload: null, error: 'path outside workspace' });
     await expect(scanLocalProject('u1', 'd1', '/elsewhere')).rejects.toMatchObject({ errorCode: 'local_scope_denied' });
+  });
+
+  it('syncs a chat transcript and audits the memory write', async () => {
+    hub.executeCommandResult.mockResolvedValueOnce({
+      ok: true, output: '', payload: { path: '/p/CodeConClave/chats/c1.md', turns: 2 }, error: null,
+    });
+    const out = await syncMemoryTranscript('u1', 'd1', {
+      conversationId: 'c1',
+      turns: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }],
+    }) as Record<string, unknown>;
+    expect(out.turns).toBe(2);
+    expect(hub.executeCommandResult).toHaveBeenCalledWith(
+      'u1',
+      'd1',
+      expect.objectContaining({ kind: 'memory.sync', conversationId: 'c1' }),
+      undefined,
+    );
+    expect(recordAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceType: 'local_memory_sync', resourceId: 'c1' }),
+    );
+  });
+
+  it('refuses empty/oversized sync payloads before touching the device', async () => {
+    await expect(syncMemoryTranscript('u1', 'd1', { conversationId: 'c1', turns: [] })).rejects.toMatchObject({
+      errorCode: 'invalid_input',
+    });
+    await expect(
+      syncMemoryTranscript('u1', 'd1', { conversationId: 'c1', turns: Array.from({ length: 201 }, () => ({ role: 'user', content: 'x' })) }),
+    ).rejects.toMatchObject({ errorCode: 'invalid_input' });
+    expect(hub.executeCommandResult).not.toHaveBeenCalled();
   });
 });

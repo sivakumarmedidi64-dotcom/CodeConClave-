@@ -99,3 +99,48 @@ describe('policy engine — deny-by-default baselines', () => {
     revokeGrants('u1');
   });
 });
+
+describe('policy engine — paired-device local tools', () => {
+  it('local_* without deviceId → denied (capability)', () => {
+    for (const tool of ['local_list', 'local_read', 'local_write', 'local_exec']) {
+      expect(evaluateToolCall({ tool, input: { path: 'a.txt', command: 'npm test' }, userId: 'u1' })).toMatchObject({
+        allowed: false,
+        deniedBy: 'capability',
+      });
+    }
+  });
+
+  it('local_read of a secret path → denied with no approval path', () => {
+    expect(evaluateToolCall({ tool: 'local_read', input: { deviceId: 'd1', path: '.env' }, userId: 'u1' }).allowed).toBe(false);
+    expect(evaluateToolCall({ tool: 'local_write', input: { deviceId: 'd1', path: 'keys/id_rsa', content: 'x' }, userId: 'u1' }).allowed).toBe(false);
+  });
+
+  it('local_read/local_list → LOW, no approval', () => {
+    expect(evaluateToolCall({ tool: 'local_read', input: { deviceId: 'd1', path: 'src/a.ts' }, userId: 'u1' })).toEqual({
+      allowed: true,
+      risk: 'LOW',
+      requiresApproval: false,
+    });
+    expect(evaluateToolCall({ tool: 'local_list', input: { deviceId: 'd1', path: '/' }, userId: 'u1' })).toMatchObject({
+      allowed: true,
+      risk: 'LOW',
+    });
+  });
+
+  it('local_write → MEDIUM, requires approval', () => {
+    expect(evaluateToolCall({ tool: 'local_write', input: { deviceId: 'd1', path: 'src/a.ts', content: 'x' }, userId: 'u1' })).toMatchObject({
+      allowed: true,
+      risk: 'MEDIUM',
+      requiresApproval: true,
+    });
+  });
+
+  it('local_exec of dangerous command → denied; safe command mirrors terminal risk', () => {
+    expect(evaluateToolCall({ tool: 'local_exec', input: { deviceId: 'd1', command: 'rm -rf /' }, userId: 'u1' }).allowed).toBe(false);
+    expect(evaluateToolCall({ tool: 'local_exec', input: { deviceId: 'd1', command: 'npm test' }, userId: 'u1' })).toMatchObject({
+      allowed: true,
+      risk: 'LOW',
+      requiresApproval: false,
+    });
+  });
+});

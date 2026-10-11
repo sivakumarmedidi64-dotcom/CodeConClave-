@@ -38,6 +38,7 @@ export type IconName =
   | 'menu'
   | 'plus'
   | 'send'
+  | 'mail'
   | 'mic'
   | 'paperclip'
   | 'command'
@@ -227,6 +228,12 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M4 20 21 12 4 4l2.5 8z" />
       <path d="M6.5 12H21" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2.5" />
+      <path d="M4.5 8 12 13.5 19.5 8" />
     </>
   ),
   mic: (

@@ -1,9 +1,10 @@
 /**
  * CodeConClave — Sidebar tests (AI-OS IA).
- * The primary navigation is a compact eight-item set (Home, Chat, Projects,
- * Agents, Tasks, Activity, Connectors, Settings); Approval Center navigation is
- * intentionally absent (approvals still arrive via notifications). Secondary
- * surfaces live under the collapsible "More" group and only render once expanded.
+ * The primary navigation is a compact seven-item set (Home, Projects, Agents,
+ * Tasks, Activity, Connectors, Settings — Chat was removed: Home is the
+ * composer); Approval Center navigation is intentionally absent (approvals
+ * still arrive via notifications). Secondary surfaces live under the
+ * collapsible "More" group and only render once expanded.
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -13,7 +14,6 @@ import { TEST_USER } from '../testutils';
 
 const PRIMARY = [
   'Home',
-  'Chat',
   'Projects',
   'Agents',
   'Tasks',
@@ -24,6 +24,9 @@ const PRIMARY = [
 
 const SECONDARY = [
   'Coworker',
+  'Email',
+  'Code Map',
+  'Reports',
   'Memory',
   'DNA',
   'Files',
@@ -49,7 +52,7 @@ function visibleLabels(): string[] {
 }
 
 describe('Sidebar', () => {
-  it('renders the eight primary destinations in order', () => {
+  it('renders the seven primary destinations in order', () => {
     render(
       <MemoryRouter>
         <Sidebar user={TEST_USER} />

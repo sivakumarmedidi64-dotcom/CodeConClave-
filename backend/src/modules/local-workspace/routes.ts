@@ -23,6 +23,7 @@ import {
   readLocalFile,
   runLocalCommand,
   scanLocalProject,
+  syncMemoryTranscript,
   writeLocalFile,
 } from './service.js';
 
@@ -100,6 +101,19 @@ export const localWorkspaceRoutes = (): Router => {
       const deviceId = requireString(body.deviceId, 'deviceId');
       const path = typeof body.path === 'string' && body.path.length > 0 ? body.path : '/';
       res.json(jsonResult(await scanLocalProject(req.ctx.user!.id, deviceId, path)));
+    }),
+  );
+
+  router.post(
+    '/memory-sync',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const deviceId = requireString(body.deviceId, 'deviceId');
+      const conversationId = requireString(body.conversationId, 'conversationId');
+      const turns = Array.isArray(body.turns) ? (body.turns as Array<{ role: string; content: string; at?: string }>) : [];
+      const path = typeof body.path === 'string' ? body.path : undefined;
+      const updatedAt = typeof body.updatedAt === 'string' ? body.updatedAt : undefined;
+      res.json(jsonResult(await syncMemoryTranscript(req.ctx.user!.id, deviceId, { path, conversationId, updatedAt, turns })));
     }),
   );
 

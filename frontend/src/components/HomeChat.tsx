@@ -220,12 +220,6 @@ export function HomeChat() {
       <div className="cc-homechat__context cc-hint" data-testid="homechat-context">
         {contextLine}
       </div>
-
-      <div className="cc-homechat__foot">
-        <Link className="cc-hint cc-homechat__more" to="/chat">
-          Open full chat <span aria-hidden="true">&rarr;</span>
-        </Link>
-      </div>
     </div>
   );
 }

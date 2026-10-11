@@ -78,5 +78,48 @@ export function registerCoreTools(): void {
     return { ok: true, text: text.slice(0, 64_000) };
   });
 
+  // Paired-device local tools: the coworker (chat included, via the typed
+  // tool-call flow + policy + approvals) can now reach the user's OWN
+  // devices. Every call funnels through the local-workspace bridge, which
+  // resolves the socket by userId:deviceId (cross-user reach is structurally
+  // impossible) and lets the on-device agent enforce scope + command policy.
+  registerTool('local_list', async (input, ctx) => {
+    const deviceId = String(input.deviceId ?? '');
+    const path = String(input.path ?? '/');
+    const userId = callerId(ctx);
+    if (!deviceId) throw new Error('local_list requires deviceId');
+    const { listLocalTree } = await import('../local-workspace/service.js');
+    return { ok: true, ...(await listLocalTree(userId, deviceId, path)) };
+  });
+
+  registerTool('local_read', async (input, ctx) => {
+    const deviceId = String(input.deviceId ?? '');
+    const path = String(input.path ?? '');
+    const userId = callerId(ctx);
+    if (!deviceId || !path) throw new Error('local_read requires deviceId, path');
+    const { readLocalFile } = await import('../local-workspace/service.js');
+    return { ok: true, ...(await readLocalFile(userId, deviceId, path)) };
+  });
+
+  registerTool('local_write', async (input, ctx) => {
+    const deviceId = String(input.deviceId ?? '');
+    const path = String(input.path ?? '');
+    const content = String(input.content ?? '');
+    const userId = callerId(ctx);
+    if (!deviceId || !path) throw new Error('local_write requires deviceId, path');
+    const { writeLocalFile } = await import('../local-workspace/service.js');
+    return { ok: true, ...(await writeLocalFile(userId, deviceId, path, content)) };
+  });
+
+  registerTool('local_exec', async (input, ctx) => {
+    const deviceId = String(input.deviceId ?? '');
+    const command = String(input.command ?? '');
+    const cwd = typeof input.cwd === 'string' ? input.cwd : undefined;
+    const userId = callerId(ctx);
+    if (!deviceId || !command) throw new Error('local_exec requires deviceId, command');
+    const { runLocalCommand } = await import('../local-workspace/service.js');
+    return { ok: true, ...(await runLocalCommand(userId, deviceId, command, cwd)) };
+  });
+
   logger.info('core execution tools registered');
 }

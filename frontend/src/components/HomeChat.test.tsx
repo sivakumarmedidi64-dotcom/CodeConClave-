@@ -58,7 +58,8 @@ describe('HomeChat', () => {
     );
     expect(screen.getByPlaceholderText('Ask anything…')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
-    expect(screen.getByText('Open full chat')).toBeInTheDocument();
+    // The home composer stands alone: no "open full chat" escape hatch.
+    expect(screen.queryByText('Open full chat')).not.toBeInTheDocument();
   });
 
   it('streams a reply and renders the assistant bubble', async () => {

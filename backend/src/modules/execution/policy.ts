@@ -337,6 +337,40 @@ export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
     case 'dev_server': {
       return { allowed: true, risk: 'LOW', requiresApproval: false };
     }
+    // Paired-device local tools: the cloud NEVER sees the filesystem — it
+    // forwards opaque scoped commands to the owner's agent, which enforces
+    // workspace containment, capability grants, and command policy on-device.
+    // Policy here mirrors the cloud counterparts (baseline secrets/traversal
+    // + dangerous-command refusal); device ownership is enforced structurally
+    // at execution (the socket key is userId:deviceId).
+    case 'local_list':
+    case 'local_read': {
+      if (!String(input.deviceId ?? '')) {
+        return deny('capability', 'A paired deviceId is required for local tools', 'capability_denied');
+      }
+      if (looksLikeSecretPath(path) || osSensitivePath(path)) {
+        return deny('baseline_secrets', 'Secret or sensitive paths are deny-by-default', 'secrets_blocked');
+      }
+      return { allowed: true, risk: 'LOW', requiresApproval: false };
+    }
+    case 'local_write': {
+      if (!String(input.deviceId ?? '')) {
+        return deny('capability', 'A paired deviceId is required for local tools', 'capability_denied');
+      }
+      if (looksLikeSecretPath(path) || osSensitivePath(path)) {
+        return deny('baseline_secrets', 'Secret or sensitive paths are deny-by-default', 'secrets_blocked');
+      }
+      return { allowed: true, risk: 'MEDIUM', requiresApproval: true };
+    }
+    case 'local_exec': {
+      if (!String(input.deviceId ?? '')) {
+        return deny('capability', 'A paired deviceId is required for local tools', 'capability_denied');
+      }
+      if (dangerousCommand(command)) {
+        return deny('baseline_commands', 'Dangerous commands are deny-by-default', 'commands_blocked');
+      }
+      return { allowed: true, risk: riskOfCommand(command), requiresApproval: riskOfCommand(command) !== 'LOW' };
+    }
     default:
       return deny('unknown_tool', `Tool ${tool} is not registered`, 'unknown_tool');
   }

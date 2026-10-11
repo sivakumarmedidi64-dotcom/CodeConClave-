@@ -170,3 +170,37 @@ export async function scanLocalProject(userId: string, deviceId: string, path: s
   return payload;
 }
 
+/**
+ * Sync a cloud chat transcript into the device's CodeConClave/chats/ folder
+ * so history lives as local files the user and the AI can both read. The
+ * agent validates shape/bounds and writes markdown idempotently per
+ * conversation; the bridge forwards, audits, and never fabricates.
+ */
+export async function syncMemoryTranscript(
+  userId: string,
+  deviceId: string,
+  input: { path?: string; conversationId: string; updatedAt?: string; turns: Array<{ role: string; content: string; at?: string }> },
+) {
+  if (!input.conversationId || !Array.isArray(input.turns) || input.turns.length === 0 || input.turns.length > 200) {
+    throw AppError.badRequest('invalid_input', 'conversationId and 1-200 turns are required');
+  }
+  const result = await runAgentCommand(userId, deviceId, {
+    kind: 'memory.sync',
+    path: input.path ?? '/',
+    conversationId: input.conversationId,
+    updatedAt: input.updatedAt,
+    turns: input.turns,
+  });
+  const payload = payloadOf(result);
+  const { recordAudit } = await import('../audit/service.js');
+  await recordAudit({
+    action: AuditAction.LOCAL_FILE_WRITTEN,
+    actorUserId: userId,
+    scope: 'USER',
+    resourceType: 'local_memory_sync',
+    resourceId: input.conversationId,
+    detail: { deviceId, turns: typeof payload.turns === 'number' ? payload.turns : null },
+  });
+  return payload;
+}
+

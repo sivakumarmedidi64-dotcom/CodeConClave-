@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { VERSION, loadConfig, saveConfig, type AgentConfig, type BrowserGrant, type DesktopGrant } from './config.js';
 import { resolveWorkspacePath, classifyCommand, isProtectedPath, gateTerminalInput } from './policy.js';
 import { workspaceFor, requestedWithin, grantHasCap } from './serve-scope.js';
+import { recordLocalActivity, syncChatTranscript } from './memory.js';
 import { sha256 } from './diff.js';
 import { listDirectory, readFile, proposeEdit, applyEdit, fileMetadata } from './files.js';
 import { scanWorkspace } from './scan.js';
@@ -503,6 +504,17 @@ async function cmdServe(): Promise<void> {
           });
           if (result.output) stream('stdout', result.output.endsWith('\n') ? result.output : `${result.output}\n`);
           if (result.timedOut) stream('status', JSON.stringify({ timedOut: true, exitCode: null }));
+          if (root?.ok) {
+            // Local memory: what ran + how it ended. Output TEXT is never
+            // stored (it may contain secrets) — only shape + outcome.
+            recordLocalActivity(root.grant.root, {
+              kind: 'command',
+              command,
+              exitCode: result.exitCode,
+              timedOut: result.timedOut,
+              outputBytes: result.output.length,
+            });
+          }
           relay({
             ok: result.ok,
             timedOut: result.timedOut,
@@ -576,6 +588,13 @@ async function cmdServe(): Promise<void> {
           // path, or backups land beside the file and the write fails.
           const proposal = applyEdit(root.grant.root, requestedWithin({ abs: root.grant.root }, String(cmd.path ?? '')), String(cmd.content ?? ''));
           if (!proposal.allowed) return relayError(proposal.reason);
+          // Local memory: what changed (hashes + bytes, never content).
+          recordLocalActivity(root.grant.root, {
+            kind: 'file_write',
+            path: proposal.path,
+            beforeHash: proposal.beforeHash,
+            afterHash: proposal.afterHash,
+          });
           hub.send({
             type: 'tool_result',
             jobId: String(cmd.taskId ?? ''),
@@ -596,10 +615,30 @@ async function cmdServe(): Promise<void> {
           if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
           try {
             const graph = scanWorkspace(root.abs);
+            if (root?.ok) {
+              recordLocalActivity(root.grant.root, { kind: 'scan', path: root.abs, detail: `nodes=${graph.nodes.length}` });
+            }
             relay({ ...graph, root: root.abs });
           } catch (err) {
             relayError(err instanceof Error ? err.message : 'scan failed');
           }
+          return;
+        }
+        case 'memory.sync': {
+          // Store a cloud chat transcript in CodeConClave/chats/ so the user
+          // and the AI can read history from local files. Writing files →
+          // requires the file_write grant, like file.write.
+          if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
+          if (!grantHasCap(root.grant, 'file_write')) return relayError('capability file_write not granted for this workspace');
+          const turns = cmd.turns;
+          const synced = syncChatTranscript(root.grant.root, {
+            conversationId: String(cmd.conversationId ?? ''),
+            updatedAt: typeof cmd.updatedAt === 'string' ? cmd.updatedAt : undefined,
+            turns: Array.isArray(turns) ? turns : [],
+          });
+          if (!synced.ok) return relayError(synced.error);
+          recordLocalActivity(root.grant.root, { kind: 'chat_sync', path: synced.path, detail: `turns=${synced.turns}` });
+          relay({ path: synced.path, turns: synced.turns });
           return;
         }
         default:
