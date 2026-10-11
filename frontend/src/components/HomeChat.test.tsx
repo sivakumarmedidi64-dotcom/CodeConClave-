@@ -119,8 +119,7 @@ describe('HomeChat', () => {
     expect(userRow.compareDocumentPosition(asstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('shows the 3D thinking indicator only while a real generation runs', async () => {
-    let release!: (value: Response) => void;
+  it('shows the 3D thinking indicator only while a real generation runs', async () => {    let release!: (value: Response) => void;
     const gate = new Promise<Response>((resolve) => {
       release = resolve;
     });
@@ -143,5 +142,57 @@ describe('HomeChat', () => {
     release(sseResponse(SSE_BODY));
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
     await waitFor(() => expect(screen.queryByTestId('homechat-thinking-moon')).not.toBeInTheDocument());
+  });
+
+  it('disables Agent mode with a pairing hint when no device is online', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/local-workspace/devices')) return jsonResponse({ devices: [] });
+        if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
+        return jsonResponse({ data: {} });
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    const agentTab = await screen.findByRole('button', { name: 'Agent' });
+    expect(agentTab).toBeDisabled();
+    expect(await screen.findByTestId('homechat-pair-hint')).toHaveTextContent('pair it on the Remote page');
+  });
+
+  it('sends mode AGENT once a device is online and Agent is selected', async () => {
+    let posted: Record<string, unknown> = {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/local-workspace/devices')) {
+          return jsonResponse({ devices: [{ id: 'd1', name: 'laptop', presence: 'ONLINE' }] });
+        }
+        if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(SSE_BODY);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    const agentTab = await screen.findByRole('button', { name: 'Agent' });
+    await waitFor(() => expect(agentTab).not.toBeDisabled());
+    await user.click(agentTab);
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'list my project files');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    expect(posted.mode).toBe('AGENT');
   });
 });

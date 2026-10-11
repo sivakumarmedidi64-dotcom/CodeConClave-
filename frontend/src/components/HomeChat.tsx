@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent } from '../lib/sse';
+import { api } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
 import { ModelPicker } from './ModelPicker';
@@ -8,6 +9,7 @@ import { ThinkingMoon } from './ThinkingMoon';
 import { Icon } from './Icon';
 
 const MODEL_KEY = 'cc:home:model';
+const MODE_KEY = 'cc:home:chatmode';
 const PLACEHOLDER = 'Ask anything\u2026';
 
 interface Row {
@@ -22,6 +24,10 @@ export function HomeChat() {
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
+  const [chatMode, setChatMode] = useState<'CHAT' | 'AGENT'>(() =>
+    localStorage.getItem(MODE_KEY) === 'AGENT' ? 'AGENT' : 'CHAT',
+  );
+  const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -36,6 +42,12 @@ export function HomeChat() {
   const handleRouting = useCallback((r: { provider?: string; model?: string; reason?: string } | null) => {
     setRouting(r);
   }, []);
+
+  const selectMode = (next: 'CHAT' | 'AGENT') => {
+    if (next === 'AGENT' && agentOnline !== true) return;
+    setChatMode(next);
+    localStorage.setItem(MODE_KEY, next);
+  };
 
   const contextLine = modelId
     ? `Model: ${modelId}`
@@ -52,6 +64,12 @@ export function HomeChat() {
 
   useEffect(() => {
     void loadResponseSoundEnabled();
+    // Agent-mode availability comes from real device presence: an online
+    // paired device means the model can drive this laptop; otherwise the
+    // Agent toggle stays disabled with a pairing hint (never a dead switch).
+    void api<{ devices: { id: string; presence: string }[] }>('/api/v1/local-workspace/devices')
+      .then((d) => setAgentOnline((d.devices ?? []).some((x) => x.presence === 'ONLINE')))
+      .catch(() => setAgentOnline(false));
   }, []);
 
   const onEvent = (asstKey: string, state: { receivedTerminal: boolean }) => (ev: ChatStreamEvent) => {
@@ -103,8 +121,11 @@ export function HomeChat() {
     abortRef.current = controller;
     armResponseSound();
     const state = { receivedTerminal: false };
+    // Agent mode reaches the laptop-driving loop; without an online device we
+    // never send AGENT (the toggle is disabled too — belt and suspenders).
+    const effectiveMode = chatMode === 'AGENT' && agentOnline === true ? 'AGENT' : 'CHAT';
     try {
-      await streamChat({ content, mode: 'CHAT', modelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
+      await streamChat({ content, mode: effectiveMode, modelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
     } catch (err) {
       state.receivedTerminal = true;
       const aborted = err instanceof DOMException && err.name === 'AbortError';
@@ -194,6 +215,21 @@ export function HomeChat() {
           placeholder={PLACEHOLDER}
         />
         <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} />
+        <div className="cc-toggle" role="tablist" aria-label="Home chat mode" data-testid="homechat-mode">
+          <button type="button" className={chatMode === 'CHAT' ? 'on' : ''} onClick={() => selectMode('CHAT')} aria-pressed={chatMode === 'CHAT'}>
+            Chat
+          </button>
+          <button
+            type="button"
+            className={chatMode === 'AGENT' ? 'on' : ''}
+            onClick={() => selectMode('AGENT')}
+            aria-pressed={chatMode === 'AGENT'}
+            disabled={agentOnline !== true}
+            title={agentOnline === true ? 'The model can run commands and work files on this laptop via your paired agent' : 'Pair your laptop first (Remote page) to enable Agent mode'}
+          >
+            Agent
+          </button>
+        </div>
         {streaming ? (
           <button
             className="cc-btn cc-btn--danger cc-btn--sm cc-homechat__action"
@@ -220,6 +256,12 @@ export function HomeChat() {
       <div className="cc-homechat__context cc-hint" data-testid="homechat-context">
         {contextLine}
       </div>
+      {agentOnline === false && (
+        <p className="cc-hint" data-testid="homechat-pair-hint">
+          Agent mode needs your laptop paired — <Link to="/remote">pair it on the Remote page</Link>, then the model can
+          work your real files and terminal from here.
+        </p>
+      )}
     </div>
   );
 }

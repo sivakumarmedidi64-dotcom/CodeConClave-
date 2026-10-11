@@ -158,9 +158,16 @@ export function CoworkerPage() {
           <div>
             <button data-testid="coworker-email-run" className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-50" disabled={!projectId.trim() || !connectionId.trim() || triaging} onClick={() => void triage()}>
               {triaging ? 'Triaging…' : 'Triage inbox'}
-            </button>{' '}
-            <Link className="cc-hint" to="/plugins">Connect mail</Link>
+            </button>
           </div>
+          <Link
+            to="/plugins"
+            data-testid="coworker-email-connect-bar"
+            className="mt-2 flex w-full items-center justify-between rounded-lg border border-blue-600/40 bg-blue-600/10 px-4 py-3 text-sm font-semibold text-blue-200"
+          >
+            <span>Connect Gmail to triage your real inbox here</span>
+            <span aria-hidden="true">→</span>
+          </Link>
         </div>
         {triageError && <p data-testid="coworker-email-error" className="mt-2 text-sm text-red-600">{triageError}</p>}
         {counts && (

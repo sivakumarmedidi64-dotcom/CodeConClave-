@@ -1,10 +1,12 @@
 /**
  * CodeConClave Local Agent — device-local memory folder.
  *
- * When the user works, the agent keeps a `CodeConClave/` folder at the root
- * of each granted workspace it touches (auto-created on first activity):
- *   CodeConClave/activity/YYYY-MM-DD.jsonl   local ops log (this device)
- *   CodeConClave/chats/<conversationId>.md   cloud chat transcripts synced down
+ * When the user works, the agent keeps a plain `memory/` folder at the root
+ * of each granted workspace it touches (auto-created on first activity) —
+ * ordinary files among the user's own files, no branded container, so both
+ * the user and the AI read them with the normal file.* commands:
+ *   memory/activity/YYYY-MM-DD.jsonl   local ops log (this device)
+ *   memory/chats/<conversationId>.md   cloud chat transcripts synced down
  *
  * Privacy by construction: activity entries carry paths, hashes, commands,
  * exit codes and byte counts — NEVER file contents, NEVER command output
@@ -17,7 +19,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const MEMORY_DIR_NAME = 'CodeConClave';
+export const MEMORY_DIR_NAME = 'memory';
 
 function truncate(value: string, max = 2000): string {
   return value.length > max ? `${value.slice(0, max)}…[truncated]` : value;

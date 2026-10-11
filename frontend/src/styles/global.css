@@ -2790,6 +2790,49 @@ background: var(--cc-accent-soft);
 .cc-homechat__context {
   font-size: 12px;
   padding: 0 2px;
+  overflow-wrap: anywhere;
+}
+
+.cc-homechat__bubble {
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- Morning briefing hero (Home) */
+.cc-brief {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.cc-brief__orb {
+  flex: none;
+  min-width: 84px;
+  display: flex;
+  justify-content: center;
+}
+
+.cc-brief__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.cc-brief__hi {
+  font-size: 22px;
+  line-height: 1.3;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.cc-brief__lines {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .cc-homechat__icon {

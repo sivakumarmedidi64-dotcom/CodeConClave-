@@ -6,10 +6,12 @@
  * simulated: every surface is fed by a real API call.
  */
 import { HomeChat } from '../components/HomeChat';
+import { MorningBrief } from '../components/MorningBrief';
 
 export function HomePage() {
   return (
     <div className="cc-home">
+      <MorningBrief />
       <HomeChat />
     </div>
   );

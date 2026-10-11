@@ -1,7 +1,7 @@
 /**
  * CodeConClave — local memory folder tests (real temp workspace).
  *
- * Pins: auto-creation of CodeConClave/ on first activity, JSONL activity
+ * Pins: auto-creation of memory/ on first activity, JSONL activity
  * entries with hashes/outcomes but NEVER file content or command output,
  * chat transcript sync as readable markdown (idempotent per conversation),
  * strict validation of hostile sync payloads, and proof the memory folder

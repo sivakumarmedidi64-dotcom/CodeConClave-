@@ -625,7 +625,7 @@ async function cmdServe(): Promise<void> {
           return;
         }
         case 'memory.sync': {
-          // Store a cloud chat transcript in CodeConClave/chats/ so the user
+          // Store a cloud chat transcript in memory/chats/ so the user
           // and the AI can read history from local files. Writing files →
           // requires the file_write grant, like file.write.
           if (!root?.ok) return relayError(root?.reason ?? 'no workspace covers this path');
