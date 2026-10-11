@@ -76,6 +76,7 @@ import { superpowerRoutes } from './modules/superpowers/routes.js';
 import { registerKnownRoutes } from './modules/superpowers/specs.js';
 import { terminalRoutes } from './modules/terminal/routes.js';
 import { knowledgeRoutes } from './modules/knowledge/routes.js';
+import { ingestRoutes } from './modules/ingest/routes.js';
 import { visualIntelligenceRoutes } from './modules/visual-intelligence/routes.js';
 import { qualityIntelligenceRoutes } from './modules/quality-intelligence/routes.js';
 import { securityOperationsRoutes } from './modules/security-operations-intelligence/routes.js';
@@ -300,6 +301,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/notifications', paid, notificationRoutes());
   app.use('/api/v1/plugins', paid, pluginRoutes());
   app.use('/api/v1/knowledge', paid, knowledgeRoutes());
+  app.use('/api/v1/ingest', paid, ingestRoutes());
   app.use('/api/v1/visual-intelligence', paid, visualIntelligenceRoutes());
   app.use('/api/v1/quality-intelligence', paid, qualityIntelligenceRoutes());
   app.use('/api/v1/security-operations', paid, securityOperationsRoutes());
@@ -357,7 +359,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
     '/api/v1/copilot', '/api/v1/autonomy', '/api/v1/dna', '/api/v1/ai', '/api/v1/ai/chat/completions', '/api/v1/files',
     '/api/v1/search', '/api/v1/artifacts', '/api/v1/data-centre', '/api/v1/execution',
     '/api/v1/payments/webhook', '/api/v1/payments', '/api/v1/payments/control-center', '/api/v1/founder',
-    '/api/v1/notifications', '/api/v1/plugins', '/api/v1/knowledge',
+    '/api/v1/notifications', '/api/v1/plugins', '/api/v1/knowledge', '/api/v1/ingest',
     '/api/v1/visual-intelligence', '/api/v1/quality-intelligence', '/api/v1/security-operations',
     '/api/v1/optimization-intelligence', '/api/v1/developer-workflow', '/api/v1/runtime',
     '/api/v1/environment', '/api/v1/release', '/api/v1/integrations', '/api/v1/agents',

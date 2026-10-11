@@ -26,6 +26,7 @@
     "worker": "tsx src/workers/run.ts",
     "secret:scan": "tsx src/scripts/secret-scan.ts",
     "watchtower:run": "tsx src/scripts/run-watchtower.ts",
+    "ingest:watch": "tsx src/scripts/run-ingest-watch.ts",
     "acceptance:preflight": "tsx src/scripts/acceptance-preflight.ts",
     "acceptance:oauth:preflight": "tsx src/scripts/acceptance-preflight.ts",
     "acceptance:status": "tsx src/scripts/acceptance-status.ts",

@@ -80,6 +80,8 @@ services:
         sync: false
       - key: PAYMENT_FOUNDER_EMAIL
         sync: false
+      - key: INGEST_AGENT_OWNER_ID
+        sync: false
       - key: UNLOCK_MODE
         sync: false
       - key: TEMPORARY_DEMO_MODE

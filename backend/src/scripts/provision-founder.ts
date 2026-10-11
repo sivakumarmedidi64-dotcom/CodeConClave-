@@ -10,6 +10,10 @@
  * registration explicitly writes false and additionally refuses to register the
  * configured founder address, so nobody can claim the founder inbox.
  *
+ * It also enrolls the zero-domain identity row (user_auth_identities) for the
+ * founder handle, because the customer login page signs in through
+ * /identity/login — without that row even a perfect email + keyword fails.
+ *
  * Idempotent: safe to re-run. It never prints the password or any secret.
  *
  * Usage (interactive, no secret on the command line):
@@ -33,6 +37,7 @@ import { pool } from '../shared/db.js';
 import { env } from '../config/env.js';
 import { hashSecret } from '../shared/crypto.js';
 import { logger } from '../shared/logger.js';
+import { enrollIdentity } from '../modules/auth/identity.js';
 
 const argv = new Set(process.argv.slice(2));
 
@@ -54,6 +59,37 @@ function validateKeyword(keyword: string): string {
     throw new Error('Founder keyword must include a lowercase letter, an uppercase letter, and a digit.');
   }
   return keyword;
+}
+
+/**
+ * Zero-domain identity enrollment (B4 fix): the customer login page signs in
+ * through /identity/login, which checks user_auth_identities — NOT
+ * users.password_hash. Without this row the founder can never sign in on the
+ * real UI, no matter how perfect the email + keyword are. Safe to re-run:
+ * enrollIdentity upserts per user_id.
+ */
+async function ensureFounderIdentity(founderId: string, email: string, keyword: string): Promise<string> {
+  const localPart = email.split('@')[0] ?? '';
+  const local = localPart
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+$/, '')
+    .slice(0, 15);
+  const base = local.length >= 3 ? local : `owner_${founderId.replace(/[^a-z0-9]/g, '').slice(0, 9)}`;
+  const candidates = [base, `${base.slice(0, 15)}${crypto.randomBytes(2).toString('hex')}`.slice(0, 20)];
+  let lastError: unknown = null;
+  for (const handle of candidates) {
+    try {
+      const enrolled = await enrollIdentity(founderId, { handle, keyword });
+      logger.info('founder identity enrolled', { founderId, handle: enrolled.handle });
+      return enrolled.handle;
+    } catch (err) {
+      lastError = err;
+      const code = (err as { code?: string })?.code;
+      if (code !== 'handle_taken') throw err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Founder identity enrollment failed.');
 }
 
 export async function provisionFounder(opts: {
@@ -79,7 +115,11 @@ export async function provisionFounder(opts: {
   const row = existing.rows[0];
 
   if (row?.is_founder) {
-    // Already provisioned. Still fall through when this run can make progress:
+    // Already provisioned. The identity row may still be missing (pre-fix
+    // runs only wrote users.password_hash) — enroll on every re-run so the
+    // customer login keeps working.
+    await ensureFounderIdentity(row.id, email, keyword);
+    // Still fall through when this run can make progress:
     // an account provisioned WITHOUT --verified is exactly the state the
     // remediation path has to be able to finish, so re-running with --verified
     // must unlock it rather than short-circuit as a no-op.
@@ -129,6 +169,7 @@ export async function provisionFounder(opts: {
       [founderId, email, passwordHash, opts.markVerified, plan, entitlementState],
     );
     await writeEntitlement(founderId);
+    await ensureFounderIdentity(founderId, email, keyword);
     logger.info('founder account provisioned', { founderId, workspaceUnlocked: opts.markVerified });
     return { created: true, alreadyProvisioned: false, emailVerified: opts.markVerified };
   }
@@ -142,6 +183,7 @@ export async function provisionFounder(opts: {
     [passwordHash, opts.markVerified, plan, entitlementState, row.id],
   );
   await writeEntitlement(row.id);
+  await ensureFounderIdentity(row.id, email, keyword);
   logger.info('existing account promoted to provisioned founder', {
     founderId: row.id,
     workspaceUnlocked: opts.markVerified,
