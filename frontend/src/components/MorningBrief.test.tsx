@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { MorningBrief } from './MorningBrief';
 
@@ -51,6 +52,7 @@ describe('MorningBrief', () => {
   });
 
   it('lists unread mail subjects when Gmail is connected', async () => {
+    const user = userEvent.setup();
     setup((url, init) => {
       if (url.includes('/notifications/unread-count')) return json({ data: { count: 2 } });
       if (url.includes('/execution/approvals')) return json({ data: { approvals: [], pendingCount: 1 } });
@@ -70,7 +72,10 @@ describe('MorningBrief', () => {
     await waitFor(() => expect(screen.getByText(/Invoice due/)).toBeInTheDocument());
     expect(screen.getByText(/2 unread notification/)).toBeInTheDocument();
     expect(screen.getByText(/1 decision waiting on you/)).toBeInTheDocument();
-    expect(screen.getByText(/Stopped mid-deploy on Friday/)).toBeInTheDocument();
+    // Evidence stays behind the expander until asked for.
+    expect(screen.queryByText(/Stopped mid-deploy on Friday/)).not.toBeInTheDocument();
+    await user.click(screen.getByText('View summary'));
+    expect(await screen.findByText(/Stopped mid-deploy on Friday/)).toBeInTheDocument();
   });
 
   it('a failed source hides its own line without breaking the greeting', async () => {

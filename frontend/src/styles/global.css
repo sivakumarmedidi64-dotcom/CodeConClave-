@@ -2778,8 +2778,14 @@ background: var(--cc-accent-soft);
 
 /* Big centered hero composer on the empty home state. */
 .cc-homechat--empty .cc-homechat__bar {
-  padding: 18px;
-  border-radius: 16px;
+  padding: 20px 20px 16px;
+}
+
+/* Chat-like bar: the home composer reads as one big rounded input, using
+   only the existing surface/border/shadow tokens. */
+.cc-homechat__bar.cc-home__command {
+  border-radius: 22px;
+  align-items: flex-end;
 }
 
 .cc-homechat--empty .cc-homechat__input {

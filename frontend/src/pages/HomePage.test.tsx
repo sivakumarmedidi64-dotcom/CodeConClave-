@@ -1,10 +1,10 @@
 /**
- * CodeConClave — HomePage tests (chat-only).
+ * CodeConClave ï¿½ HomePage tests (chat-only).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { HomePage } from './HomePage';
+import { HomePage, greetingFor } from './HomePage';
 import { ToastProvider } from '../components/Toast';
 import { jsonResponse, stubFetch, TEST_USER } from '../testutils';
 
@@ -38,5 +38,16 @@ describe('HomePage', () => {
     // Smoke check: the page renders the chat component.
     renderHome();
     expect(screen.getByLabelText(/Message CodeConClave/i)).toBeInTheDocument();
+  });
+
+  it('greets by name with time of day and falls back honestly', () => {
+    expect(greetingFor(new Date(2026, 0, 1, 9), 'Ada Lovelace', null)).toBe('Good morning, Ada.');
+    expect(greetingFor(new Date(2026, 0, 1, 20), null, 'bob@example.com')).toBe('Good evening, bob.');
+    expect(greetingFor(new Date(2026, 0, 1, 2), null, null)).toBe('Good night, there.');
+  });
+
+  it('renders the greeting heading above the composer', () => {
+    renderHome();
+    expect(screen.getByRole('heading', { name: /Good (morning|afternoon|evening|night),/ })).toBeInTheDocument();
   });
 });

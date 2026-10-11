@@ -14,9 +14,18 @@ import { api, ApiError } from '../lib/api';
 import { useAuth } from '../auth/AuthProvider';
 import { ThinkingMoon } from './ThinkingMoon';
 
+interface RtwAction {
+  type: string;
+  label: string;
+  target: string;
+}
+
 interface RtwSummary {
   summaryText?: string;
+  projectScope?: string | null;
   counts?: { completed?: number; failed?: number; pendingApprovals?: number };
+  recommendedActions?: RtwAction[];
+  evidence?: Record<string, unknown>;
 }
 
 interface GmailMsg {
@@ -31,6 +40,51 @@ function firstName(displayName: string | null | undefined, email: string | null 
   return first || 'there';
 }
 
+/**
+ * Evidence-backed return-to-work card. Renders ONLY server-returned fields:
+ * real counts, the summary text, recommended actions with their real targets,
+ * and a resume link when the summary carries a project scope. Never invents
+ * numbers or destinations.
+ */
+function RtwCard({ summary, open, onToggle }: { summary: RtwSummary; open: boolean; onToggle: () => void }) {
+  const completed = summary.counts?.completed ?? 0;
+  const failed = summary.counts?.failed ?? 0;
+  const actions = Array.isArray(summary.recommendedActions) ? summary.recommendedActions : [];
+  const evidenceEntries = summary.evidence && typeof summary.evidence === 'object' ? Object.entries(summary.evidence) : [];
+  return (
+    <div data-testid="rtw-card" className="cc-rtw-card">
+      <p>
+        {completed} task{completed === 1 ? '' : 's'} completed, {failed} task{failed === 1 ? '' : 's'} failed.
+      </p>
+      <div>
+        {actions.map((a) => (
+          <Link key={a.type} to={a.target}>
+            {a.label}
+          </Link>
+        ))}
+        {summary.projectScope ? <Link to={`/workbench/${encodeURIComponent(summary.projectScope)}`}>Resume in workbench</Link> : null}
+      </div>
+      <button type="button" onClick={onToggle} aria-expanded={open}>
+        View summary
+      </button>
+      {open && (
+        <div>
+          <p>{summary.summaryText}</p>
+          {evidenceEntries.length > 0 && (
+            <ul>
+              {evidenceEntries.slice(0, 10).map(([k, v]) => (
+                <li key={k}>
+                  {k}: {typeof v === 'string' ? v : JSON.stringify(v)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MorningBrief() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -38,6 +92,7 @@ export function MorningBrief() {
   const [pendingApprovals, setPendingApprovals] = useState<number | null>(null);
   const [mail, setMail] = useState<{ connected: boolean; messages: GmailMsg[] } | null>(null);
   const [rtw, setRtw] = useState<RtwSummary | null>(null);
+  const [rtwOpen, setRtwOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -140,7 +195,7 @@ export function MorningBrief() {
     });
   }
   if (rtw?.summaryText) {
-    lines.push({ key: 'rtw', node: <span>While you were away: {rtw.summaryText}</span> });
+    lines.push({ key: 'rtw', node: <RtwCard summary={rtw} open={rtwOpen} onToggle={() => setRtwOpen((o) => !o)} /> });
   }
 
   return (

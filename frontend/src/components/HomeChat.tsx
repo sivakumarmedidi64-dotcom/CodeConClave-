@@ -24,9 +24,10 @@ export function HomeChat() {
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
-  const [chatMode, setChatMode] = useState<'CHAT' | 'AGENT'>(() =>
-    localStorage.getItem(MODE_KEY) === 'AGENT' ? 'AGENT' : 'CHAT',
-  );
+  const [chatMode, setChatMode] = useState<'CHAT' | 'AGENT' | 'COWORK'>(() => {
+    const saved = localStorage.getItem(MODE_KEY);
+    return saved === 'AGENT' || saved === 'COWORK' ? saved : 'CHAT';
+  });
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -43,7 +44,7 @@ export function HomeChat() {
     setRouting(r);
   }, []);
 
-  const selectMode = (next: 'CHAT' | 'AGENT') => {
+  const selectMode = (next: 'CHAT' | 'AGENT' | 'COWORK') => {
     if (next === 'AGENT' && agentOnline !== true) return;
     setChatMode(next);
     localStorage.setItem(MODE_KEY, next);
@@ -123,7 +124,8 @@ export function HomeChat() {
     const state = { receivedTerminal: false };
     // Agent mode reaches the laptop-driving loop; without an online device we
     // never send AGENT (the toggle is disabled too — belt and suspenders).
-    const effectiveMode = chatMode === 'AGENT' && agentOnline === true ? 'AGENT' : 'CHAT';
+    // Cowork mode opens the persisted task + specialist pipeline.
+    const effectiveMode = chatMode === 'AGENT' && agentOnline === true ? 'AGENT' : chatMode === 'COWORK' ? 'COWORK' : 'CHAT';
     try {
       await streamChat({ content, mode: effectiveMode, modelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
     } catch (err) {
@@ -198,7 +200,7 @@ export function HomeChat() {
         </div>
       )}
 
-      <div className="cc-homechat__bar">
+      <div className="cc-home__command cc-homechat__bar">
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
           rows={1}
@@ -218,6 +220,9 @@ export function HomeChat() {
         <div className="cc-toggle" role="tablist" aria-label="Home chat mode" data-testid="homechat-mode">
           <button type="button" className={chatMode === 'CHAT' ? 'on' : ''} onClick={() => selectMode('CHAT')} aria-pressed={chatMode === 'CHAT'}>
             Chat
+          </button>
+          <button type="button" className={chatMode === 'COWORK' ? 'on' : ''} onClick={() => selectMode('COWORK')} aria-pressed={chatMode === 'COWORK'} title="Planned task with the specialist team (architect, coder, reviewer, tester…)">
+            Cowork
           </button>
           <button
             type="button"

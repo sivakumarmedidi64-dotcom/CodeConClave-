@@ -164,8 +164,7 @@ describe('HomeChat', () => {
     expect(await screen.findByTestId('homechat-pair-hint')).toHaveTextContent('pair it on the Remote page');
   });
 
-  it('sends mode AGENT once a device is online and Agent is selected', async () => {
-    let posted: Record<string, unknown> = {};
+  it('sends mode AGENT once a device is online and Agent is selected', async () => {    let posted: Record<string, unknown> = {};
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -194,5 +193,33 @@ describe('HomeChat', () => {
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
     expect(posted.mode).toBe('AGENT');
+  });
+
+  it('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {
+    let posted: Record<string, unknown> = {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/local-workspace/devices')) return jsonResponse({ devices: [] });
+        if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(SSE_BODY);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'rebuild auth with tests');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    expect(posted.mode).toBe('COWORK');
   });
 });
