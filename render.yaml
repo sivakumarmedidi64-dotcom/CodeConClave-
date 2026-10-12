@@ -82,6 +82,12 @@ services:
         sync: false
       - key: INGEST_AGENT_OWNER_ID
         sync: false
+      - key: INGEST_CRON_SECRET
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: STACKEXCHANGE_KEY
+        sync: false
       - key: UNLOCK_MODE
         sync: false
       - key: TEMPORARY_DEMO_MODE

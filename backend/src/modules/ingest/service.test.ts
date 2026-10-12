@@ -2,26 +2,36 @@
  * CodeConClave — Agent Sai Srinivasa Athreya · unit tests.
  * Pure-function only: no DB, no network.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import { INGEST_SOURCES, sourceModalities } from './sources.js';
 import {
   buildPushEvent,
   decideForSource,
+  fetchArxivHead,
+  fetchGithubTrendingHead,
+  fetchHackerNewsHead,
+  fetchStackExchangeHead,
   formatSse,
   gateMediaUrl,
   gateSourceLicense,
   hashMedia,
   isAgentOwner,
   isCacheHit,
+  isCronSecretOk,
   parseScoutRoute,
   secretScanDeny,
   tickSources,
   verifyMediaRecord,
 } from './service.js';
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.INGEST_CRON_SECRET;
+});
+
 describe('Agent Sai Srinivasa Athreya', () => {
-  it('registers 19 final sources', () => {
-    expect(INGEST_SOURCES).toHaveLength(19);
+  it('registers 29 final sources (19 HF + 10 endpoint-watched)', () => {
+    expect(INGEST_SOURCES).toHaveLength(29);
   });
 
   it('gates unknown licenses closed', () => {
@@ -101,5 +111,47 @@ describe('Agent Sai Srinivasa Athreya', () => {
     expect(parseScoutRoute('{"lane":"CODER","risk":"URGENT"}').ok).toBe(false);
     expect(parseScoutRoute('not json at all').ok).toBe(false);
     expect(parseScoutRoute('["CODER"]').ok).toBe(false);
+  });
+
+  it('checks arXiv by latest paper id, UNKNOWN on failure', async () => {
+    const src = { id: 'arxiv-cs-se', name: 'x', hfDataset: 'arxiv:cs.SE', license: 'Permissive', tier: 'T1_SAFE', box: 'PLANNER', kind: 'arxiv', ref: 'cs.SE' } as const;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, text: async () => '<feed><entry><id>http://arxiv.org/abs/2601.00001v1</id></entry></feed>' })) as never);
+    const hit = await fetchArxivHead({ ...src }, 'v1', 'standard');
+    expect(hit.revisionHash).toBe('arxiv:cs.SE:http://arxiv.org/abs/2601.00001v1');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })) as never);
+    expect((await fetchArxivHead({ ...src }, 'v1', 'standard')).revisionHash).toBeNull();
+  });
+
+  it('checks GitHub trending by top repo id, UNKNOWN on rate limit', async () => {
+    const src = { id: 'g', name: 'x', hfDataset: 'github-trending:python', license: 'Permissive', tier: 'T1_SAFE', box: 'CODER', kind: 'github-trending', ref: 'python' } as const;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ items: [{ id: 12345 }] }) })) as never);
+    expect((await fetchGithubTrendingHead({ ...src }, 'v1', 'standard')).revisionHash).toBe('github:python:12345');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 403 })) as never);
+    expect((await fetchGithubTrendingHead({ ...src }, 'v1', 'standard')).revisionHash).toBeNull();
+  });
+
+  it('checks StackExchange by newest question id, UNKNOWN on quota hit', async () => {
+    const src = { id: 's', name: 'x', hfDataset: 'stackexchange:python', license: 'CC-BY-4.0', tier: 'T2_ATTRIBUTION', box: 'SCOUT', kind: 'stackexchange', ref: 'python' } as const;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ items: [{ question_id: 99 }] }) })) as never);
+    expect((await fetchStackExchangeHead({ ...src }, 'v1', 'standard')).revisionHash).toBe('so:python:99');
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('timeout'); }) as never);
+    expect((await fetchStackExchangeHead({ ...src }, 'v1', 'standard')).revisionHash).toBeNull();
+  });
+
+  it('checks HackerNews by feed head id, UNKNOWN on failure', async () => {
+    const src = { id: 'h', name: 'x', hfDataset: 'hackernews:top', license: 'Permissive', tier: 'T1_SAFE', box: 'SCOUT', kind: 'hackernews', ref: 'top' } as const;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => [424242, 1, 2] }) as never));
+    expect((await fetchHackerNewsHead({ ...src }, 'v1', 'standard')).revisionHash).toBe('hn:top:424242');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ([]) }) as never));
+    expect((await fetchHackerNewsHead({ ...src }, 'v1', 'standard')).revisionHash).toBeNull();
+  });
+
+  it('guards the cron tick: unset secret always denies', () => {
+    delete process.env.INGEST_CRON_SECRET;
+    expect(isCronSecretOk('anything')).toBe(false);
+    process.env.INGEST_CRON_SECRET = 's3cret-cron-key';
+    expect(isCronSecretOk('s3cret-cron-key')).toBe(true);
+    expect(isCronSecretOk('wrong')).toBe(false);
+    expect(isCronSecretOk(undefined)).toBe(false);
   });
 });

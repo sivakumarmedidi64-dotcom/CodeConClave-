@@ -19,14 +19,70 @@ import {
   fetchRemoteHead,
   formatSse,
   isAgentOwner,
+  isCronSecretOk,
   persistDecision,
   tickSources,
+  type PushEvent,
   type RemoteHead,
   type SourceState,
 } from './service.js';
 
+/** In-process SSE subscribers per project (single-instance free tier).
+ *  Multi-instance deploys must replace this with Redis pub/sub. */
+const streamClients = new Map<string, Set<(text: string) => boolean>>();
+
+function broadcast(projectId: string, event: PushEvent): void {
+  const clients = streamClients.get(projectId);
+  if (!clients || clients.size === 0) return;
+  const text = formatSse(event);
+  for (const send of [...clients]) {
+    try {
+      if (!send(text)) clients.delete(send);
+    } catch {
+      clients.delete(send);
+    }
+  }
+}
+
 export const ingestRoutes = (): Router => {
   const router = Router();
+
+  // Token-guarded cron tick (free-tier scheduler without a login session).
+  // Stateless monitor: runs the full 29-source tick and returns decisions,
+  // writes NO ledger rows (ledger writes stay behind login via /check).
+  // Unset INGEST_CRON_SECRET = always 403. No secret, no tick.
+  router.post(
+    '/cron-tick',
+    asyncRoute(async (req, res) => {
+      if (!isCronSecretOk(req.header('x-cron-secret'))) {
+        throw AppError.forbidden('cron_forbidden', 'Valid x-cron-secret required');
+      }
+      const dna = typeof req.body?.dnaVersion === 'string' && req.body.dnaVersion ? req.body.dnaVersion : 'v1';
+      const tier = typeof req.body?.tier === 'string' && req.body.tier ? req.body.tier : 'standard';
+      const states: SourceState[] = INGEST_SOURCES.map((s) => ({
+        sourceId: s.id,
+        lastHash: null,
+        lastDna: dna,
+        lastTier: tier,
+        repairCount: 0,
+      }));
+      const remotes: RemoteHead[] = [];
+      for (const s of INGEST_SOURCES) {
+        if (s.kind === 'arxiv') await new Promise((r) => setTimeout(r, 3000));
+        remotes.push(await fetchRemoteHead(s, dna, tier));
+      }
+      const decisions = tickSources(states, remotes);
+      res.json(
+        jsonResult({
+          agent: AGENT_NAME,
+          pulls: decisions.filter((d) => d.action === 'PULL').length,
+          blocked: decisions.filter((d) => d.action === 'BLOCKED' || d.action === 'UNKNOWN').length,
+          decisions,
+        }),
+      );
+    }),
+  );
+
   router.use(requireAuth);
   // Private agent: only the pinned owner may call. Unpinned (no env) falls
   // back to project ownership alone so local dev still works.
@@ -106,13 +162,16 @@ export const ingestRoutes = (): Router => {
       }));
 
       // Minute tick: metadata HEAD only, strictly sequential to stay cheap.
+      // arXiv politeness: ~3s spacing between arXiv calls.
       const remotes: RemoteHead[] = [];
       for (const s of INGEST_SOURCES) {
+        if (s.kind === 'arxiv') await new Promise((r) => setTimeout(r, 3000));
         remotes.push(await fetchRemoteHead(s, dna, budgetTier));
       }
       const decisions = tickSources(states, remotes);
       const pulls = decisions.filter((d) => d.action === 'PULL').length;
       const blocked = decisions.filter((d) => d.action === 'BLOCKED').length;
+      let seq = 0;
       for (const d of decisions) {
         const st = states.find((s) => s.sourceId === d.sourceId);
         const rm = remotes.find((r) => r.sourceId === d.sourceId);
@@ -125,6 +184,17 @@ export const ingestRoutes = (): Router => {
           fromHash: st?.lastHash ?? null,
           toHash: rm?.revisionHash ?? null,
         });
+        // Automatic push: every PULL decision streams to the owner instantly.
+        if (d.action === 'PULL') {
+          broadcast(
+            projectId,
+            buildPushEvent('data_ingested', seq++, {
+              sourceId: d.sourceId,
+              reason: d.reason,
+              toHash: rm?.revisionHash ?? null,
+            }),
+          );
+        }
       }
       res.json(jsonResult({ agent: AGENT_NAME, decisions, pulls, blocked }));
     }),
@@ -153,6 +223,7 @@ export const ingestRoutes = (): Router => {
         fromHash: null,
         toHash: null,
       });
+      broadcast(projectId, buildPushEvent('data_ingested', 0, { sourceId, reason: 'operator_queued_single_pull' }));
       res.json(
         jsonResult({
           agent: AGENT_NAME,
@@ -188,7 +259,17 @@ export const ingestRoutes = (): Router => {
       const ok = send(formatSse(buildPushEvent('heartbeat', seq++, { projectId })));
       if (!ok) clearInterval(timer);
     }, PUSH_HEARTBEAT_MS);
-    req.on('close', () => clearInterval(timer));
+    let set = streamClients.get(projectId);
+    if (!set) {
+      set = new Set();
+      streamClients.set(projectId, set);
+    }
+    set.add(send);
+    req.on('close', () => {
+      clearInterval(timer);
+      set.delete(send);
+      if (set.size === 0) streamClients.delete(projectId);
+    });
   });
 
   return router;

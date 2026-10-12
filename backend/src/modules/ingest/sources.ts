@@ -15,6 +15,10 @@ export type SourceTier = 'T1_SAFE' | 'T2_ATTRIBUTION' | 'EVAL_ONLY';
 /** Media this agent stores per source: text records + image payloads (hashed). */
 export type Modality = 'text' | 'image';
 
+/** Where the revision signal comes from. huggingface = Hub API sha; the rest
+ *  are endpoint-watched (latest-item id hashed). All fail CLOSED on error. */
+export type SourceKind = 'huggingface' | 'arxiv' | 'github-trending' | 'stackexchange' | 'hackernews';
+
 export interface IngestSource {
   id: string;
   name: string;
@@ -23,8 +27,11 @@ export interface IngestSource {
   tier: SourceTier;
   box: DiamondBox;
   evalOnly?: boolean;
-  /** Defaults to ['text','image'] when omitted — all 19 carry both. */
+  /** Defaults to ['text','image'] when omitted — all 29 carry both. */
   modalities?: Modality[];
+  kind?: SourceKind;
+  /** Category/tag/feed for non-HF kinds (e.g. 'cs.SE', 'python', 'top'). */
+  ref?: string;
 }
 
 export const AGENT_NAME = 'Agent Sai Srinivasa Athreya';
@@ -67,6 +74,18 @@ export const INGEST_SOURCES: IngestSource[] = [
   { id: 'toolbench', name: 'ToolBench', hfDataset: 'Maurus/ToolBench', license: 'Apache-2.0', tier: 'T1_SAFE', box: 'GATE' },
   { id: 'llama-guard-safety', name: 'Llama-Guard Safety Dataset', hfDataset: 'AuroraQuantum/llama-guard-safety-eval', license: 'Permissive', tier: 'T1_SAFE', box: 'GATE' },
   { id: 'nemotron-sft-if-chat-v2', name: 'Nemotron-SFT-Instruction-Following-Chat-v2', hfDataset: 'nvidia/Nemotron-SFT-Instruction-Following-Chat-v2', license: 'NVIDIA-Open-Model', tier: 'T1_SAFE', box: 'GATE' },
+  // ---- Phase B · endpoint-watched (10): change detection only in v1,
+  // ---- full content pulls wait for per-repo license review. Verified live.
+  { id: 'arxiv-cs-se', name: 'arXiv cs.SE', hfDataset: 'arxiv:cs.SE', license: 'Permissive', tier: 'T1_SAFE', box: 'PLANNER', kind: 'arxiv', ref: 'cs.SE' },
+  { id: 'arxiv-cs-ai', name: 'arXiv cs.AI', hfDataset: 'arxiv:cs.AI', license: 'Permissive', tier: 'T1_SAFE', box: 'PLANNER', kind: 'arxiv', ref: 'cs.AI' },
+  { id: 'arxiv-cs-lg', name: 'arXiv cs.LG', hfDataset: 'arxiv:cs.LG', license: 'Permissive', tier: 'T1_SAFE', box: 'PLANNER', kind: 'arxiv', ref: 'cs.LG' },
+  { id: 'arxiv-cs-cl', name: 'arXiv cs.CL', hfDataset: 'arxiv:cs.CL', license: 'Permissive', tier: 'T1_SAFE', box: 'PLANNER', kind: 'arxiv', ref: 'cs.CL' },
+  { id: 'github-trending-python', name: 'GitHub trending python', hfDataset: 'github-trending:python', license: 'Permissive', tier: 'T1_SAFE', box: 'CODER', kind: 'github-trending', ref: 'python' },
+  { id: 'github-trending-typescript', name: 'GitHub trending typescript', hfDataset: 'github-trending:typescript', license: 'Permissive', tier: 'T1_SAFE', box: 'CODER', kind: 'github-trending', ref: 'typescript' },
+  { id: 'so-python', name: 'StackOverflow python', hfDataset: 'stackexchange:python', license: 'CC-BY-4.0', tier: 'T2_ATTRIBUTION', box: 'SCOUT', kind: 'stackexchange', ref: 'python' },
+  { id: 'so-javascript', name: 'StackOverflow javascript', hfDataset: 'stackexchange:javascript', license: 'CC-BY-4.0', tier: 'T2_ATTRIBUTION', box: 'SCOUT', kind: 'stackexchange', ref: 'javascript' },
+  { id: 'hn-top', name: 'HackerNews top', hfDataset: 'hackernews:top', license: 'Permissive', tier: 'T1_SAFE', box: 'SCOUT', kind: 'hackernews', ref: 'top' },
+  { id: 'hn-newest', name: 'HackerNews newest', hfDataset: 'hackernews:newest', license: 'Permissive', tier: 'T1_SAFE', box: 'SCOUT', kind: 'hackernews', ref: 'newest' },
 ];
 
 export const sourceById = (id: string): IngestSource | undefined =>

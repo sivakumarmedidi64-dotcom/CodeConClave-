@@ -11,7 +11,7 @@
  * Modalities: every source stores TEXT records + IMAGE payloads (sha256,
  * Gate-checked) in ingest_media.
  */
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   AGENT_NAME,
   ALLOWED_LICENSES,
@@ -20,10 +20,18 @@ import {
   sourceById,
   type IngestSource,
   type Modality,
+  type SourceKind,
 } from './sources.js';
 
 /** Private-agent owner. Set INGEST_AGENT_OWNER_ID to your user id. */
 export const AGENT_OWNER_ENV = 'INGEST_AGENT_OWNER_ID';
+
+/** Token-guarded cron tick (free-tier scheduler without a login session). */
+export const CRON_SECRET_ENV = 'INGEST_CRON_SECRET';
+
+/** Optional upstream keys (graceful degrade to fail-closed UNKNOWN when hit). */
+export const GITHUB_TOKEN_ENV = 'GITHUB_TOKEN';
+export const STACKEXCHANGE_KEY_ENV = 'STACKEXCHANGE_KEY';
 
 /** True when the caller is the agent owner (or no owner pinned yet). */
 export function isAgentOwner(userId: string): boolean {
@@ -143,6 +151,11 @@ export function tickSources(states: SourceState[], remotes: RemoteHead[]): TickD
 
 /** Resolve a HuggingFace dataset revision hash (HEAD only, no download). */
 export async function fetchRemoteHead(source: IngestSource, dnaVersion: string, tier: string): Promise<RemoteHead> {
+  const kind: SourceKind = source.kind ?? 'huggingface';
+  if (kind === 'arxiv') return fetchArxivHead(source, dnaVersion, tier);
+  if (kind === 'github-trending') return fetchGithubTrendingHead(source, dnaVersion, tier);
+  if (kind === 'stackexchange') return fetchStackExchangeHead(source, dnaVersion, tier);
+  if (kind === 'hackernews') return fetchHackerNewsHead(source, dnaVersion, tier);
   const url = `https://huggingface.co/api/datasets/${source.hfDataset}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -161,6 +174,117 @@ export async function fetchRemoteHead(source: IngestSource, dnaVersion: string, 
 
 export function hashRecord(payload: string): string {
   return createHash('sha256').update(payload).digest('hex');
+}
+
+/**
+ * Endpoint-watched checkers (Phase B). Each returns a human-readable,
+ * equality-comparable revision (`kind:ref:latestId`) or null on ANY failure
+ * (rate limit, auth, parse, network) — fail CLOSED to UNKNOWN, never guess.
+ * v1 = change detection only; full content pulls wait for per-repo review.
+ */
+async function getJson(url: string, headers: Record<string, string>, timeoutMs: number): Promise<unknown> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, headers });
+    if (!res.ok) return null;
+    return (await res.json()) as unknown;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getText(url: string, timeoutMs: number): Promise<string | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const blank = (sourceId: string, dnaVersion: string, tier: string): RemoteHead => ({
+  sourceId,
+  revisionHash: null,
+  dnaVersion,
+  tier,
+});
+
+/** arXiv: latest submitted paper id in the category. Free, no key. Polite: callers space calls ~3s. */
+export async function fetchArxivHead(source: IngestSource, dnaVersion: string, tier: string): Promise<RemoteHead> {
+  const ref = source.ref ?? '';
+  const xml = await getText(
+    `http://export.arxiv.org/api/query?search_query=cat:${encodeURIComponent(ref)}&start=0&max_results=1&sortBy=submittedDate&sortOrder=descending`,
+    15000,
+  );
+  const id = xml?.match(/<id>\s*([^<]+?)\s*<\/id>/)?.[1]?.trim();
+  if (!id) return blank(source.id, dnaVersion, tier);
+  return { sourceId: source.id, revisionHash: `arxiv:${ref}:${id}`, dnaVersion, tier };
+}
+
+/**
+ * GitHub trending: top-starred repo created in the last 7 days per language.
+ * Unauthenticated = 60 req/hr SHARED (a minute-tick bans itself) — set
+ * GITHUB_TOKEN (free PAT, no scopes) for 5,000/hr. No token + rate hit = UNKNOWN.
+ */
+export async function fetchGithubTrendingHead(source: IngestSource, dnaVersion: string, tier: string): Promise<RemoteHead> {
+  const ref = source.ref ?? '';
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const headers: Record<string, string> = { Accept: 'application/json', 'User-Agent': 'AgentSaiSrinivasaAthreya' };
+  const token = process.env[GITHUB_TOKEN_ENV];
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const json = (await getJson(
+    `https://api.github.com/search/repositories?q=${encodeURIComponent(`language:${ref} created:>${weekAgo}`)}&sort=stars&order=desc&per_page=1`,
+    headers,
+    10000,
+  )) as { items?: Array<{ id?: number }> } | null;
+  const top = json?.items?.[0]?.id;
+  if (!top) return blank(source.id, dnaVersion, tier);
+  return { sourceId: source.id, revisionHash: `github:${ref}:${top}`, dnaVersion, tier };
+}
+
+/**
+ * StackExchange: newest question id per tag. Unauthenticated = 300 req/day
+ * SHARED (a 10-min tick needs 288/day — over the line) — set
+ * STACKEXCHANGE_KEY (free, stackapps.com) for 10,000/day. CC BY-SA content:
+ * T2_ATTRIBUTION already enforced by the registry tier.
+ */
+export async function fetchStackExchangeHead(source: IngestSource, dnaVersion: string, tier: string): Promise<RemoteHead> {
+  const ref = source.ref ?? '';
+  const key = process.env[STACKEXCHANGE_KEY_ENV];
+  const json = (await getJson(
+    `https://api.stackexchange.com/2.3/questions?site=stackoverflow&tagged=${encodeURIComponent(ref)}&sort=creation&order=desc&pagesize=1${key ? `&key=${encodeURIComponent(key)}` : ''}`,
+    {},
+    10000,
+  )) as { items?: Array<{ question_id?: number }> } | null;
+  const q = json?.items?.[0]?.question_id;
+  if (!q) return blank(source.id, dnaVersion, tier);
+  return { sourceId: source.id, revisionHash: `so:${ref}:${q}`, dnaVersion, tier };
+}
+
+/** HackerNews Firebase: first id of the feed. Free, no key, generous quota. */
+export async function fetchHackerNewsHead(source: IngestSource, dnaVersion: string, tier: string): Promise<RemoteHead> {
+  const ref = source.ref === 'newest' ? 'newstories' : 'topstories';
+  const json = (await getJson(`https://hacker-news.firebaseio.com/v0/${ref}.json`, {}, 10000)) as number[] | null;
+  const first = Array.isArray(json) ? json[0] : undefined;
+  if (!first) return blank(source.id, dnaVersion, tier);
+  return { sourceId: source.id, revisionHash: `hn:${source.ref}:${first}`, dnaVersion, tier };
+}
+
+/** Constant-time cron-secret compare. Unset server secret = always deny. */
+export function isCronSecretOk(provided: string | undefined | null): boolean {
+  const expected = process.env[CRON_SECRET_ENV];
+  if (!expected || !provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /** sha256 for binary image payloads before any Blob write. */
@@ -213,7 +337,7 @@ export function verifyMediaRecord(media: MediaRecord): { pass: boolean; reason: 
   return { pass: true, reason: 'media_verified' };
 }
 
-export type PushEventType = 'hello' | 'heartbeat' | 'tick' | 'blocked';
+export type PushEventType = 'hello' | 'heartbeat' | 'tick' | 'blocked' | 'data_ingested';
 
 /**
  * Strict scout-route parser (serving-side contract).
