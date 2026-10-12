@@ -6,8 +6,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
-import { HomeChat } from './HomeChat';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { HomeChat, parseNavCommand } from './HomeChat';
 
 const SSE_BODY =
   'event: thinking_start\ndata: {}\n\n' +
@@ -221,5 +221,82 @@ describe('HomeChat', () => {
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
     expect(posted.mode).toBe('COWORK');
+  });
+
+  it('travels on "go to X": navigates without spending a generation', async () => {
+    const user = userEvent.setup();
+    function Where() {
+      const loc = useLocation();
+      return <p data-testid="where">{loc.pathname}</p>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/home']}>
+        <Routes>
+          <Route path="/home" element={<HomeChat />} />
+          <Route path="/ideas" element={<Where />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'go to ideas tab');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    expect(await screen.findByTestId('where')).toHaveTextContent('/ideas');
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/v1/conversations/chat'))).toBe(false);
+  });
+
+  it('navigates and still sends the remainder after "and"', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/home']}>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'go to ideas and draft a login page');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/conversations/chat'));
+    expect(chatCalls).toHaveLength(1);
+    expect(JSON.parse(String(chatCalls[0]?.[1]?.body ?? '')) as { content: string }).toMatchObject({
+      content: 'draft a login page',
+    });
+  });
+
+  it('attaches a text file so it travels with the next message', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    const file = new File(['project context here'], 'notes.txt', { type: 'text/plain' });
+    await user.upload(screen.getByTestId('homechat-file'), file);
+    expect(await screen.findByTestId('homechat-attachments')).toHaveTextContent('notes.txt');
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'use this');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/v1/conversations/chat'));
+    const body = JSON.parse(String(chatCalls[0]?.[1]?.body ?? '')) as { content: string };
+    expect(body.content).toContain('[Attached file: notes.txt]');
+    expect(body.content).toContain('project context here');
+  });
+
+  it('hides the voice button where speech recognition is unavailable', () => {
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByTestId('homechat-voice')).toBeNull();
+  });
+});
+
+describe('parseNavCommand', () => {
+  it('maps destinations, hashes and remainders; rejects the rest', () => {
+    expect(parseNavCommand('go to ideas tab')).toMatchObject({ path: '/ideas', label: 'Ideas', rest: '' });
+    expect(parseNavCommand('open my mail')).toMatchObject({ path: '/coworker', hash: '#email' });
+    expect(parseNavCommand('go to code map')).toMatchObject({ hash: '#scan' });
+    expect(parseNavCommand('take me to approvals')).toMatchObject({ path: '/approvals' });
+    expect(parseNavCommand('go to ideas and draft x')).toMatchObject({ path: '/ideas', rest: 'draft x' });
+    expect(parseNavCommand('hello there')).toBeNull();
+    expect(parseNavCommand('go to mars')).toBeNull();
   });
 });

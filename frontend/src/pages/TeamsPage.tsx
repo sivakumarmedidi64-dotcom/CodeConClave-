@@ -61,6 +61,7 @@ export function TeamsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [myProjects, setMyProjects] = useState<Project[]>([]);
   const [conversations, setConversations] = useState<TeamConv[]>([]);
+  const [myConversations, setMyConversations] = useState<{ id: string; title: string }[]>([]);
   const [activity, setActivity] = useState<TeamActivityItem[]>([]);
   const [dna, setDna] = useState<TeamDnaBlock[]>([]);
   const [stats, setStats] = useState<TeamStats | null>(null);
@@ -123,6 +124,9 @@ export function TeamsPage() {
     void loadDetail(selected);
     void api<{ projects: Project[] }>('/api/v1/projects')
       .then((res) => setMyProjects(res.projects))
+      .catch(() => undefined);
+    void api<{ conversations: { id: string; title: string }[] }>('/api/v1/conversations')
+      .then((res) => setMyConversations(res.conversations ?? []))
       .catch(() => undefined);
   }, [selected, loadDetail]);
 
@@ -236,6 +240,26 @@ export function TeamsPage() {
     }
   };
 
+  const shareConversation = async (conversationId: string) => {
+    if (!selected) return;
+    try {
+      await api(`/api/v1/teams/${selected}/conversations/${conversationId}`, { method: 'POST' });
+      await loadDetail(selected);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'share failed', 'error');
+    }
+  };
+
+  const unshareConversation = async (conversationId: string) => {
+    if (!selected) return;
+    try {
+      await api(`/api/v1/teams/${selected}/conversations/${conversationId}`, { method: 'DELETE' });
+      await loadDetail(selected);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'unshare failed', 'error');
+    }
+  };
+
   const saveTeamDna = async (scope: 'MAIN' | 'BRANCH', baseId?: string) => {
     if (!selected || !dnaTitle.trim() || !dnaContent.trim()) return;
     try {
@@ -275,6 +299,7 @@ export function TeamsPage() {
   const mainBlocks = dna.filter((b) => b.scope === 'MAIN');
   const branchBlocks = dna.filter((b) => b.scope === 'BRANCH');
   const unattached = myProjects.filter((p) => !projects.some((sp) => sp.id === p.id));
+  const unsharedConvs = myConversations.filter((c) => !conversations.some((sc) => sc.id === c.id));
 
   return (
     <div className="cc-page">
@@ -527,14 +552,39 @@ export function TeamsPage() {
 
               <div className="cc-card">
                 <h3>Shared conversations</h3>
+                <p className="cc-hint">One AI coworking chat per shared conversation — every member talks to the same thread.</p>
                 {conversations.length === 0 && <div className="cc-empty">No conversations shared with this team yet.</div>}
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
                   {conversations.map((c) => (
                     <li key={c.id} style={{ marginBottom: 4 }}>
                       {c.title}
+                      {canManage && (
+                        <button className="cc-btn cc-btn--ghost cc-btn--sm" style={{ marginLeft: 8 }} onClick={() => void unshareConversation(c.id)}>
+                          Unshare
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
+                {canManage && unsharedConvs.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <select
+                      className="cc-select"
+                      data-testid="teams-share-conv"
+                      defaultValue=""
+                      onChange={(e) => e.target.value && void shareConversation(e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Share a conversation…
+                      </option>
+                      {unsharedConvs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.title || c.id}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="cc-card">

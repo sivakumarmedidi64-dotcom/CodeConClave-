@@ -11,8 +11,22 @@
  *     delivers one — stated, not faked).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
+import { EmailPanel } from '../components/EmailPanel';
+
+/** Deep links (#email, #scan) land on the card: scroll it into view on
+    mount and whenever the hash changes — otherwise Code Map "never opens". */
+function useHashScroll() {
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    const el = document.querySelector(hash);
+    if (el && typeof (el as Element).scrollIntoView === 'function') {
+      (el as Element).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [hash]);
+}
 
 function msg(e: unknown, fallback: string): string {
   return e instanceof ApiError ? e.message : e instanceof Error ? e.message : fallback;
@@ -49,6 +63,7 @@ interface DigestView {
 }
 
 export function CoworkerPage() {
+  useHashScroll();
   // Email triage
   const [projectId, setProjectId] = useState('');
   const [connectionId, setConnectionId] = useState('');
@@ -144,7 +159,11 @@ export function CoworkerPage() {
       </p>
 
       <section className="rounded border p-3" id="email" data-testid="coworker-email">
-        <h3 className="text-sm font-medium">Email triage</h3>
+        <h3 className="text-sm font-medium">Email</h3>
+        <div data-testid="coworker-email-account" className="mt-2">
+          <EmailPanel />
+        </div>
+        <h3 className="mt-4 text-sm font-medium">Email triage</h3>
         <p className="cc-hint">Reads unread mail through your connected Gmail account, classifies each thread with reasons, and builds reply drafts. Drafts never send themselves.</p>
         <div className="mt-2 grid gap-2">
           <label className="block text-xs text-gray-600">

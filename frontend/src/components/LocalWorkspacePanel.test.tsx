@@ -125,4 +125,21 @@ describe('LocalWorkspacePanel', () => {
     await waitFor(() => expect(screen.getByTestId('lws-error')).toBeInTheDocument());
     expect(screen.getByTestId('lws-error')).toHaveTextContent('offline');
   });
+
+  it('guides pairing with a code and the exact laptop command', async () => {
+    const fetchMock = setup((url, init) => {
+      if (url.includes('/local-workspace/devices')) return json({ data: { devices: [] } });
+      if (url.includes('/api/v1/auth/devices') && init.method === 'POST') {
+        return json({ data: { deviceId: 'dev-9', pairingCode: '482916', expiresInSeconds: 600 } });
+      }
+      return null;
+    });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByTestId('lws-pair-button')).toBeInTheDocument());
+    await user.click(screen.getByTestId('lws-pair-button'));
+    expect(await screen.findByTestId('lws-pair-code')).toHaveTextContent('482916');
+    expect(screen.getByTestId('lws-pair-command')).toHaveTextContent('codeconclave-agent pair dev-9 482916');
+    const post = fetchMock.mock.calls.find(([u, i]) => String(u).includes('/api/v1/auth/devices') && (i as RequestInit).method === 'POST');
+    expect(post).toBeDefined();
+  });
 });

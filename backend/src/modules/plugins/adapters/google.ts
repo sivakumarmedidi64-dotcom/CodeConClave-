@@ -71,7 +71,7 @@ function requireOAuthScope(creds: PluginCredentials, required: string): void {
   }
 }
 
-function oauthAuthorizeUrl(state: string): string {
+export function googleAuthorizeUrl(state: string, loginHint?: string): string {
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID ?? '',
     redirect_uri: env.GOOGLE_REDIRECT_URI,
@@ -82,6 +82,10 @@ function oauthAuthorizeUrl(state: string): string {
     state,
     include_granted_scopes: 'true',
   });
+  // login_hint preselects the typed account at Google (one-click connect).
+  // Invalid hints are ignored, never thrown: a bad hint must not break connecting.
+  const hint = (loginHint ?? '').trim().slice(0, 320);
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hint)) params.set('login_hint', hint);
   return `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
 }
 
@@ -108,8 +112,8 @@ export const googleAdapter: PluginAdapter = {
       scope: 'gmail:read',
       oauthScope: 'https://www.googleapis.com/auth/gmail.send',
       idempotent: true,
-      description: 'Message metadata for one message id.',
-      inputSchema: z.object({ id: str, format: z.enum(['metadata', 'minimal']).default('metadata') }),
+      description: 'Message metadata for one message id; format=full also returns the decoded plain-text body.',
+      inputSchema: z.object({ id: str, format: z.enum(['metadata', 'minimal', 'full']).default('metadata') }),
     },
     {
       name: 'gmail.send',
@@ -117,13 +121,15 @@ export const googleAdapter: PluginAdapter = {
       scope: 'gmail:send',
       oauthScope: 'https://www.googleapis.com/auth/gmail.send',
       idempotent: true,
-      description: 'Authorized send foundation: compose + send a message (idempotency key supported).',
+      description: 'Authorized send foundation: compose + send a message (idempotency key supported; threadId + inReplyTo keep replies in-thread).',
       inputSchema: z.object({
         to: z.array(str).min(1).max(50),
         subject: str,
-        body: str,
+        body: z.string().min(1).max(100000),
         fromName: str.optional(),
         idempotencyKey: str.optional(),
+        threadId: str.optional(),
+        inReplyTo: z.string().min(1).max(1000).optional(),
       }),
     },
     {
@@ -234,6 +240,59 @@ export const googleAdapter: PluginAdapter = {
   validateResponse: (result) => result !== null && typeof result === 'object',
 };
 
+const MAX_BODY_CHARS = 50000;
+
+interface GmailPayloadPart {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailPayloadPart[];
+}
+
+/**
+ * Walk a Gmail full-format payload and decode the plain-text body. Prefers
+ * text/plain, falls back to any text/* part. Never throws: unreadable or
+ * absent bodies yield ''. Exported for unit tests.
+ */
+export function extractPlainText(payload: unknown): { text: string; truncated: boolean } {
+  const empty = { text: '', truncated: false };
+  if (!payload || typeof payload !== 'object') return empty;
+  const flat: GmailPayloadPart[] = [];
+  const walk = (p: GmailPayloadPart): void => {
+    if (!p || typeof p !== 'object') return;
+    flat.push(p);
+    if (Array.isArray(p.parts)) for (const c of p.parts) walk(c);
+  };
+  walk(payload as GmailPayloadPart);
+  const plain =
+    flat.find((p) => (p.mimeType ?? '').toLowerCase() === 'text/plain' && typeof p.body?.data === 'string') ??
+    flat.find((p) => (p.mimeType ?? '').toLowerCase().startsWith('text/') && typeof p.body?.data === 'string');
+  const data = plain?.body?.data;
+  if (typeof data !== 'string' || data.length === 0) return empty;
+  // Node's base64 decoder is lenient (skips bad chars, returns garbage), so
+  // reject non-alphabet input first: a corrupt body yields '', never mojibake.
+  if (!/^[A-Za-z0-9\-_]*={0,2}$/.test(data)) return empty;
+  let text: string;
+  try {
+    text = Buffer.from(data, 'base64url').toString('utf8');
+  } catch {
+    return empty;
+  }
+  if (text.length > MAX_BODY_CHARS) return { text: text.slice(0, MAX_BODY_CHARS), truncated: true };
+  return { text, truncated: false };
+}
+
+/**
+ * Build the RFC-822 raw message for gmail.send. `inReplyTo` threads the
+ * message (In-Reply-To + References). Pure — exported for unit tests.
+ */
+export function buildSendRaw(opts: { to: string[]; subject: string; body: string; inReplyTo?: string }): string {
+  const lines = [`To: ${opts.to.join(', ')}`, `Subject: ${opts.subject}`];
+  const ref = (opts.inReplyTo ?? '').trim();
+  if (ref) lines.push(`In-Reply-To: ${ref}`, `References: ${ref}`);
+  lines.push('Content-Type: text/plain; charset=UTF-8', '', opts.body);
+  return lines.join('\r\n');
+}
+
 async function googleActionFetch(token: string, action: string, input: Record<string, unknown>): Promise<unknown> {
   switch (action) {
     case 'gmail.messages.list': {
@@ -244,14 +303,25 @@ async function googleActionFetch(token: string, action: string, input: Record<st
     }
     case 'gmail.messages.get': {
       const format = String(input.format ?? 'metadata');
-      return googleFetch(token, `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(String(input.id))}?format=${format}`);
+      const msg = (await googleFetch(
+        token,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(String(input.id))}?format=${format}`,
+      )) as Record<string, unknown>;
+      if (format !== 'full' || !msg || typeof msg !== 'object') return msg;
+      const { text, truncated } = extractPlainText(msg.payload);
+      return { ...msg, bodyText: text, bodyTruncated: truncated };
     }
     case 'gmail.send': {
-      const to = (input.to as string[]).join(', ');
-      const subject = String(input.subject);
-      const body = String(input.body);
+      const to = input.to as string[];
+      const raw = buildSendRaw({
+        to,
+        subject: String(input.subject),
+        body: String(input.body),
+        inReplyTo: typeof input.inReplyTo === 'string' ? input.inReplyTo : undefined,
+      });
       // Gmail rewrites From to the authenticated account address.
-      const raw = `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${body}`;
+      const sendBody: Record<string, string> = { raw: Buffer.from(raw, 'utf8').toString('base64url') };
+      if (typeof input.threadId === 'string' && input.threadId) sendBody.threadId = input.threadId;
       const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
         method: 'POST',
         headers: {
@@ -259,7 +329,7 @@ async function googleActionFetch(token: string, action: string, input: Record<st
           'Content-Type': 'application/json',
           ...(input.idempotencyKey ? { 'Idempotency-Key': String(input.idempotencyKey) } : {}),
         },
-        body: JSON.stringify({ raw: Buffer.from(raw, 'utf8').toString('base64url') }),
+        body: JSON.stringify(sendBody),
         signal: outboundSignal(),
       });
       if (!response.ok) throw new Error(`Gmail send failed (${response.status})`);
@@ -331,4 +401,4 @@ async function googleActionFetch(token: string, action: string, input: Record<st
   }
 }
 
-export { oauthAuthorizeUrl as googlePluginAuthorizeUrl };
+export { googleAuthorizeUrl as googlePluginAuthorizeUrl };

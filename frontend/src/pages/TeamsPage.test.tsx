@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from '../auth/AuthProvider';
 import { ToastProvider } from '../components/Toast';
@@ -77,5 +78,33 @@ describe('TeamsPage — member limit disclosure', () => {
     renderTeams();
     await waitFor(() => expect(screen.getByPlaceholderText('member@email.com')).toBeInTheDocument());
     expect(screen.getByText(/up to 30 people \(members \+ pending invites\)/)).toBeInTheDocument();
+  });
+});
+
+describe('TeamsPage — shared AI conversations', () => {
+  it('shares one conversation so the whole team talks to the same thread', async () => {
+    const fetchFn = stubFetch(
+      authed(async (url: string, init?: RequestInit) => {
+        const base = teamsHandler();
+        if (url === '/api/v1/conversations') {
+          return jsonResponse({ data: { conversations: [{ id: 'c1', title: 'Launch plan' }] } });
+        }
+        if (url === '/api/v1/teams/t1/conversations/c1' && init?.method === 'POST') {
+          return jsonResponse({ data: { ok: true } }, 201);
+        }
+        return base(url, init);
+      }),
+    );
+    renderTeams();
+    const picker = await screen.findByTestId('teams-share-conv');
+    expect(picker).toHaveTextContent('Launch plan');
+    await userEvent.selectOptions(picker, 'c1');
+    await waitFor(() => {
+      expect(
+        fetchFn.mock.calls.some(
+          ([u, i]) => u === '/api/v1/teams/t1/conversations/c1' && (i as RequestInit)?.method === 'POST',
+        ),
+      ).toBe(true);
+    });
   });
 });

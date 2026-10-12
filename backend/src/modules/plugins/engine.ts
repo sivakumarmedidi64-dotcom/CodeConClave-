@@ -331,7 +331,7 @@ export async function healthCheckPlugin(userId: string, connectionId: string): P
 
 // ---------------------------------------------------------------- oauth flow
 
-export async function beginPluginOAuth(userId: string, connectionId: string): Promise<{ authUrl: string }> {
+export async function beginPluginOAuth(userId: string, connectionId: string, opts?: { loginHint?: string }): Promise<{ authUrl: string }> {
   const connection = await getConnection(userId, connectionId);
   const adapter = await loadAdapter(connection.plugin_type);
   if (!adapter.oauth || !adapter.oauth.required) {
@@ -341,22 +341,10 @@ export async function beginPluginOAuth(userId: string, connectionId: string): Pr
     throw AppError.unavailable('google_not_configured', 'Google OAuth is not configured on the server');
   }
   const state = pluginOAuthStateToken(userId, connectionId);
-  return { authUrl: googleAuthorizeUrl(state) };
-}
-
-function googleAuthorizeUrl(state: string): string {
-  const scopes = (env.GOOGLE_SCOPES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  const params = new URLSearchParams({
-    client_id: env.GOOGLE_CLIENT_ID ?? '',
-    redirect_uri: env.GOOGLE_REDIRECT_URI,
-    response_type: 'code',
-    scope: scopes.join(' '),
-    access_type: 'offline',
-    prompt: env.GOOGLE_OAUTH_CONSENT_MODE,
-    state,
-    include_granted_scopes: 'true',
-  });
-  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  // Lazy: adapters load dynamically (like approvals/policy below) so tests
+  // that partially mock config/env never evaluate adapter modules at import.
+  const { googleAuthorizeUrl } = await import('./adapters/google.js');
+  return { authUrl: googleAuthorizeUrl(state, opts?.loginHint) };
 }
 
 export function pluginOAuthStateToken(userId: string, connectionId: string): string {

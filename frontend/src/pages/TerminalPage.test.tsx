@@ -194,8 +194,7 @@ describe('TerminalPage — device-driven session control', () => {
     await waitFor(() => expect(screen.getByText(/hello from agent/)).toBeInTheDocument());
   });
 
-  it('restores the last active session across reloads (continuity)', async () => {
-    const puts: string[] = [];
+  it('restores the last active session across reloads (continuity)', async () => {    const puts: string[] = [];
     renderPage(
       authed(async (url, init) => {
         if (url.includes('/api/v1/workspace/state/terminal_tabs') && init?.method === 'PUT') {
@@ -218,5 +217,44 @@ describe('TerminalPage — device-driven session control', () => {
     expect(screen.getByPlaceholderText(/low-risk command only/)).toBeInTheDocument();
     await userEvent.click(screen.getAllByText(/tsm_1/)[0]!);
     await waitFor(() => expect(puts).toContain('/api/v1/workspace/state/terminal_tabs'));
+  });
+
+  it('runs one-shot commands on the paired laptop and shows real output', async () => {
+    renderPage(
+      authed(async (url, init) => {
+        if (url.includes('/agent/status')) return jsonResponse({ data: { devices: [DEVICE] } });
+        if (url.includes('/remote/sessions')) return jsonResponse({ data: { sessions: [] } });
+        if (url.includes('/terminal/sessions')) return jsonResponse({ data: { sessions: [] } });
+        if (url.includes('/local-workspace/exec') && init?.method === 'POST') {
+          const body = JSON.parse(String(init.body));
+          expect(body.deviceId).toBe('dev_laptop');
+          expect(body.command).toBe('echo hi');
+          return jsonResponse({ data: { output: 'hi\n', payload: { exitCode: 0 } } });
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    await userEvent.type(await screen.findByTestId('terminal-laptop-command'), 'echo hi');
+    await userEvent.click(screen.getByTestId('terminal-laptop-run'));
+    expect(await screen.findByTestId('terminal-laptop-output')).toHaveTextContent('hi');
+    expect(screen.getByTestId('terminal-laptop-meta')).toHaveTextContent('exit 0');
+  });
+
+  it('surfaces laptop policy denials without claiming output', async () => {
+    renderPage(
+      authed(async (url, init) => {
+        if (url.includes('/agent/status')) return jsonResponse({ data: { devices: [DEVICE] } });
+        if (url.includes('/remote/sessions')) return jsonResponse({ data: { sessions: [] } });
+        if (url.includes('/terminal/sessions')) return jsonResponse({ data: { sessions: [] } });
+        if (url.includes('/local-workspace/exec') && init?.method === 'POST') {
+          return jsonResponse({ error: { code: 'local_action_denied', message: 'policy_denied: mkfs' } }, 403);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    await userEvent.type(await screen.findByTestId('terminal-laptop-command'), 'mkfs');
+    await userEvent.click(screen.getByTestId('terminal-laptop-run'));
+    expect(await screen.findByTestId('terminal-laptop-denied')).toHaveTextContent('Denied by policy');
+    expect(screen.queryByTestId('terminal-laptop-output')).toBeNull();
   });
 });

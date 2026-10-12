@@ -44,10 +44,18 @@ interface ExecResult {
   payload: { exitCode?: number; status?: string } | null;
 }
 
+interface Pairing {
+  deviceId: string;
+  code: string;
+  backendUrl: string;
+}
+
 interface HistoryRow {
   label: string;
   ok: boolean;
 }
+
+const PAIR_DEFAULT_URL = typeof window !== 'undefined' ? window.location.origin : '';
 
 function msg(e: unknown, fallback: string): string {
   return e instanceof ApiError ? e.message : e instanceof Error ? e.message : fallback;
@@ -73,6 +81,9 @@ export function LocalWorkspacePanel({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
+  const [pairError, setPairError] = useState<string | null>(null);
 
   const selectedDevice = devices.find((d) => d.id === deviceId) ?? null;
   const online = selectedDevice?.presence === 'ONLINE';
@@ -90,6 +101,22 @@ export function LocalWorkspacePanel({ projectId }: { projectId: string }) {
       if (firstOnline) setDeviceId((cur) => cur || firstOnline.id);
     } catch (e) {
       setError(msg(e, 'Could not load paired devices'));
+    }
+  }, []);
+
+  const createPairing = useCallback(async () => {
+    setPairBusy(true);
+    setPairError(null);
+    try {
+      const res = await api<{ deviceId: string; pairingCode: string; expiresInSeconds: number }>('/api/v1/auth/devices', {
+        method: 'POST',
+        body: { name: 'My laptop' },
+      });
+      setPairing({ deviceId: res.deviceId, code: res.pairingCode, backendUrl: PAIR_DEFAULT_URL });
+    } catch (e) {
+      setPairError(msg(e, 'Could not create a pairing code'));
+    } finally {
+      setPairBusy(false);
     }
   }, []);
 
@@ -210,6 +237,20 @@ export function LocalWorkspacePanel({ projectId }: { projectId: string }) {
     void loadDevices();
   }, [loadDevices]);
 
+  // While a pairing code is live, re-poll devices: the moment the laptop
+  // pairs + serves, the guide dismisses itself and the cockpit unlocks.
+  useEffect(() => {
+    if (!pairing) return;
+    if (devices.length > 0) {
+      setPairing(null);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void loadDevices();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [pairing, devices.length, loadDevices]);
+
   useEffect(() => {
     if (deviceId) void loadWorkspaces(deviceId);
   }, [deviceId, loadWorkspaces]);
@@ -245,6 +286,51 @@ export function LocalWorkspacePanel({ projectId }: { projectId: string }) {
           </span>
         </div>
         {devices.length === 0 && <p data-testid="lws-no-devices" className="mt-1 text-xs text-gray-500">No paired device found. Pair the Local Agent first.</p>}
+        {devices.length === 0 && !pairing && (
+          <div className="mt-2">
+            <button
+              data-testid="lws-pair-button"
+              type="button"
+              className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-50"
+              disabled={pairBusy}
+              onClick={() => void createPairing()}
+            >
+              {pairBusy ? 'Creating code…' : 'Pair this laptop'}
+            </button>
+          </div>
+        )}
+        {pairError && <p data-testid="lws-pair-error" className="mt-1 text-xs text-red-600">{pairError}</p>}
+        {devices.length === 0 && pairing && (
+          <div data-testid="lws-pair-guide" className="cc-card mt-2 p-3 text-xs">
+            <p className="cc-card__eyebrow">Pairing</p>
+            <p>
+              Your code: <strong data-testid="lws-pair-code" className="font-mono text-base tracking-widest">{pairing.code}</strong>
+            </p>
+            <p className="cc-hint">Expires in 10 minutes · 5 tries · max 3 devices per account.</p>
+            <p className="mt-2">On your laptop, open a terminal and run:</p>
+            <pre data-testid="lws-pair-command" className="mt-1 overflow-auto rounded bg-gray-900 p-2 font-mono text-green-100">
+              codeconclave-agent pair {pairing.deviceId} {pairing.code} {pairing.backendUrl || '<backend-url>'}
+            </pre>
+            <label className="mt-2 block text-gray-600">
+              Backend URL (where your laptop reaches CodeConclave):
+              <input
+                data-testid="lws-pair-url"
+                className="mt-1 w-full rounded border px-2 py-1 font-mono"
+                value={pairing.backendUrl}
+                onChange={(e) => setPairing((p) => (p ? { ...p, backendUrl: e.target.value } : p))}
+              />
+            </label>
+            <p className="cc-hint mt-1">Then run <span className="font-mono">codeconclave-agent serve</span> on the laptop and come back here.</p>
+            <button
+              data-testid="lws-pair-check"
+              type="button"
+              className="mt-2 rounded border px-3 py-1"
+              onClick={() => void loadDevices()}
+            >
+              I&apos;ve paired — check again
+            </button>
+          </div>
+        )}
       </section>
 
       {selectedDevice && !online && (

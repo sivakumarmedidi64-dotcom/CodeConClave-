@@ -23,6 +23,7 @@ import type {
 } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { Icon } from '../components/Icon';
+import { ChatMarkdown } from '../components/ChatMarkdown';
 
 const STATUSES: IdeaStatus[] = ['PROPOSED', 'IN_PROGRESS', 'ACCEPTED', 'PLANNED', 'REJECTED', 'DEFERRED', 'DEPRECATED'];
 const PRIORITIES: IdeaPriority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
@@ -475,15 +476,32 @@ function IdeasTab() {
               <div style={{ marginTop: 10, borderTop: '1px solid var(--cc-border)', paddingTop: 8 }} data-testid={`idea-discuss-${idea.id}`}>
                 <h4>Discuss with AI</h4>
                 <p className="cc-hint">Think through this idea with the configured AI provider. Nothing is changed or saved automatically.</p>
-                {(discussions[idea.id] ?? []).length === 0 && (
+                {(discussions[idea.id] ?? []).length === 0 && discussBusyId !== idea.id && (
                   <p className="cc-hint">Ask about risks, trade-offs, or how to validate it.</p>
                 )}
-                {(discussions[idea.id] ?? []).map((m, idx) => (
-                  <div key={idx} className="cc-hint" style={{ padding: '3px 0', display: 'flex', gap: 6 }}>
-                    <span className="cc-mono">{m.role === 'assistant' ? 'AI' : 'you'}</span>
-                    <span style={{ whiteSpace: 'pre-wrap' }}>{m.content}</span>
-                  </div>
-                ))}
+                <div className="cc-chat-thread">
+                  {(discussions[idea.id] ?? []).map((m, idx) => (
+                    <div key={idx} className={`cc-chat-msg cc-chat-msg--${m.role}`}>
+                      <span className="cc-chat-who">{m.role === 'assistant' ? 'AI' : 'You'}</span>
+                      <div className="cc-chat-bubble">
+                        {m.role === 'assistant' ? <ChatMarkdown text={m.content} /> : m.content}
+                      </div>
+                    </div>
+                  ))}
+                  {discussBusyId === idea.id && (
+                    <div className="cc-chat-msg cc-chat-msg--assistant">
+                      <span className="cc-chat-who">AI</span>
+                      <div className="cc-chat-bubble cc-homechat__thinking">
+                        <span className="cc-think-dots">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        <span>Thinking…</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <input
                     className="cc-input"

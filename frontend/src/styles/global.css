@@ -3658,3 +3658,415 @@ a.cc-homechat__decision:hover {
   min-height: 320px;
   overflow: hidden;
 }
+
+/* ------------------------------------------------------------------ card furniture
+   Eyebrows, rows and notices shared by the Email, briefing and pairing
+   surfaces. Same palette tokens — structure, not colour. */
+.cc-card__eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cc-text-muted);
+}
+
+.cc-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cc-row--spread {
+  justify-content: space-between;
+}
+
+.cc-notice {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--cc-radius);
+  background: var(--cc-accent-soft);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ 3D titles
+   Home greeting + briefing hello: CSS-only 3D entrance (perspective tilt
+   settling flat) with layered depth shadows. The text nodes are untouched,
+   so screen readers and tests read the same string. */
+.cc-home__greeting {
+  perspective: 700px;
+}
+
+.cc-home__greeting h1,
+.cc-brief__hi {
+  transform-origin: 50% 100%;
+  animation: cc-title-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  text-shadow:
+    0 1px 0 rgb(0 0 0 / 0.06),
+    0 2px 0 rgb(0 0 0 / 0.05),
+    0 14px 28px rgb(0 0 0 / 0.14);
+}
+
+.cc-home__greeting h1:hover,
+.cc-brief__hi:hover {
+  transform: rotateX(6deg);
+  transition: transform 0.3s ease;
+}
+
+@keyframes cc-title-in {
+  from {
+    opacity: 0;
+    transform: rotateX(-58deg) translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0deg) translateY(0);
+  }
+}
+
+.cc-rtw-returns {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-text-muted);
+}
+
+/* ------------------------------------------------------------------ More menu
+   The overflow list scrolls (it holds 15+ destinations) and rows cascade in
+   with a 3D flip stagger — pure CSS, motion-safe. */
+.cc-sidebar__more-list--open {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.cc-sidebar__more-list--open > * {
+  animation: cc-more-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.cc-sidebar__more-list--open > *:nth-child(1) { animation-delay: 0.01s; }
+.cc-sidebar__more-list--open > *:nth-child(2) { animation-delay: 0.04s; }
+.cc-sidebar__more-list--open > *:nth-child(3) { animation-delay: 0.07s; }
+.cc-sidebar__more-list--open > *:nth-child(4) { animation-delay: 0.1s; }
+.cc-sidebar__more-list--open > *:nth-child(5) { animation-delay: 0.13s; }
+.cc-sidebar__more-list--open > *:nth-child(6) { animation-delay: 0.16s; }
+.cc-sidebar__more-list--open > *:nth-child(7) { animation-delay: 0.19s; }
+.cc-sidebar__more-list--open > *:nth-child(n+8) { animation-delay: 0.22s; }
+
+@keyframes cc-more-in {
+  from {
+    opacity: 0;
+    transform: perspective(240px) rotateX(-62deg) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(240px) rotateX(0deg) translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------------ mail surfaces */
+.cc-email .cc-mail-list,
+.cc-email-connect .cc-mail-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--cc-border);
+}
+
+.cc-mail-row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 4px;
+  border: none;
+  border-bottom: 1px solid var(--cc-border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.cc-mail-row:hover {
+  background: var(--cc-accent-soft);
+}
+
+.cc-mail-from {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cc-mail-subject {
+  font-size: 13px;
+}
+
+.cc-mail-snippet {
+  font-size: 12px;
+  color: var(--cc-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-mail-reader {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cc-border);
+}
+
+.cc-mail-meta {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--cc-text-muted);
+}
+
+.cc-mail-reader h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.cc-mail-body {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------ briefing */
+.cc-briefing {
+  border-left: 3px solid var(--cc-accent);
+}
+
+/* Lift for the new interactive surfaces — same tokens, gentle motion. */
+.cc-email,
+.cc-email-connect,
+.cc-briefing {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cc-email:hover,
+.cc-email-connect:hover,
+.cc-briefing:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--cc-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-home__greeting h1,
+  .cc-brief__hi,
+  .cc-sidebar__more-list--open > *,
+  .cc-email,
+  .cc-email-connect,
+  .cc-briefing {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------ chat markdown
+   Structured assistant answers: headings, lists, code, quotes. Same tokens. */
+.cc-md-block {
+  display: block;
+}
+
+.cc-md-block + .cc-md-block {
+  margin-top: 6px;
+}
+
+.cc-md-p {
+  margin: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+h4.cc-md-h {
+  font-size: 14px;
+  margin: 8px 0 4px;
+}
+
+h5.cc-md-h {
+  font-size: 13px;
+  margin: 8px 0 4px;
+}
+
+h6.cc-md-h {
+  font-size: 12px;
+  margin: 6px 0 2px;
+}
+
+.cc-md-list {
+  margin: 4px 0;
+  padding-left: 20px;
+  line-height: 1.55;
+}
+
+.cc-md-list li + li {
+  margin-top: 2px;
+}
+
+.cc-md-code {
+  font-family: var(--cc-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  background: var(--cc-accent-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.cc-md-prewrap {
+  margin: 6px 0;
+}
+
+.cc-md-lang {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cc-text-muted);
+  margin-bottom: 4px;
+}
+
+.cc-md-pre {
+  margin: 0 0 6px;
+  padding: 10px 12px;
+  border-radius: var(--cc-radius);
+  background: #111;
+  color: #e8f5e9;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cc-md-quote {
+  margin: 4px 0;
+  padding: 4px 0 4px 10px;
+  border-left: 3px solid var(--cc-accent);
+  color: var(--cc-text-muted);
+}
+
+/* ------------------------------------------------------------------ chat threads
+   Ideas discuss + anywhere a human/AI thread renders as bubbles. */
+.cc-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cc-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 100%;
+}
+
+.cc-chat-msg--user {
+  align-items: flex-end;
+}
+
+.cc-chat-msg--assistant {
+  align-items: flex-start;
+}
+
+.cc-chat-who {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cc-text-muted);
+}
+
+.cc-chat-bubble {
+  max-width: 92%;
+  padding: 8px 12px;
+  border-radius: var(--cc-radius);
+  border: 1px solid var(--cc-border);
+  background: var(--cc-surface);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.cc-chat-msg--user .cc-chat-bubble {
+  background: var(--cc-accent-soft);
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ home composer extras */
+.cc-homechat__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  background: var(--cc-accent-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cc-chip button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--cc-text-muted);
+  padding: 0 2px;
+}
+
+.cc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cc-text-muted);
+  cursor: pointer;
+}
+
+.cc-icon-btn:hover {
+  background: var(--cc-accent-soft);
+  color: var(--cc-text);
+}
+
+.cc-icon-btn[aria-pressed='true'] {
+  background: var(--cc-accent-soft);
+  color: var(--cc-text);
+  border-color: var(--cc-accent);
+}
+
+.cc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

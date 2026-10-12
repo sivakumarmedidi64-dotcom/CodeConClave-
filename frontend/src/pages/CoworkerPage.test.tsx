@@ -104,4 +104,25 @@ describe('CoworkerPage', () => {
     await waitFor(() => expect(screen.getByTestId('coworker-digest')).toBeInTheDocument());
     expect(screen.getByTestId('coworker-digest')).toHaveTextContent('No digest delivered yet');
   });
+
+  it('scrolls Code Map into view on the #scan deep link', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/local-workspace/devices')) return json({ data: { devices: [] } });
+        if (url.includes('/digests/latest')) return json({ data: { digest: null } });
+        return json({ error: { code: 'not_found', message: 'no route' } }, 404);
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={['/coworker#scan']}>
+        <CoworkerPage />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByTestId('coworker-scan')).toBeInTheDocument());
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+  });
 });

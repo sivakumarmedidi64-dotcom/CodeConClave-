@@ -8,7 +8,7 @@
  * by the backend and surfaced here, never bypassed.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, apiBlob } from '../lib/api';
+import { api, apiBlob, ApiError } from '../lib/api';
 import type {
   DeviceInfo,
   RemoteSessionInfo,
@@ -34,6 +34,11 @@ export function TerminalPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [view, setView] = useState<{ session: TerminalSessionInfo; history: TerminalHistoryLine[] } | null>(null);
   const [input, setInput] = useState('');
+  const [quickCmd, setQuickCmd] = useState('');
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickOut, setQuickOut] = useState<{ output: string; exitCode: number | null } | null>(null);
+  const [quickError, setQuickError] = useState<string | null>(null);
+  const [quickDenied, setQuickDenied] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [results, setResults] = useState<TerminalHistoryLine[] | null>(null);
   const [screenshotBusy, setScreenshotBusy] = useState(false);
@@ -240,6 +245,37 @@ export function TerminalPage() {
   };
 
   const activeRemote = remote[deviceId];
+  const onlineDevices = devices.filter((d) => d.presence === 'ONLINE');
+  // Quick-run follows the page's own device picker when that device is
+  // online, otherwise the first online device — one picker, no duplicates.
+  const quickDevice = devices.find((d) => d.id === deviceId && d.presence === 'ONLINE') ?? onlineDevices[0] ?? null;
+  const quickDeviceId = quickDevice?.id ?? '';
+
+  // One-shot command on the paired laptop through the local-workspace
+  // bridge — no session setup. The device's own policy still gates every
+  // command; denials surface here, passwords/input-capture stay out.
+  const quickRun = async () => {
+    if (!quickDeviceId || !quickCmd.trim() || quickBusy) return;
+    setQuickBusy(true);
+    setQuickError(null);
+    setQuickDenied(null);
+    setQuickOut(null);
+    try {
+      const res = await api<{ output: string; payload: { exitCode?: number } | null }>('/api/v1/local-workspace/exec', {
+        method: 'POST',
+        body: { deviceId: quickDeviceId, command: quickCmd.trim() },
+      });
+      setQuickOut({ output: res.output || '(no output)', exitCode: res.payload?.exitCode ?? null });
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === 'local_action_denied' || err.code === 'local_scope_denied')) {
+        setQuickDenied(err.message);
+      } else {
+        setQuickError(err instanceof Error ? err.message : 'quick run failed');
+      }
+    } finally {
+      setQuickBusy(false);
+    }
+  };
 
   return (
     <div className="cc-page">
@@ -281,6 +317,57 @@ export function TerminalPage() {
           </div>
         )}
       </div>
+
+      {quickDevice && (
+        <div className="cc-card" data-testid="terminal-laptop">
+          <h3>Run on this laptop</h3>
+          <p className="cc-hint">
+            One-shot commands on {quickDevice.name} — no session setup. The device&apos;s own policy gates every
+            command; denials are shown, never hidden.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            <input
+              data-testid="terminal-laptop-command"
+              className="cc-input cc-mono"
+              style={{ flex: '1 1 220px', minWidth: 0 }}
+              placeholder="e.g. npm test"
+              value={quickCmd}
+              onChange={(e) => setQuickCmd(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void quickRun();
+              }}
+            />
+            <button
+              data-testid="terminal-laptop-run"
+              className="cc-btn cc-btn--primary"
+              disabled={!quickCmd.trim() || quickBusy}
+              onClick={() => void quickRun()}
+            >
+              {quickBusy ? 'Running…' : 'Run'}
+            </button>
+          </div>
+          {quickDenied && (
+            <p data-testid="terminal-laptop-denied" className="cc-hint" style={{ marginTop: 8 }}>
+              Denied by policy: {quickDenied}. Nothing ran on your machine.
+            </p>
+          )}
+          {quickError && (
+            <p data-testid="terminal-laptop-error" className="cc-error" style={{ marginTop: 8 }}>
+              {quickError}
+            </p>
+          )}
+          {quickOut && (
+            <div style={{ marginTop: 8 }}>
+              <div data-testid="terminal-laptop-meta" className="cc-hint">
+                exit {quickOut.exitCode ?? '—'}
+              </div>
+              <pre data-testid="terminal-laptop-output" className="cc-mono" style={{ background: '#111', color: '#7dff9e', borderRadius: 8, padding: '12px 16px', maxHeight: 240, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                {quickOut.output}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="cc-card">
         <h3>Sessions</h3>

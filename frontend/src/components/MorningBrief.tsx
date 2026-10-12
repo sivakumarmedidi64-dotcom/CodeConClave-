@@ -46,13 +46,14 @@ function firstName(displayName: string | null | undefined, email: string | null 
  * and a resume link when the summary carries a project scope. Never invents
  * numbers or destinations.
  */
-function RtwCard({ summary, open, onToggle }: { summary: RtwSummary; open: boolean; onToggle: () => void }) {
+function RtwCard({ summary, name, open, onToggle }: { summary: RtwSummary; name: string; open: boolean; onToggle: () => void }) {
   const completed = summary.counts?.completed ?? 0;
   const failed = summary.counts?.failed ?? 0;
   const actions = Array.isArray(summary.recommendedActions) ? summary.recommendedActions : [];
   const evidenceEntries = summary.evidence && typeof summary.evidence === 'object' ? Object.entries(summary.evidence) : [];
   return (
     <div data-testid="rtw-card" className="cc-rtw-card">
+      <p className="cc-rtw-returns">{name} returns.</p>
       <p>
         {completed} task{completed === 1 ? '' : 's'} completed, {failed} task{failed === 1 ? '' : 's'} failed.
       </p>
@@ -195,7 +196,7 @@ export function MorningBrief() {
     });
   }
   if (rtw?.summaryText) {
-    lines.push({ key: 'rtw', node: <RtwCard summary={rtw} open={rtwOpen} onToggle={() => setRtwOpen((o) => !o)} /> });
+    lines.push({ key: 'rtw', node: <RtwCard summary={rtw} name={name} open={rtwOpen} onToggle={() => setRtwOpen((o) => !o)} /> });
   }
 
   return (

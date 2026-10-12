@@ -1,16 +1,77 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent } from '../lib/sse';
 import { api } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
 import { ModelPicker } from './ModelPicker';
 import { ThinkingMoon } from './ThinkingMoon';
+import { ChatMarkdown } from './ChatMarkdown';
 import { Icon } from './Icon';
 
 const MODEL_KEY = 'cc:home:model';
 const MODE_KEY = 'cc:home:chatmode';
 const PLACEHOLDER = 'Ask anything\u2026';
+const MAX_ATTACH_CHARS = 100000;
+
+/** "Go to ideas" style navigation: the assistant travels with you through
+    the app. Pure client-side routing over real routes — the model is never
+    asked to fake navigation it cannot perform. */
+const NAV_TARGETS: { path: string; hash?: string; label: string; keys: string[] }[] = [
+  { path: '/home', label: 'Home', keys: ['home'] },
+  { path: '/chat', label: 'Chat', keys: ['chat'] },
+  { path: '/coworker', label: 'Coworker', keys: ['coworker', 'cowork'] },
+  { path: '/coworker', hash: '#email', label: 'Mail', keys: ['mail', 'email', 'inbox', 'gmail'] },
+  { path: '/coworker', hash: '#scan', label: 'Code Map', keys: ['code map', 'codemap', 'scan', 'project scan'] },
+  { path: '/ideas', label: 'Ideas', keys: ['ideas', 'idea'] },
+  { path: '/work', label: 'Tasks', keys: ['tasks', 'task', 'work'] },
+  { path: '/approvals', label: 'Approvals', keys: ['approvals', 'approval'] },
+  { path: '/files', label: 'Files', keys: ['files', 'file'] },
+  { path: '/terminal', label: 'Terminal', keys: ['terminal'] },
+  { path: '/teams', label: 'Teams', keys: ['teams', 'team'] },
+  { path: '/projects', label: 'Projects', keys: ['projects', 'project'] },
+  { path: '/agents', label: 'Agents', keys: ['agents', 'agent'] },
+  { path: '/remote', label: 'Remote', keys: ['remote', 'pairing', 'pair'] },
+  { path: '/plugins', label: 'Connectors', keys: ['connectors', 'connector', 'plugins', 'integrations'] },
+  { path: '/settings', label: 'Settings', keys: ['settings', 'setting'] },
+  { path: '/memory', label: 'Memory', keys: ['memory'] },
+  { path: '/history', label: 'History', keys: ['history'] },
+];
+
+export function parseNavCommand(text: string): { path: string; hash?: string; label: string; rest: string } | null {
+  const m = text.trim().match(/^(?:go to|goto|open|show|take me to|navigate to)\s+(.+)$/i);
+  if (!m) return null;
+  let tail = m[1]!.trim().replace(/[.!\s]+$/, '');
+  let rest = '';
+  const split = tail.match(/^(.*?)(?:\s+and\s+|\s*[:,]\s+)(.+)$/i);
+  if (split) {
+    tail = split[1]!.trim();
+    rest = split[2]!.trim();
+  }
+  const lower = ` ${tail.toLowerCase()} `;
+  const hit = NAV_TARGETS.find((t) => t.keys.some((k) => lower.includes(` ${k}`) || lower.includes(`${k} tab`) || lower.includes(`${k} page`)));
+  if (!hit) return null;
+  return { path: hit.path, hash: hit.hash, label: hit.label, rest };
+}
+
+interface VoiceRecognizer {
+  lang: string;
+  interimResults: boolean;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type VoiceRecognizerCtor = new () => VoiceRecognizer;
+
+function voiceRecognizerCtor(): VoiceRecognizerCtor | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as Record<string, unknown>;
+  const ctor = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as VoiceRecognizerCtor | undefined;
+  return typeof ctor === 'function' ? ctor : null;
+}
 
 interface Row {
   key: string;
@@ -31,9 +92,15 @@ export function HomeChat() {
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [attachments, setAttachments] = useState<{ name: string; content: string }[]>([]);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported] = useState(() => voiceRecognizerCtor() !== null);
+  const navigate = useNavigate();
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const voiceRef = useRef<VoiceRecognizer | null>(null);
 
   const selectModel = (id: string) => {
     setModelId(id);
@@ -64,13 +131,24 @@ export function HomeChat() {
   }, [rows]);
 
   useEffect(() => {
+    let online = false;
     void loadResponseSoundEnabled();
     // Agent-mode availability comes from real device presence: an online
     // paired device means the model can drive this laptop; otherwise the
     // Agent toggle stays disabled with a pairing hint (never a dead switch).
-    void api<{ devices: { id: string; presence: string }[] }>('/api/v1/local-workspace/devices')
-      .then((d) => setAgentOnline((d.devices ?? []).some((x) => x.presence === 'ONLINE')))
-      .catch(() => setAgentOnline(false));
+    const check = () =>
+      api<{ devices: { id: string; presence: string }[] }>('/api/v1/local-workspace/devices')
+        .then((d) => {
+          online = (d.devices ?? []).some((x) => x.presence === 'ONLINE');
+          setAgentOnline(online);
+        })
+        .catch(() => setAgentOnline(false));
+    void check();
+    // Re-poll while offline so pairing unlocks Agent mode without a reload.
+    const timer = window.setInterval(() => {
+      if (!online) void check();
+    }, 20000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const onEvent = (asstKey: string, state: { receivedTerminal: boolean }) => (ev: ChatStreamEvent) => {
@@ -110,8 +188,97 @@ export function HomeChat() {
     }
   };
 
+  const pushSystem = useCallback((content: string) => {
+    setRows((prev) => [...prev, { key: `s:${Date.now()}:${prev.length}`, role: 'system', content }]);
+  }, []);
+
+  const attachFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files) return;
+      const picked = Array.from(files);
+      if (picked.length > 5) pushSystem('Keeping the first 5 files — attach the rest separately.');
+      for (const f of picked.slice(0, 5)) {
+        const looksText =
+          (f.type || '').startsWith('text/') ||
+          /\.(txt|md|markdown|json|csv|ts|tsx|js|jsx|py|java|kt|log|yaml|yml|xml|html|css|sql|sh)$/i.test(f.name);
+        if (!looksText || f.size > MAX_ATTACH_CHARS) {
+          pushSystem(`Skipped ${f.name} — text files under 100 KB only.`);
+          continue;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result ?? '').slice(0, MAX_ATTACH_CHARS);
+          setAttachments((prev) => [...prev.filter((a) => a.name !== f.name), { name: f.name, content: text }]);
+        };
+        reader.onerror = () => pushSystem(`Could not read ${f.name}.`);
+        reader.readAsText(f);
+      }
+    },
+    [pushSystem],
+  );
+
+  const toggleVoice = useCallback(() => {
+    if (voiceRef.current) {
+      voiceRef.current.stop();
+      voiceRef.current = null;
+      setListening(false);
+      return;
+    }
+    const Ctor = voiceRecognizerCtor();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.lang = 'en-US';
+    rec.interimResults = false;
+    rec.onresult = (e) => {
+      const parts: string[] = [];
+      for (let i = 0; i < e.results.length; i++) {
+        const alt = e.results[i]?.[0];
+        if (alt) parts.push(alt.transcript);
+      }
+      const said = parts.join(' ').trim();
+      if (said) setInput((prev) => (prev ? `${prev} ${said}` : said));
+    };
+    rec.onerror = () => {
+      voiceRef.current = null;
+      setListening(false);
+    };
+    rec.onend = () => {
+      voiceRef.current = null;
+      setListening(false);
+    };
+    voiceRef.current = rec;
+    try {
+      rec.start();
+      setListening(true);
+    } catch {
+      voiceRef.current = null;
+    }
+  }, []);
+
   const send = async () => {
-    const content = input.trim();
+    let content = input.trim();
+    if ((!content && attachments.length === 0) || streaming) return;
+    // "Go to ideas" — travel through the app first, then keep talking.
+    // Pure destinations navigate (this composer unmounts on arrival, so a
+    // command carrying a task stays here and answers in place instead of
+    // stranding the message on a dead screen).
+    const nav = parseNavCommand(content);
+    if (nav && !nav.rest) {
+      setInput('');
+      navigate(nav.hash ? { pathname: nav.path, hash: nav.hash } : nav.path);
+      return;
+    }
+    if (nav && nav.rest) {
+      pushSystem(`Staying here so nothing is lost — say "go to ${nav.label}" alone to travel there.`);
+      content = nav.rest;
+    }
+    if (attachments.length > 0) {
+      const ctx = attachments
+        .map((a) => `[Attached file: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
+        .join('\n\n');
+      content = content ? `${content}\n\n${ctx}` : ctx;
+      setAttachments([]);
+    }
     if (!content || streaming) return;
     setInput('');
     const userKey = `u:${Date.now()}`;
@@ -165,7 +332,7 @@ export function HomeChat() {
                 </div>
               ) : (
                 <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
-                  {row.content}
+                  {row.role === 'assistant' ? <ChatMarkdown text={row.content} /> : row.content}
                   {row.decisionRecorded && (
                     <Link
                       className="cc-homechat__decision"
@@ -199,6 +366,33 @@ export function HomeChat() {
           <ThinkingMoon active streaming={rows.some((r) => r.role === 'assistant' && !r.thinking && r.content.length > 0)} />
         </div>
       )}
+      {streaming && chatMode === 'AGENT' && agentOnline === true && (
+        <p className="cc-hint" data-testid="homechat-status">
+          Agent is working on your laptop — every command runs on the paired device, denials are shown, never hidden.
+        </p>
+      )}
+      {streaming && chatMode === 'COWORK' && (
+        <p className="cc-hint" data-testid="homechat-status">
+          Specialist team is running your task — watch <Link to="/work">Tasks</Link> for live progress.
+        </p>
+      )}
+
+      {attachments.length > 0 && (
+        <div className="cc-homechat__attachments" data-testid="homechat-attachments">
+          {attachments.map((a) => (
+            <span key={a.name} className="cc-chip">
+              {a.name}
+              <button
+                type="button"
+                aria-label={`Remove ${a.name}`}
+                onClick={() => setAttachments((prev) => prev.filter((x) => x.name !== a.name))}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="cc-home__command cc-homechat__bar">
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
@@ -217,6 +411,41 @@ export function HomeChat() {
           placeholder={PLACEHOLDER}
         />
         <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} />
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="cc-sr-only"
+          data-testid="homechat-file"
+          aria-label="Attach text files"
+          onChange={(e) => {
+            attachFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          data-testid="homechat-attach"
+          className="cc-icon-btn"
+          aria-label="Attach files"
+          title="Attach text files (they travel with your next message)"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Icon name="file" size={15} />
+        </button>
+        {voiceSupported && (
+          <button
+            type="button"
+            data-testid="homechat-voice"
+            className="cc-icon-btn"
+            aria-label={listening ? 'Stop listening' : 'Dictate with your voice'}
+            aria-pressed={listening}
+            title={listening ? 'Stop listening' : 'Dictate with your voice'}
+            onClick={toggleVoice}
+          >
+            <Icon name="radio" size={15} />
+          </button>
+        )}
         <div className="cc-toggle" role="tablist" aria-label="Home chat mode" data-testid="homechat-mode">
           <button type="button" className={chatMode === 'CHAT' ? 'on' : ''} onClick={() => selectMode('CHAT')} aria-pressed={chatMode === 'CHAT'}>
             Chat
@@ -249,7 +478,7 @@ export function HomeChat() {
           <button
             className="cc-btn cc-btn--primary cc-btn--sm cc-homechat__action"
             type="button"
-            disabled={!input.trim()}
+            disabled={!input.trim() && attachments.length === 0}
             onClick={() => void send()}
           >
             <Icon name="send" size={13} />

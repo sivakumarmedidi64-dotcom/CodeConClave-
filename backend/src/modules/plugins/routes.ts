@@ -268,7 +268,8 @@ export const pluginRoutes = (): Router => {
   router.get(
     '/oauth/:connectionId/authorize',
     asyncRoute(async (req, res) => {
-      const { authUrl } = await beginPluginOAuth(req.ctx.user!.id, req.params.connectionId!);
+      const hint = typeof req.query.hint === 'string' ? req.query.hint : undefined;
+      const { authUrl } = await beginPluginOAuth(req.ctx.user!.id, req.params.connectionId!, { loginHint: hint });
       res.json(jsonResult({ authUrl }));
     }),
   );

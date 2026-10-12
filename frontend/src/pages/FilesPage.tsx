@@ -212,17 +212,18 @@ export function FilesPage() {
 
   return (
     <div className="cc-page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <h1>Files</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>Files</h1>
         <select className="cc-select" style={{ width: 260 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
           {projects.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
       </div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <input
           className="cc-input"
+          style={{ flex: '1 1 200px', minWidth: 0 }}
           placeholder="Search files in this project"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

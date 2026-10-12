@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import type { ArtifactInfo, PreviewSession, Task, TaskTimeline } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { BrowserTaskPanel } from '../components/BrowserTaskPanel';
+import { WorkBriefing } from '../components/WorkBriefing';
 
 const STATUS_COLOR: Record<string, string> = {
   COMPLETED: '#1e7d46',
@@ -300,6 +301,7 @@ export function WorkPage() {
         LOCAL mode waits for a paired Local Agent.
       </div>
       <BrowserTaskPanel projectId={projectId} tasks={tasks} />
+      {tasksState === 'ready' && <WorkBriefing tasks={tasks} />}
       {tasksState === 'loading' && <div className="cc-card cc-empty">Loading tasks…</div>}
       {tasksState === 'error' && (
         <div className="cc-card cc-error-state">
