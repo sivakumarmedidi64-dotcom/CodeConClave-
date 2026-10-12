@@ -215,6 +215,38 @@ export function verifyMediaRecord(media: MediaRecord): { pass: boolean; reason: 
 
 export type PushEventType = 'hello' | 'heartbeat' | 'tick' | 'blocked';
 
+/**
+ * Strict scout-route parser (serving-side contract).
+ * The ship bar tolerates ≤10% malformed scout output at TRAINING time; at
+ * SERVING time every malformed route fails CLOSED to the operator — no
+ * regex rescue, no guessing. Rescue paths hide model decay; a counted
+ * rejection teaches it. Requires JSON object with exact-enum lane + risk.
+ */
+export const SCOUT_LANES = ['CODER', 'PLANNER', 'FASTQA'] as const;
+export const SCOUT_RISKS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+export type ScoutRoute = { lane: (typeof SCOUT_LANES)[number]; risk: (typeof SCOUT_RISKS)[number] };
+
+export function parseScoutRoute(text: string): { ok: true; route: ScoutRoute } | { ok: false; reason: string } {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(text.trim());
+  } catch {
+    return { ok: false, reason: 'route_not_json' };
+  }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    return { ok: false, reason: 'route_not_object' };
+  }
+  const { lane, risk } = obj as Record<string, unknown>;
+  if (typeof lane !== 'string' || !(SCOUT_LANES as readonly string[]).includes(lane)) {
+    return { ok: false, reason: 'route_bad_lane' };
+  }
+  if (typeof risk !== 'string' || !(SCOUT_RISKS as readonly string[]).includes(risk)) {
+    return { ok: false, reason: 'route_bad_risk' };
+  }
+  return { ok: true, route: { lane: lane as ScoutRoute['lane'], risk: risk as ScoutRoute['risk'] } };
+}
+
 export interface PushEvent {
   event: PushEventType;
   agent: string;

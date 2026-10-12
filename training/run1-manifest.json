@@ -1,0 +1,47 @@
+{
+  "run": "run-1-scout-foundation",
+  "spec_decision": "Diagram scout (Llama-8B) is renamed scout-FULL, roadmap-only until a 24GB GPU exists. Run #1 trains scout-LITE (Qwen-1.5B) for the identical JSON-routing contract on free T4s. No silent drift: both names are written here.",
+  "base": {
+    "repo": "Qwen/Qwen2.5-1.5B-Instruct",
+    "revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+    "verified": "2026-10-11T00:00:00Z via huggingface.co/api (HTTP 200, public, ungated)",
+    "license": "Apache-2.0"
+  },
+  "dataset": {
+    "repo": "SaharshMedidi/codeconclave-tune-data",
+    "revision": "TBD_AFTER_UPLOAD",
+    "files": ["open-scout-foundation.jsonl"],
+    "rows_local": 6836,
+    "file_sha256_local": "2379e8023ad426cd5c45e2c0e4071ae831eb13e42ec8f7e517c8d9f8c18935fa",
+    "sources": [
+      "glaiveai/glaive-function-calling-v2 (5000 streamed)",
+      "Post-training-Data-Flywheel/AutoIF-instruct-61k-with-funcs (3000 streamed)"
+    ],
+    "gold_rows": 0,
+    "format": "alpaca-instruction/input/output rendered through base ChatML template at train time"
+  },
+  "split": { "test_size": 0.1, "seed": 42 },
+  "method": { "kind": "QLoRA", "bits": 4, "quant": "nf4-double", "rank": 16, "alpha": 32, "dropout": 0.05, "targets": "all-linear" },
+  "hyperparameters": {
+    "learning_rate": 0.0002,
+    "scheduler": "TRL-default (pin cosine before run #2)",
+    "per_device_batch": 2,
+    "gradient_accumulation": 4,
+    "epochs": 2,
+    "max_seq_len": 1024,
+    "packing": false,
+    "seed": 42,
+    "data_seed": 42
+  },
+  "stack": "training/requirements.txt (transformers 4.48.3, trl 0.15.2, peft 0.14.0, bitsandbytes 0.45.0, datasets 5.1.0, huggingface_hub 0.28.1; torch from platform image)",
+  "fleet": { "primary": "Colab free T4 (sequential)", "twin": "Kaggle 30h/wk (router twin, same template)" },
+  "output": { "repo": "SaharshMedidi/codeconclave-scout", "license": "Apache-2.0" },
+  "ship_bar": "eval loss down AND valid-JSON >= 90% on holdout AND Gate-pass on 50 CodeConclave samples",
+  "known_gaps": [
+    "assistant-only loss masking not yet on (full-text loss in v1)",
+    "scheduler unpinned (TRL default)",
+    "near-duplicate dedup accepted as noise at 8k scale"
+  ],
+  "rental_trigger_qwen27b": "scout-LITE serving >= bar AND (gold rows >= 200 OR $40 compute approved). No trigger met = no rental. Date alone never triggers.",
+  "judge_planner_status": "BLOCKED on usage: 0 tasks, 0 coworker_runs today. Bootstrap = hand-label first 200 via review board during real use. No synthetic faking."
+}

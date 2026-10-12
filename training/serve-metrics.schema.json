@@ -1,0 +1,17 @@
+{
+  "$comment": "Old-Q14 measurement protocol. Every serving run appends one JSONL line in exactly this shape. Same prober on laptop, rented box, and Render — numbers compare or they don't count.",
+  "type": "object",
+  "required": ["model", "quant", "device", "prompt_tokens", "ttft_ms", "tok_per_s", "vram_mb", "at"],
+  "properties": {
+    "model": { "type": "string", "example": "SaharshMedidi/codeconclave-scout" },
+    "quant": { "type": "string", "example": "Q4_K_M" },
+    "device": { "type": "string", "example": "local-ollama|runpod-4090|render-free" },
+    "prompt_tokens": { "type": "integer", "description": "tokenized prompt length actually sent" },
+    "ttft_ms": { "type": "number", "description": "time to first token, milliseconds" },
+    "tok_per_s": { "type": "number", "description": "steady-state decode tokens/second" },
+    "vram_mb": { "type": "number", "description": "process VRAM/RAM at steady state, megabytes" },
+    "prompt_bucket": { "type": "string", "example": "<300|300-1024|>1024", "description": "which prompt-size bucket this sample falls in" },
+    "at": { "type": "string", "format": "date-time" },
+    "notes": { "type": "string" }
+  }
+}

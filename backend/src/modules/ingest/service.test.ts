@@ -13,6 +13,7 @@ import {
   hashMedia,
   isAgentOwner,
   isCacheHit,
+  parseScoutRoute,
   secretScanDeny,
   tickSources,
   verifyMediaRecord,
@@ -89,5 +90,16 @@ describe('Agent Sai Srinivasa Athreya', () => {
     const e = buildPushEvent('heartbeat', 7, { projectId: 'prj_1' });
     expect(e.agent).toContain('Athreya');
     expect(formatSse(e).startsWith('event: heartbeat\ndata: ')).toBe(true);
+  });
+
+  it('parses scout routes strictly: malformed fails closed, never rescued', () => {
+    const good = parseScoutRoute('{"lane":"CODER","risk":"HIGH"}');
+    expect(good.ok).toBe(true);
+    expect(parseScoutRoute('```json\n{"lane":"CODER","risk":"HIGH"}\n```').ok).toBe(false);
+    expect(parseScoutRoute('{"lane":"CODER"}').ok).toBe(false);
+    expect(parseScoutRoute('{"lane":"DESIGNER","risk":"LOW"}').ok).toBe(false);
+    expect(parseScoutRoute('{"lane":"CODER","risk":"URGENT"}').ok).toBe(false);
+    expect(parseScoutRoute('not json at all').ok).toBe(false);
+    expect(parseScoutRoute('["CODER"]').ok).toBe(false);
   });
 });
