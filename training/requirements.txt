@@ -1,0 +1,10 @@
+# CodeConClave — frozen training stack (round-2 reproducibility lock).
+# Verified live on PyPI 2026-10-11. torch is DELIBERATELY unpinned: Colab and
+# Kaggle ship their own CUDA-matched torch, and pinning it breaks GPU images.
+# Everything else is == so next month's image cannot silently change the run.
+transformers==4.48.3
+trl==0.15.2
+peft==0.14.0
+bitsandbytes==0.45.0
+datasets==5.1.0
+huggingface_hub==0.28.1
