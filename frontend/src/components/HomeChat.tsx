@@ -441,7 +441,7 @@ export function HomeChat() {
           }}
           placeholder={PLACEHOLDER}
         />
-        <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} />
+        <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} residentOnly />
         <input
           ref={fileRef}
           type="file"

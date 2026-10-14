@@ -101,11 +101,14 @@ export function ModelPicker({
   value,
   onChange,
   onRouting,
+  residentOnly,
 }: {
   value: string | undefined;
   onChange: (modelId: string) => void;
   /** Real routing context for the surrounding composer (provider/model/reason). */
   onRouting?: (r: { provider?: string; model?: string; reason?: string } | null) => void;
+  /** Home screens show ONLY CodeConClave AI — one AI, router picks 1 driver per task. */
+  residentOnly?: boolean;
 }) {
   const [models, setModels] = useState<AiModel[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | undefined>();
@@ -200,8 +203,9 @@ export function ModelPicker({
       if (snap && DEAD_SNAPSHOT.has(snap)) return false;
       return true;
     });
+    if (residentOnly) return [RESIDENT];
     return [RESIDENT, ...rows.filter((m) => m.id !== RESIDENT.id)];
-  }, [models, providerState, providerSnapshot]);
+  }, [models, providerState, providerSnapshot, residentOnly]);
 
   useEffect(() => {
     const current = visible.find((m) => m.id === value);

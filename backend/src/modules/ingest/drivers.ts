@@ -70,7 +70,7 @@ export const RESIDENT_DRIVERS: ResidentDriver[] = [
   {
     hubId: 'SaharshMedidi/codeconclave-fastqa',
     box: 'GATE',
-    roles: ['FastQA', 'Quantum Physics', 'Nuclear Physics', 'Computational Math', 'Statistics'],
+    roles: ['Quantum Physics', 'Nuclear Physics', 'Computational Math', 'Statistics'],
     saiSources: ['toolbench', 'llama-guard-safety', 'nemotron-sft-if-chat-v2'],
     contract: 'fastqa-v1',
     maxTokens: 1024,

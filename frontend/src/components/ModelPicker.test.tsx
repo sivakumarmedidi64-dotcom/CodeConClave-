@@ -112,7 +112,8 @@ describe('ModelPicker', () => {
       'opus',
       onChange,
     );
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('mini'));
+    // CodeConClave AI (resident) leads the list, so it wins the fallback.
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('codeconclave-ai'));
   });
 
   it('hides rate-limited providers instead of showing a throttled option', async () => {
@@ -174,12 +175,14 @@ describe('ModelPicker', () => {
     expect(select.classList.contains('cc-model-select')).toBe(true);
   });
 
-  it('shows AUTO plus an honest empty state when the registry is empty', async () => {
+  it('shows AUTO plus CodeConClave AI even when the registry is empty', async () => {
     renderPicker(modelsEndpoint([], null));
     const select = await screen.findByLabelText('Model') as HTMLSelectElement;
     const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
     expect(options[0]).toBe('AUTO');
-    expect(options.includes('No models available — connect a provider')).toBe(true);
+    // Resident drivers need no provider key — the empty state can never occur.
+    expect(options.some((t) => t.includes('CodeConClave AI'))).toBe(true);
+    expect(options.includes('No models available — connect a provider')).toBe(false);
   });
 
   it('hides models whose provider key is invalid instead of offering them', async () => {
