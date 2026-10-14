@@ -517,13 +517,16 @@ background: var(--cc-accent-soft);
   gap: 2px;
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.25s ease, opacity 0.25s ease;
+  transition: max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
   opacity: 0;
+  transform: perspective(600px) rotateX(-14deg) translateY(-6px);
+  transform-origin: top center;
 }
 
 .cc-sidebar__more-list--open {
   max-height: 520px;
   opacity: 1;
+  transform: perspective(600px) rotateX(0deg) translateY(0);
 }
 
 .cc-sidebar__foot {

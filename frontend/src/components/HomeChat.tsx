@@ -365,17 +365,6 @@ export function HomeChat() {
               ) : (
                 <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
                   {row.role === 'assistant' ? <ChatMarkdown text={row.content} /> : row.content}
-                  {row.decisionRecorded && (
-                    <Link
-                      className="cc-homechat__decision"
-                      to="/memory"
-                      title="Open Memory to replay, inspect sources, or export"
-                      aria-label={`Decision recorded: ${row.decisionRecorded.title} (${row.decisionRecorded.status}). Open Memory to inspect sources.`}
-                    >
-                      <Icon name="spark" size={12} />
-                      Decision recorded: {row.decisionRecorded.title} ({row.decisionRecorded.status}) — view in Memory
-                    </Link>
-                  )}
                 </div>
               )}
             </div>
