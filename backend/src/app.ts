@@ -100,6 +100,7 @@ import { apiLatency } from './middleware/perf.js';
 import { mountSwagger } from './docs/swagger.js';
 import { healthRoutes } from './health/routes.js';
 import { desktopDownloadRoutes } from './modules/downloads/routes.js';
+import { voiceRoutes } from './modules/voice/routes.js';
 import { spaMiddleware } from './static/spa.js';
 import { toExpressTrustProxy } from './config/trust-proxy.js';
 import type { Server } from 'node:http';
@@ -315,6 +316,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/actions', paid, actionRoutes());
   app.use('/api/v1/local-workspace', paid, localWorkspaceRoutes());
   app.use('/api/v1/comms', paid, commsRoutes());
+  app.use('/api/v1/voice', paid, voiceRoutes());
   app.use('/api/v1/agents', paid, multiAgentRoutes());
   app.use('/api/v1/scheduling', paid, schedulingRoutes());
   app.use('/api/v1/preview', paid, previewRoutes());

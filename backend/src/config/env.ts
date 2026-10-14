@@ -91,6 +91,10 @@ const envSchema = z.object({
   RESEND_FROM_EMAIL: z.string().default('CodeConClave <noreply@example.com>'),
   RESEND_ENABLED: z.string().default('false'),
 
+  // ---- VOICE (ElevenLabs TTS proxy) — key server-side only, never logged.
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_VOICE_ID: z.string().default('21m00Tcm4TlvDq8ikWAM'),
+
   // ------------------------------------------------------------ EMAIL TRANSPORT
   // Single transmitting rail at a time. Default 'resend' = the existing
   // production rail (UNCHANGED). 'gmail' is a TEMPORARY zero-cost PILOT
