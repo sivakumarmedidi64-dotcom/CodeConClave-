@@ -17,6 +17,7 @@ import {
 import { useToast } from '../components/Toast';
 import { PreviewPanel } from '../components/PreviewPanel';
 import { Icon } from '../components/Icon';
+import { PairedDeviceStatus } from '../components/PairedDeviceStatus';
 
 interface LoadedFile {
   file: FileRef;
@@ -220,6 +221,7 @@ export function FilesPage() {
           ))}
         </select>
       </div>
+      <PairedDeviceStatus description="Project files here are stored in CodeConClave. Files on your paired computer stay local and are browsed in Workbench → Local Workspace." />
       <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <input
           className="cc-input"

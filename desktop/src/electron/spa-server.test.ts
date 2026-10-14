@@ -122,18 +122,43 @@ function wsUpgrade(base: string, path: string): Promise<{
         'Sec-WebSocket-Key': 'x3JJHMbDL1EzLkh9GBhXDw==',
       },
     });
-    req.setTimeout(5000, () => req.destroy(new Error('upgrade timeout')));
-    req.on('upgrade', (res, socket) => {
-      socket.once('data', (buf) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    timer = setTimeout(() => {
+      req.destroy();
+      fail(new Error('upgrade handshake timeout'));
+    }, 5000);
+    req.on('upgrade', (res, socket, head) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        socket.destroy();
+        fail(new Error('first WebSocket frame timeout'));
+      }, 5000);
+      const resolveFrame = (buf: Buffer) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         socket.destroy();
         resolveRes({
           status: res.statusCode ?? 0,
           acceptHeader: String(res.headers['sec-websocket-accept'] ?? ''),
           frameHex: buf.toString('hex'),
         });
-      });
+      };
+      if (head.length > 0) resolveFrame(head);
+      else socket.once('data', resolveFrame);
     });
-    req.on('error', reject);
+    req.on('response', (res) => {
+      res.resume();
+      fail(new Error(`expected WebSocket upgrade, received HTTP ${res.statusCode ?? 0}`));
+    });
+    req.on('error', fail);
     req.end();
   });
 }
@@ -249,5 +274,5 @@ describe('spa-server — HTTP / SSE / WebSocket proxy to the backend', () => {
     expect(backendUpgradeSawHost).toContain(String(backendPort));
 
     backend.close();
-  });
+  }, 15_000);
 });

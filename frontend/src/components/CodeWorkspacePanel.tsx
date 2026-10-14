@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../lib/api';
 import { Icon } from './Icon';
+import { PairedDeviceStatus } from './PairedDeviceStatus';
 
 interface Capabilities {
   anchors: string[];
@@ -280,6 +281,7 @@ export function CodeWorkspacePanel({ projectId }: { projectId: string }) {
   return (
     <div data-testid="codeworkspace-panel" className="space-y-4">
       <h2 className="text-lg font-semibold">Advanced Code Workspace</h2>
+      <PairedDeviceStatus description="Code Workspace uses the server project workspace. Browse files on your paired computer in Workbench → Local Workspace." />
 
       <section data-testid="cw-capabilities" className="rounded border p-3 text-sm">
         <h3 className="text-sm font-medium">Capabilities ({caps?.anchors.join(', ') ?? 'F19 F20 F34 F90 B1'})</h3>

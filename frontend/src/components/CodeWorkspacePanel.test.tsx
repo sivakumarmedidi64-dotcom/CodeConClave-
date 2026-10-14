@@ -48,6 +48,9 @@ type Handler = (url: string, method: string, body?: unknown) => Response;
 
 function baseHandler(): Handler {
   return (url: string, method: string, body?: unknown) => {
+    if (url === '/api/v1/local-workspace/devices') {
+      return jsonResponse({ devices: [{ id: 'd1', name: 'Laptop', state: 'PAIRED', presence: 'ONLINE' }] });
+    }
     if (url === '/api/v1/codeworkspace/capabilities') return jsonResponse(caps);
     if (url === '/api/v1/codeworkspace/tree') return jsonResponse(tree);
     if (url === '/api/v1/codeworkspace/state') return jsonResponse(wsState);
@@ -108,6 +111,7 @@ describe('CodeWorkspacePanel (PKG-22)', () => {
     expect((screen.getByTestId('cw-cap-symbols').textContent ?? '').toLowerCase()).toContain('heuristic');
     expect((screen.getByTestId('cw-cap-git').textContent ?? '').toLowerCase()).toContain('unavailable');
     expect(screen.getByTestId('cw-cap-enabled').textContent).toContain('yes');
+    expect(screen.getByTestId('paired-device-presence').textContent).toContain('ONLINE');
   });
 
   it('loads the file tree and opens a file into tabs + outline', async () => {

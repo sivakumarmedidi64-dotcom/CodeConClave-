@@ -83,13 +83,13 @@ interface Row {
 }
 
 export function HomeChat() {
-  let authUser: { displayName?: string | null; name?: string | null } | null = null;
+  let authUser: { displayName?: string | null } | null = null;
   try {
-    authUser = useAuth().user as unknown as typeof authUser;
+    authUser = useAuth().user;
   } catch {
     authUser = null;
   }
-  const firstName = (authUser?.displayName ?? authUser?.name ?? '').trim().split(/\s+/)[0] ?? '';
+  const firstName = (authUser?.displayName ?? '').trim().split(/\s+/)[0] ?? '';
   const [typedLine, setTypedLine] = useState('');
   useEffect(() => {
     const full = 'SYSTEM ONLINE — ask, cowork, verified.';
