@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent } from '../lib/sse';
-import { api } from '../lib/api';
+import { api, csrfToken } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
 import { useAuth } from '../auth/AuthProvider';
@@ -340,6 +340,37 @@ export function HomeChat() {
     abortRef.current?.abort();
   };
 
+  const [speakingKey, setSpeakingKey] = useState<string | null>(null);
+  const speak = useCallback(async (key: string, text: string) => {
+    if (speakingKey) return;
+    const slice = text.trim().slice(0, 2000);
+    if (!slice) return;
+    setSpeakingKey(key);
+    try {
+      const res = await fetch('/api/v1/voice/speak', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
+        body: JSON.stringify({ text: slice }),
+      });
+      if (!res.ok) {
+        pushSystem(res.status === 400 ? 'Voice is not configured on the server yet.' : 'Voice synthesis failed.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      try {
+        await new Audio(url).play();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      pushSystem('Voice playback failed.');
+    } finally {
+      setSpeakingKey(null);
+    }
+  }, [pushSystem, speakingKey]);
+
   return (
     <div className={`cc-homechat cc-homechat--normal${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
       {rows.length === 0 && (
@@ -365,6 +396,18 @@ export function HomeChat() {
               ) : (
                 <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
                   {row.role === 'assistant' ? <ChatMarkdown text={row.content} /> : row.content}
+                  {row.role === 'assistant' && row.content.trim().length > 0 && (
+                    <button
+                      type="button"
+                      className="cc-icon-btn"
+                      aria-label="Listen to this answer"
+                      title="Listen with ElevenLabs voice"
+                      disabled={speakingKey !== null}
+                      onClick={() => void speak(row.key, row.content)}
+                    >
+                      <Icon name="radio" size={13} />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
