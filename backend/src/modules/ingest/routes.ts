@@ -13,6 +13,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
 import { AGENT_NAME, INGEST_SOURCES, sourceById, sourceModalities } from './sources.js';
+import { RESIDENT_DRIVERS, driverForRole } from './drivers.js';
 import {
   PUSH_HEARTBEAT_MS,
   buildPushEvent,
@@ -106,6 +107,20 @@ export const ingestRoutes = (): Router => {
           sources: INGEST_SOURCES.map((s) => ({ ...s, modalities: sourceModalities(s) })),
         }),
       );
+    }),
+  );
+
+  router.get(
+    '/drivers',
+    asyncRoute(async (req, res) => {
+      const role = typeof req.query.role === 'string' ? req.query.role : undefined;
+      if (role) {
+        const driver = driverForRole(role);
+        if (!driver) throw AppError.badRequest('unknown_role', `Unknown v3 role: ${role}`);
+        res.json(jsonResult({ agent: AGENT_NAME, driver }));
+        return;
+      }
+      res.json(jsonResult({ agent: AGENT_NAME, count: RESIDENT_DRIVERS.length, drivers: RESIDENT_DRIVERS }));
     }),
   );
 

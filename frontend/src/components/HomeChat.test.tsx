@@ -77,7 +77,7 @@ describe('HomeChat', () => {
     const init = chatCalls[0]?.[1];
     const body = JSON.parse(String(init?.body ?? '')) as { content: string; mode: string };
     expect(body.content).toBe('hi');
-    expect(body.mode).toBe('CHAT');
+    expect(body.mode).toBe('COWORK');
   });
 
   it('surfaces an interrupted stream as a system row', async () => {    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -144,7 +144,7 @@ describe('HomeChat', () => {
     await waitFor(() => expect(screen.queryByTestId('homechat-thinking-moon')).not.toBeInTheDocument());
   });
 
-  it('disables Agent mode with a pairing hint when no device is online', async () => {
+  it('greets by name with a system line and Chat/Cowork only (Agent lives in sidebar)', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -159,12 +159,14 @@ describe('HomeChat', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    const agentTab = await screen.findByRole('button', { name: 'Agent' });
-    expect(agentTab).toBeDisabled();
-    expect(await screen.findByTestId('homechat-pair-hint')).toHaveTextContent('pair it on the Remote page');
+    expect(await screen.findByTestId('homechat-hero')).toHaveTextContent(/Hi/);
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cowork' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull();
+    expect(await screen.findByTestId('homechat-agent-hint')).toHaveTextContent('Agents');
   });
 
-  it('sends mode AGENT once a device is online and Agent is selected', async () => {    let posted: Record<string, unknown> = {};
+  it('never sends AGENT from home: Cowork stays Cowork, Chat stays Chat', async () => {    let posted: Record<string, unknown> = {};
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -186,13 +188,12 @@ describe('HomeChat', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    const agentTab = await screen.findByRole('button', { name: 'Agent' });
-    await waitFor(() => expect(agentTab).not.toBeDisabled());
-    await user.click(agentTab);
+    // No Agent tab on home even when a device is online — driving lives in sidebar.
+    expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull();
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'list my project files');
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
-    expect(posted.mode).toBe('AGENT');
+    expect(posted.mode).toBe('COWORK');
   });
 
   it('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {

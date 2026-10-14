@@ -302,7 +302,13 @@ function Shell() {
  */
 function DemoEntry({ children }: { children: ReactNode }) {
   const { status } = useAuth();
-  if (!__DEMO_BUILD__) return <>{children}</>;
+  // Dev parity: the demo build flag is only inlined by `vite build` (define is
+  // not applied by the dev server here), so a local demo would otherwise fall
+  // through to the landing/login pages even though the silent demo sign-in
+  // succeeded. In dev, honour the same demo entry — it only ever redirects an
+  // already-authenticated session, so a non-demo server (demo-login 404s) still
+  // renders the children untouched. Production keeps the strict build gate.
+  if (!__DEMO_BUILD__ && !import.meta.env.DEV) return <>{children}</>;
   if (status === 'loading') {
     return (
       <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

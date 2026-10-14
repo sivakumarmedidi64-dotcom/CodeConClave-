@@ -171,21 +171,37 @@ export function ModelPicker({
     };
   }, [value]);
 
+  // CodeConclave AI first: your 5 resident drivers behind one Auto router
+  // (Sai hashes + Dispatch 1-role-1-run). Frontend-only entry — the server
+  // registry CHECK stays untouched; empty id still means AUTO gateway.
+  const RESIDENT: AiModel = {
+    id: 'codeconclave-ai',
+    providerId: 'resident',
+    label: 'CodeConClave AI',
+    description: 'Your 5 tuned drivers — router picks 1 per task',
+    tier: 'CAPABLE',
+    computeClass: 'B',
+    health: 'HEALTHY',
+    locked: false,
+    available: true,
+    capabilityCategory: 'MODEL',
+    capabilityClass: 'NORMAL_MODEL',
+  };
+
   // The list the user asked for: only models that can actually serve now —
   // usable row AND a live provider (no dead key, no dead snapshot). Unknown
   // provider state falls back to the row flags (never hide on missing data).
-  const visible = useMemo(
-    () =>
-      models.filter((m) => {
-        if (!usable(m)) return false;
-        const ks = providerState[m.providerId];
-        if (ks && DEAD_KEY.has(ks)) return false;
-        const snap = providerSnapshot[m.providerId];
-        if (snap && DEAD_SNAPSHOT.has(snap)) return false;
-        return true;
-      }),
-    [models, providerState, providerSnapshot],
-  );
+  const visible = useMemo(() => {
+    const rows = models.filter((m) => {
+      if (!usable(m)) return false;
+      const ks = providerState[m.providerId];
+      if (ks && DEAD_KEY.has(ks)) return false;
+      const snap = providerSnapshot[m.providerId];
+      if (snap && DEAD_SNAPSHOT.has(snap)) return false;
+      return true;
+    });
+    return [RESIDENT, ...rows.filter((m) => m.id !== RESIDENT.id)];
+  }, [models, providerState, providerSnapshot]);
 
   useEffect(() => {
     const current = visible.find((m) => m.id === value);

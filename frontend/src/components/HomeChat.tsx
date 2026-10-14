@@ -4,6 +4,7 @@ import { streamChat, type ChatStreamEvent } from '../lib/sse';
 import { api } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
+import { useAuth } from '../auth/AuthProvider';
 import { ModelPicker } from './ModelPicker';
 import { ThinkingMoon } from './ThinkingMoon';
 import { ChatMarkdown } from './ChatMarkdown';
@@ -82,12 +83,30 @@ interface Row {
 }
 
 export function HomeChat() {
+  let authUser: { displayName?: string | null; name?: string | null } | null = null;
+  try {
+    authUser = useAuth().user as unknown as typeof authUser;
+  } catch {
+    authUser = null;
+  }
+  const firstName = (authUser?.displayName ?? authUser?.name ?? '').trim().split(/\s+/)[0] ?? '';
+  const [typedLine, setTypedLine] = useState('');
+  useEffect(() => {
+    const full = 'SYSTEM ONLINE — ask, cowork, verified.';
+    let i = 0;
+    const timer = window.setInterval(() => {
+      i += 1;
+      setTypedLine(full.slice(0, i));
+      if (i >= full.length) window.clearInterval(timer);
+    }, 28);
+    return () => window.clearInterval(timer);
+  }, []);
   const [input, setInput] = useState('');
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
-  const [chatMode, setChatMode] = useState<'CHAT' | 'AGENT' | 'COWORK'>(() => {
-    const saved = localStorage.getItem(MODE_KEY);
-    return saved === 'AGENT' || saved === 'COWORK' ? saved : 'CHAT';
+  const [chatMode, setChatMode] = useState<'CHAT' | 'COWORK'>(() => {
+    const saved = localStorage.getItem(MODE_KEY) as string | null;
+    return saved === 'CHAT' ? 'CHAT' : 'COWORK';
   });
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -111,15 +130,16 @@ export function HomeChat() {
     setRouting(r);
   }, []);
 
-  const selectMode = (next: 'CHAT' | 'AGENT' | 'COWORK') => {
-    if (next === 'AGENT' && agentOnline !== true) return;
+  const selectMode = (next: 'CHAT' | 'COWORK') => {
     setChatMode(next);
     localStorage.setItem(MODE_KEY, next);
   };
 
-  const contextLine = modelId
-    ? `Model: ${modelId}`
-    : `Context: AUTO${routing?.provider ? ` → ${routing.provider}/${routing.model ?? ''}` : ''}${routing?.reason ? ` · ${routing.reason}` : ' · router decides per turn'}`;
+  const contextLine = modelId === 'codeconclave-ai'
+    ? 'CodeConClave AI · your 5 drivers, router picks 1 per task'
+    : modelId
+      ? `Model: ${modelId}`
+      : `Context: AUTO${routing?.provider ? ` → ${routing.provider}/${routing.model ?? ''}` : ''}${routing?.reason ? ` · ${routing.reason}` : ' · router decides per turn'}`;
 
   useEffect(() => {
     // Follow the conversation upward: newest rows append at the bottom, so
@@ -289,12 +309,15 @@ export function HomeChat() {
     abortRef.current = controller;
     armResponseSound();
     const state = { receivedTerminal: false };
-    // Agent mode reaches the laptop-driving loop; without an online device we
-    // never send AGENT (the toggle is disabled too — belt and suspenders).
-    // Cowork mode opens the persisted task + specialist pipeline.
-    const effectiveMode = chatMode === 'AGENT' && agentOnline === true ? 'AGENT' : chatMode === 'COWORK' ? 'COWORK' : 'CHAT';
+    // Home offers Chat + Cowork only. Agent driving lives in the sidebar
+    // (/agents + Remote pairing) — home never sends AGENT.
+    const effectiveMode = chatMode === 'COWORK' ? 'COWORK' : 'CHAT';
+    // 'codeconclave-ai' is the frontend resident label — the server registry
+    // doesn't carry it yet, so send AUTO and let the router decide. Full
+    // weight-serving lands with the LOCAL_DRIVER_URLS hook (no arc change).
+    const outModelId = modelId === 'codeconclave-ai' ? undefined : modelId;
     try {
-      await streamChat({ content, mode: effectiveMode, modelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
+      await streamChat({ content, mode: effectiveMode, modelId: outModelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
     } catch (err) {
       state.receivedTerminal = true;
       const aborted = err instanceof DOMException && err.name === 'AbortError';
@@ -318,7 +341,16 @@ export function HomeChat() {
   };
 
   return (
-    <div className={`cc-homechat${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
+    <div className={`cc-homechat cc-homechat--normal${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
+      {rows.length === 0 && (
+        <div className="cc-homechat__hero" data-testid="homechat-hero">
+          <h1 className="cc-homechat__hi">Hi{firstName ? ` ${firstName}` : ''}</h1>
+          <p className="cc-homechat__sysline" aria-live="polite">
+            <span className="cc-homechat__sysline-3d">{typedLine}</span>
+            <span className="cc-homechat__caret" aria-hidden="true">▌</span>
+          </p>
+        </div>
+      )}
       {rows.length > 0 && (
         <div className="cc-homechat__log" ref={listRef}>
           {rows.map((row) => (
@@ -366,16 +398,14 @@ export function HomeChat() {
           <ThinkingMoon active streaming={rows.some((r) => r.role === 'assistant' && !r.thinking && r.content.length > 0)} />
         </div>
       )}
-      {streaming && chatMode === 'AGENT' && agentOnline === true && (
-        <p className="cc-hint" data-testid="homechat-status">
-          Agent is working on your laptop — every command runs on the paired device, denials are shown, never hidden.
-        </p>
-      )}
       {streaming && chatMode === 'COWORK' && (
         <p className="cc-hint" data-testid="homechat-status">
           Specialist team is running your task — watch <Link to="/work">Tasks</Link> for live progress.
         </p>
       )}
+      <p className="cc-hint" data-testid="homechat-agent-hint">
+        Laptop driving lives under <Link to="/agents">Agents</Link> + <Link to="/remote">Remote</Link> — home stays Chat / Cowork.
+      </p>
 
       {attachments.length > 0 && (
         <div className="cc-homechat__attachments" data-testid="homechat-attachments">
@@ -394,11 +424,12 @@ export function HomeChat() {
         </div>
       )}
 
-      <div className="cc-home__command cc-homechat__bar">
+      <div className="cc-home__command cc-homechat__bar cc-homechat__bar--normal">
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
-          rows={1}
-          className="cc-homechat__input"
+          rows={2}
+          className="cc-homechat__input cc-homechat__input--normal"
+          style={{ maxHeight: 140 }}
           aria-label="Message CodeConClave"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -452,16 +483,6 @@ export function HomeChat() {
           </button>
           <button type="button" className={chatMode === 'COWORK' ? 'on' : ''} onClick={() => selectMode('COWORK')} aria-pressed={chatMode === 'COWORK'} title="Planned task with the specialist team (architect, coder, reviewer, tester…)">
             Cowork
-          </button>
-          <button
-            type="button"
-            className={chatMode === 'AGENT' ? 'on' : ''}
-            onClick={() => selectMode('AGENT')}
-            aria-pressed={chatMode === 'AGENT'}
-            disabled={agentOnline !== true}
-            title={agentOnline === true ? 'The model can run commands and work files on this laptop via your paired agent' : 'Pair your laptop first (Remote page) to enable Agent mode'}
-          >
-            Agent
           </button>
         </div>
         {streaming ? (
