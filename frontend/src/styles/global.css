@@ -2799,6 +2799,57 @@ background: var(--cc-accent-soft);
   overflow-wrap: anywhere;
 }
 
+/* Normal (non-hero) composer: compact box, no fear. */
+.cc-homechat__bar--normal {
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+.cc-homechat__input--normal {
+  min-height: 44px;
+  max-height: 140px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cc-homechat--empty .cc-homechat__bar--normal {
+  padding: 12px 14px;
+}
+.cc-homechat--empty .cc-homechat__input--normal {
+  min-height: 52px;
+  font-size: 14px;
+}
+
+/* Home hero: friendly greeting + 3D system line. */
+.cc-homechat__hero {
+  text-align: center;
+  padding: 18px 12px 6px;
+}
+.cc-homechat__hi {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.cc-homechat__sysline {
+  margin: 6px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.cc-homechat__sysline-3d {
+  display: inline-block;
+  transform: perspective(400px) rotateX(12deg);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.cc-homechat__caret {
+  display: inline-block;
+  margin-left: 2px;
+  animation: cc-caret-blink 1s steps(1) infinite;
+}
+@keyframes cc-caret-blink {
+  50% { opacity: 0; }
+}
+
 .cc-homechat__bubble {
   overflow-wrap: anywhere;
 }
