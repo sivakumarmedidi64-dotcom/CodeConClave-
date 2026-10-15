@@ -95,6 +95,15 @@ const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional(),
   ELEVENLABS_VOICE_ID: z.string().default('21m00Tcm4TlvDq8ikWAM'),
 
+  // ---- INGEST (Agent Sai Srinivasa Athreya, private single-owner).
+  // Worker watch loop pins owner + project; without both it stays idle —
+  // no ownerless ledger rows, ever.
+  INGEST_AGENT_OWNER_ID: z.string().optional(),
+  INGEST_AGENT_PROJECT_ID: z.string().optional(),
+  INGEST_CRON_SECRET: z.string().optional(),
+  INGEST_DNA_VERSION: z.string().default('v1'),
+  INGEST_TIER: z.string().default('standard'),
+
   // ------------------------------------------------------------ EMAIL TRANSPORT
   // Single transmitting rail at a time. Default 'resend' = the existing
   // production rail (UNCHANGED). 'gmail' is a TEMPORARY zero-cost PILOT

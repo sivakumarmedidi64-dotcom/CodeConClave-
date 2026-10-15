@@ -3,6 +3,7 @@
  */
 import { startWorker } from './task-worker.js';
 import { startWatchdog } from './watchdog.js';
+import { startIngestWatch } from './ingest-watch.js';
 import { registerCoreTools } from '../modules/execution/tools.js';
 import { registerPaymentTools } from '../modules/payments/tools.js';
 import { registerPlugins } from '../modules/plugins/index.js';
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   registerPlugins();
   const stopWorker = startWorker();
   const stopWatchdog = startWatchdog();
+  const stopIngest = startIngestWatch();
   logger.info('worker process ready');
   const shutdown = async (signal: string) => {
     logger.info('worker shutting down', { signal });
@@ -23,6 +25,7 @@ async function main(): Promise<void> {
     // (bounded), then stop the watchdog and exit.
     await stopWorker();
     stopWatchdog();
+    stopIngest();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
