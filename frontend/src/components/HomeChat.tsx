@@ -121,6 +121,13 @@ export function HomeChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceRecognizer | null>(null);
 
+  const autogrow = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, []);
+
   const selectModel = (id: string) => {
     setModelId(id);
     if (id) localStorage.setItem(MODEL_KEY, id);
@@ -301,6 +308,9 @@ export function HomeChat() {
     }
     if (!content || streaming) return;
     setInput('');
+    requestAnimationFrame(() => {
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+    });
     const userKey = `u:${Date.now()}`;
     const asstKey = `a:${Date.now()}`;
     setRows((prev) => [...prev, { key: userKey, role: 'user', content }, { key: asstKey, role: 'assistant', content: '', thinking: true }]);
@@ -435,9 +445,6 @@ export function HomeChat() {
           Specialist team is running your task — watch <Link to="/work">Tasks</Link> for live progress.
         </p>
       )}
-      <p className="cc-hint" data-testid="homechat-agent-hint">
-        Laptop driving lives under <Link to="/agents">Agents</Link> + <Link to="/remote">Remote</Link> — home stays Chat / Cowork.
-      </p>
 
       {attachments.length > 0 && (
         <div className="cc-homechat__attachments" data-testid="homechat-attachments">
@@ -459,16 +466,17 @@ export function HomeChat() {
       <div className="cc-home__command cc-homechat__bar cc-homechat__bar--normal">
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
-          rows={2}
+          rows={1}
           className="cc-homechat__input cc-homechat__input--normal"
-          style={{ maxHeight: 140 }}
+          style={{ maxHeight: 140, overflowY: 'auto' }}
           aria-label="Message CodeConClave"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => { setInput(e.target.value); autogrow(); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void send();
+              requestAnimationFrame(autogrow);
             }
           }}
           placeholder={PLACEHOLDER}

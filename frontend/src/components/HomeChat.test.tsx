@@ -163,7 +163,8 @@ describe('HomeChat', () => {
     expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cowork' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull();
-    expect(await screen.findByTestId('homechat-agent-hint')).toHaveTextContent('Agents');
+    // Driving lives in the sidebar now — home carries no agent pointers.
+    expect(screen.queryByTestId('homechat-agent-hint')).toBeNull();
   });
 
   it('never sends AGENT from home: Cowork stays Cowork, Chat stays Chat', async () => {    let posted: Record<string, unknown> = {};

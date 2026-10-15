@@ -228,15 +228,6 @@ function Shell() {
         <Sidebar user={user} />
         {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
         <OfflineBanner />
-        {/* TEMPORARY DEMO / EARLY ACCESS MODE — informational only. Rendered from
-            the server's authoritative /api/v1/access reply; it unlocks nothing and
-            must never imply a purchase happened. */}
-        {mode?.temporaryDemoMode ? (
-          <div className="cc-demo-mode-banner" role="status">
-            <strong>CodeConClave is currently available in Early Access</strong> — workspace access is open
-            for early-access users. No payment has been taken and no plan has been purchased.
-          </div>
-        ) : null}
         <Topbar onMenuClick={toggleSidebar} />
         <a className="cc-skip-link" href="#main">
           Skip to content
