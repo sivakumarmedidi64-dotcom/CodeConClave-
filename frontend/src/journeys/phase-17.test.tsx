@@ -91,7 +91,7 @@ beforeEach(() => {
 describe('JOURNEY 1 — chat stream, reconnect, Last-Event-ID replay, dedupe', () => {
   it('sends without an id first, then replays missed deltas exactly once after reconnect', async () => {
     renderJourney(['/chat']);
-    const textarea = await screen.findByPlaceholderText(/Message CodeConClave/);
+    const textarea = await screen.findByPlaceholderText(/Message CodeConClave/, {}, { timeout: 8000 });
     expect(textarea).toBeInTheDocument();
 
     await userEvent.type(textarea, 'hello');
@@ -128,7 +128,7 @@ describe('JOURNEY 1 — chat stream, reconnect, Last-Event-ID replay, dedupe', (
 describe('JOURNEY 2 — return-to-work (WYWA) after real work', () => {
   it('renders the evidence-backed summary on /home and resumes to a real workspace', async () => {
     renderJourney(['/home']);
-    expect(await screen.findByTestId('rtw-card')).toBeInTheDocument();
+    expect(await screen.findByTestId('rtw-card', {}, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText(/2 tasks completed/)).toBeInTheDocument();
     expect(screen.getByText(/1 task failed/)).toBeInTheDocument();
     expect(screen.getByText('Review approvals')).toBeInTheDocument();

@@ -7,7 +7,7 @@
  * server-side) and the mobile drawer.
  */
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { ToastProvider } from './components/Toast';
@@ -22,45 +22,45 @@ import { AccessModeProvider, useEarlyAccess } from './lib/accessMode';
 import { api } from './lib/api';
 import { initOfflineSync } from './lib/offline';
 import { applyTheme, isTheme } from './lib/theme';
-import { LoginPage } from './pages/LoginPage';
-import { LandingPage } from './pages/LandingPage';
-import { MfaPage } from './pages/MfaPage';
-import { VerifyEmailPage } from './pages/VerifyEmailPage';
-import { HomePage } from './pages/HomePage';
-import { ChatPage } from './pages/ChatPage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { AgentsPage } from './pages/AgentsPage';
-import { MemoryPage } from './pages/MemoryPage';
-import { DnaPage } from './pages/DnaPage';
-import { FilesPage } from './pages/FilesPage';
-import { TerminalPage } from './pages/TerminalPage';
-import { WorkPage } from './pages/WorkPage';
-import { WorkspacePage } from './pages/WorkspacePage';
-import { WorkbenchPage } from './pages/WorkbenchPage';
-import { AutomationPage } from './pages/AutomationPage';
-import { RecoveryPage } from './pages/RecoveryPage';
-import { ControlPage } from './pages/ControlPage';
-import { CoworkersPage } from './pages/CoworkersPage';
-import { CoworkerPage } from './pages/CoworkerPage';
-import { TeamsPage } from './pages/TeamsPage';
-import { PluginsPage } from './pages/PluginsPage';
-import { RemotePage } from './pages/RemotePage';
-import { IdeasPage } from './pages/IdeasPage';
-import { DataPage } from './pages/DataPage';
-import { TrashPage } from './pages/TrashPage';
-import { HistoryPage } from './pages/HistoryPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { ApprovalsPage } from './pages/ApprovalsPage';
-import { ReviewListPage } from './pages/ReviewListPage';
-import { ReviewDetailPage } from './pages/ReviewDetailPage';
-import { NotFoundPage } from './pages/NotFoundPage';
-import { IntelligencePage } from './pages/IntelligencePage';
-import { ProductionPage } from './pages/ProductionPage';
-import { DeploymentPage } from './pages/DeploymentPage';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { AdminUsers } from './pages/admin/AdminUsers';
-import { AdminAIUsage } from './pages/admin/AdminAIUsage';
-import { AdminPayments } from './pages/admin/AdminPayments';
+const LoginPage = lazy(() => import('./pages/LoginPage').then(({ LoginPage }) => ({ default: LoginPage })));
+const LandingPage = lazy(() => import('./pages/LandingPage').then(({ LandingPage }) => ({ default: LandingPage })));
+const MfaPage = lazy(() => import('./pages/MfaPage').then(({ MfaPage }) => ({ default: MfaPage })));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage').then(({ VerifyEmailPage }) => ({ default: VerifyEmailPage })));
+const HomePage = lazy(() => import('./pages/HomePage').then(({ HomePage }) => ({ default: HomePage })));
+const ChatPage = lazy(() => import('./pages/ChatPage').then(({ ChatPage }) => ({ default: ChatPage })));
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then(({ ProjectsPage }) => ({ default: ProjectsPage })));
+const AgentsPage = lazy(() => import('./pages/AgentsPage').then(({ AgentsPage }) => ({ default: AgentsPage })));
+const MemoryPage = lazy(() => import('./pages/MemoryPage').then(({ MemoryPage }) => ({ default: MemoryPage })));
+const DnaPage = lazy(() => import('./pages/DnaPage').then(({ DnaPage }) => ({ default: DnaPage })));
+const FilesPage = lazy(() => import('./pages/FilesPage').then(({ FilesPage }) => ({ default: FilesPage })));
+const TerminalPage = lazy(() => import('./pages/TerminalPage').then(({ TerminalPage }) => ({ default: TerminalPage })));
+const WorkPage = lazy(() => import('./pages/WorkPage').then(({ WorkPage }) => ({ default: WorkPage })));
+const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(({ WorkspacePage }) => ({ default: WorkspacePage })));
+const WorkbenchPage = lazy(() => import('./pages/WorkbenchPage').then(({ WorkbenchPage }) => ({ default: WorkbenchPage })));
+const AutomationPage = lazy(() => import('./pages/AutomationPage').then(({ AutomationPage }) => ({ default: AutomationPage })));
+const RecoveryPage = lazy(() => import('./pages/RecoveryPage').then(({ RecoveryPage }) => ({ default: RecoveryPage })));
+const ControlPage = lazy(() => import('./pages/ControlPage').then(({ ControlPage }) => ({ default: ControlPage })));
+const CoworkersPage = lazy(() => import('./pages/CoworkersPage').then(({ CoworkersPage }) => ({ default: CoworkersPage })));
+const CoworkerPage = lazy(() => import('./pages/CoworkerPage').then(({ CoworkerPage }) => ({ default: CoworkerPage })));
+const TeamsPage = lazy(() => import('./pages/TeamsPage').then(({ TeamsPage }) => ({ default: TeamsPage })));
+const PluginsPage = lazy(() => import('./pages/PluginsPage').then(({ PluginsPage }) => ({ default: PluginsPage })));
+const RemotePage = lazy(() => import('./pages/RemotePage').then(({ RemotePage }) => ({ default: RemotePage })));
+const IdeasPage = lazy(() => import('./pages/IdeasPage').then(({ IdeasPage }) => ({ default: IdeasPage })));
+const DataPage = lazy(() => import('./pages/DataPage').then(({ DataPage }) => ({ default: DataPage })));
+const TrashPage = lazy(() => import('./pages/TrashPage').then(({ TrashPage }) => ({ default: TrashPage })));
+const HistoryPage = lazy(() => import('./pages/HistoryPage').then(({ HistoryPage }) => ({ default: HistoryPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(({ SettingsPage }) => ({ default: SettingsPage })));
+const ApprovalsPage = lazy(() => import('./pages/ApprovalsPage').then(({ ApprovalsPage }) => ({ default: ApprovalsPage })));
+const ReviewListPage = lazy(() => import('./pages/ReviewListPage').then(({ ReviewListPage }) => ({ default: ReviewListPage })));
+const ReviewDetailPage = lazy(() => import('./pages/ReviewDetailPage').then(({ ReviewDetailPage }) => ({ default: ReviewDetailPage })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(({ NotFoundPage }) => ({ default: NotFoundPage })));
+const IntelligencePage = lazy(() => import('./pages/IntelligencePage').then(({ IntelligencePage }) => ({ default: IntelligencePage })));
+const ProductionPage = lazy(() => import('./pages/ProductionPage').then(({ ProductionPage }) => ({ default: ProductionPage })));
+const DeploymentPage = lazy(() => import('./pages/DeploymentPage').then(({ DeploymentPage }) => ({ default: DeploymentPage })));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers').then(({ AdminUsers }) => ({ default: AdminUsers })));
+const AdminAIUsage = lazy(() => import('./pages/admin/AdminAIUsage').then(({ AdminAIUsage }) => ({ default: AdminAIUsage })));
+const AdminPayments = lazy(() => import('./pages/admin/AdminPayments').then(({ AdminPayments }) => ({ default: AdminPayments })));
 
 function Shell() {
   const { status, user } = useAuth();
@@ -242,6 +242,7 @@ function Shell() {
           Skip to content
         </a>
         <main id="main" className="cc-main">
+          <Suspense fallback={<div className="cc-page" role="status" aria-live="polite">Loading page…</div>}>
           <Routes>
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="/home" element={<HomePage />} />
@@ -281,6 +282,7 @@ function Shell() {
             <Route path="/admin/payments" element={<AdminPayments />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
+          </Suspense>
         </main>
         <CommandPalette onToggleFocus={toggleSidebar} />
         <ProCelebration />
@@ -324,6 +326,7 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        <Suspense fallback={<div className="cc-page" role="status" aria-live="polite">Loading page…</div>}>
         <Routes>
           <Route path="/" element={<DemoEntry><LandingPage /></DemoEntry>} />
           <Route path="/login" element={<DemoEntry><LoginPage /></DemoEntry>} />
@@ -332,6 +335,7 @@ export default function App() {
           <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/*" element={<Shell />} />
         </Routes>
+        </Suspense>
       </ToastProvider>
     </AuthProvider>
   );

@@ -79,6 +79,7 @@ describe('responsive shell journey', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Toggle navigation' }));
     expect(shell.className).toContain('cc-shell--drawer-open');
     await userEvent.click(screen.getByRole('link', { name: /Projects/ }));
-    await waitFor(() => expect(shell.className).not.toContain('cc-shell--drawer-open'));
+    await screen.findByRole('heading', { name: 'Projects' }, { timeout: 8000 });
+    await waitFor(() => expect(shell.className).not.toContain('cc-shell--drawer-open'), { timeout: 8000 });
   });
 });

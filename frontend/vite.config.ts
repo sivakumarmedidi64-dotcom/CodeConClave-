@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 // TEMPORARY DEMO BUILD: production builds default to demo mode so the
 // commercial payment surface is excluded from any compiled bundle that a
@@ -14,7 +15,16 @@ const demoBuild =
 // Dev proxy: same-origin cookies (cc_session, codeconclave_csrf) flow to the
 // backend on localhost:4000; /agent is proxied as WebSocket.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    visualizer({
+      filename: 'stats.html',
+      template: 'treemap',
+      gzipSize: true,
+      brotliSize: true,
+      open: false,
+    }),
+  ],
   define: {
     __DEMO_BUILD__: JSON.stringify(demoBuild),
   },
@@ -42,5 +52,28 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const modulePath = id.replace(/\\/g, '/');
+          if (!modulePath.includes('/node_modules/')) return undefined;
+
+          if (/\/node_modules\/(react|react-dom|scheduler|use-sync-external-store)\//.test(modulePath)) {
+            return 'vendor-react';
+          }
+          if (/\/node_modules\/(react-router|react-router-dom)\//.test(modulePath)) {
+            return 'vendor-router';
+          }
+          if (/\/node_modules\/(recharts|d3-[^/]+|@reduxjs\/toolkit|redux|immer|react-is)\//.test(modulePath)) {
+            return 'vendor-charts';
+          }
+          if (/\/node_modules\/(tesseract\.js|tesseract\.js-core|bmp-js|idb)\//.test(modulePath)) {
+            return 'vendor-ocr';
+          }
+
+          return undefined;
+        },
+      },
+    },
   },
 });

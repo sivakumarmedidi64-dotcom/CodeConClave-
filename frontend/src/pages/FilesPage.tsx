@@ -3,7 +3,7 @@
  * (tags/category/favorite), honest preview status, versions + rollback,
  * references, activity and trash lifecycle.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { uploadForm } from '../lib/api';
 import {
@@ -19,6 +19,10 @@ import { PreviewPanel } from '../components/PreviewPanel';
 import { Icon } from '../components/Icon';
 import { PairedDeviceStatus } from '../components/PairedDeviceStatus';
 
+const CodeWorkspacePanel = lazy(() =>
+  import('../components/CodeWorkspacePanel').then(({ CodeWorkspacePanel: Panel }) => ({ default: Panel })),
+);
+
 interface LoadedFile {
   file: FileRef;
   versions?: FileVersionInfo[];
@@ -28,6 +32,7 @@ interface LoadedFile {
 
 export function FilesPage() {
   const { toast } = useToast();
+  const [activeView, setActiveView] = useState<'files' | 'code'>('files');
   const [projectId, setProjectId] = useState<string>('');
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [files, setFiles] = useState<FileRef[]>([]);
@@ -215,12 +220,43 @@ export function FilesPage() {
     <div className="cc-page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>Files</h1>
-        <select className="cc-select" style={{ width: 260 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select className="cc-select" aria-label="Project" style={{ width: 260 }} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className={`cc-btn ${activeView === 'files' ? 'cc-btn--primary' : 'cc-btn--ghost'}`}
+            aria-label="Show project files"
+            aria-pressed={activeView === 'files'}
+            onClick={() => setActiveView('files')}
+          >
+            Files
+          </button>
+          <button
+            type="button"
+            className={`cc-btn ${activeView === 'code' ? 'cc-btn--primary' : 'cc-btn--ghost'}`}
+            aria-label="Open Code Workspace"
+            aria-pressed={activeView === 'code'}
+            disabled={!projectId}
+            onClick={() => setActiveView('code')}
+          >
+            Code Workspace
+          </button>
+        </div>
       </div>
+      {activeView === 'code' ? (
+        projectId ? (
+          <Suspense fallback={<div className="cc-card" role="status" aria-live="polite">Loading Code Workspace…</div>}>
+            <CodeWorkspacePanel projectId={projectId} />
+          </Suspense>
+        ) : (
+          <div className="cc-card" role="status">Choose a project to open Code Workspace.</div>
+        )
+      ) : (
+        <>
       <PairedDeviceStatus description="Project files here are stored in CodeConClave. Files on your paired computer stay local and are browsed in Workbench → Local Workspace." />
       <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
         <input
@@ -352,6 +388,8 @@ export function FilesPage() {
           ))}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

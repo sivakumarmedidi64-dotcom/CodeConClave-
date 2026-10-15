@@ -34,7 +34,16 @@ beforeEach(() => {
 
 describe('App shell', () => {
   it('renders the public landing page at /', async () => {
-    renderApp(['/']);
+    stubFetch(async (url) => {
+      if (url.includes('/api/v1/auth/me')) return jsonResponse({ error: { code: 'unauthorized', message: 'No session' } }, 401);
+      if (url.includes('/api/v1/auth/demo-login')) return jsonResponse({ error: { code: 'not_found', message: 'Demo sign-in unavailable' } }, 404);
+      return shellHandler(url);
+    });
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    );
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(/AI Developer & Founder Operating System/i);
     expect(screen.getByText('What is CodeConClave?')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Choose how you want to use CodeConClave/i })).toBeInTheDocument();
@@ -49,7 +58,7 @@ describe('App shell', () => {
 
   it('renders the 404 page for unknown routes', async () => {
     renderApp(['/does-not-exist']);
-    await waitFor(() => expect(screen.getByText('404 — page not found')).toBeInTheDocument());
+    expect(await screen.findByText('404 — page not found', {}, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.getByText('Back to Home')).toBeInTheDocument();
   });
 

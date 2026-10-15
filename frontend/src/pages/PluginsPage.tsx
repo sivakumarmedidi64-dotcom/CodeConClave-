@@ -144,9 +144,9 @@ export function PluginsPage() {
   // authoritative; ranking only changes display order).
   const ranked = useMemo(() => {
     let list = catalogue;
-    // Google (Gmail/Drive/Sheets/Calendar) connects here through explicit
-    // user OAuth only — the row is shown so mail CAN be connected. Backend
-    // OAuth + per-action scopes are untouched; nothing auto-connects.
+    if (earlyAccess) list = list.filter((plugin) => plugin.plugin_type !== 'google');
+    // Google (Gmail/Drive/Sheets/Calendar) uses explicit OAuth outside early
+    // access. Backend OAuth + per-action scopes remain authoritative.
     if (!showUnsupported) list = list.filter((p) => p.integration !== 'UNSUPPORTED');
     if (!query.trim()) return list;
     const q = query.trim();
@@ -504,7 +504,7 @@ export function PluginsPage() {
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="cc-select" aria-label="Sandbox plugin type" value={sbType} onChange={(e) => setSbType(e.target.value)}>
-            {['github', 'cloudflare', 'discord', 'google', 'resend'].map((t) => (
+            {['github', 'cloudflare', 'discord', 'google', 'resend'].filter((type) => !earlyAccess || type !== 'google').map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
