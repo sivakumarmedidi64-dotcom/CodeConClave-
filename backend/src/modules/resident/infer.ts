@@ -16,6 +16,29 @@ export interface ResidentAnswer {
   tokens: number;
 }
 
+/**
+ * v3 task-type → resident role. Only task types with a real tuned driver
+ * attempt resident; everything else falls through to the gateway.
+ * Returns undefined = gateway handles it.
+ */
+export function residentRoleForTask(taskType?: string): string | undefined {
+  switch (taskType) {
+    case 'CODING':
+    case 'DEBUGGING':
+    case 'REFACTORING':
+    case 'TEST_GENERATION':
+      return 'Coder';
+    case 'CODE_REVIEW':
+      return 'Reviewer';
+    case 'ARCHITECTURE':
+    case 'PLANNING':
+    case 'TASK_PLANNING':
+      return 'Architect';
+    default:
+      return undefined;
+  }
+}
+
 /** Strict scout output guard: must stay valid JSON lane/risk. */
 export function guardScout(text: string): boolean {
   try {

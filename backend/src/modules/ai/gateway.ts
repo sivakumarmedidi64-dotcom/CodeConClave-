@@ -28,6 +28,14 @@ import { logger } from '../../shared/logger.js';
 import type { AiModelDescriptor, PlanId, AiFallbackReason, PrivacyClass } from '@codeconclave/shared';
 import { ComputeClass, TaskType, RoutingPreference, UsageCounterName } from '@codeconclave/shared';
 import { incrementUsage } from '../workspace/service.js';
+import { residentComplete, residentRoleForTask } from '../resident/infer.js';
+
+/** Task types the resident drivers answer first (v3 Dispatch: 1 role · 1 run). */
+function residentPromptFor(messages: ChatMessage[], role: string): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+  const content = typeof lastUser?.content === 'string' ? lastUser.content : '';
+  return `### Role: ${role}\n### Task:\n${content.slice(0, 2000)}`;
+}
 
 export interface GatewayContext {
   userId: string;
@@ -455,6 +463,41 @@ function attemptSignal(
 export async function completeWithFallback(opts: CompleteOptions): Promise<CompletionSummary> {
   const ctx = opts.ctx;
   const requestOpts = opts.opts ?? {};
+
+  // Resident first: your tuned drivers answer their own roles before any
+  // paid provider is touched. Costs nothing, works with zero provider keys.
+  // Any resident failure falls through to the gateway chain below — the
+  // receipt always names the model that REALLY answered.
+  const residentRole = residentRoleForTask(requestOpts.taskType);
+  if (residentRole && !opts.signal?.aborted) {
+    const residentStart = Date.now();
+    try {
+      const ans = await residentComplete(residentRole, residentPromptFor(opts.messages, residentRole), opts.maxTokens);
+      if (opts.onChunk) {
+        await opts.onChunk({ delta: ans.text, inputTokens: 0, outputTokens: ans.tokens });
+      }
+      const summary: CompletionSummary = {
+        text: ans.text,
+        modelId: ans.hubId,
+        providerId: 'resident',
+        inputTokens: Math.ceil(residentPromptFor(opts.messages, residentRole).length / 4),
+        outputTokens: ans.tokens,
+        estimatedCostUsd: 0,
+        durationMs: Date.now() - residentStart,
+        usedFallback: false,
+        fallbackReason: null,
+      };
+      await logUsage(ctx, summary, requestOpts);
+      logger.info('ai.resident_completed', { userId: ctx.userId, model: ans.hubId, role: residentRole });
+      return summary;
+    } catch (err) {
+      logger.warn('ai.resident_failed', {
+        userId: ctx.userId,
+        role: residentRole,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   // Compute governance: premium requests are gated before any spend.
   const allowance = await premiumAllowance(ctx, requestOpts);
