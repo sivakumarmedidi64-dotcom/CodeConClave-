@@ -75,7 +75,7 @@ const autoapproval = vi.hoisted(() => ({
   requestAutoApproval: vi.fn(async () => ({ planned: autoapproval.planned })),
 }));
 vi.mock('../autoapproval/service.js', () => ({ requestAutoApproval: autoapproval.requestAutoApproval }));
-vi.mock('../service.js', () => ({ PLAN_PRICES_INR: { pro: 999, team: 4999, api: 9999 } }));
+vi.mock('../service.js', () => ({ PLAN_PRICES_INR: { pro: 999, team: 4999, api: 50000 } }));
 
 import { reconcileIntent, reconcilePaymentSweep, redactPaymentId, verifyPaymentWithRazorpay, listReconcileRows } from './service.js';
 import { recordAudit } from '../../audit/service.js';

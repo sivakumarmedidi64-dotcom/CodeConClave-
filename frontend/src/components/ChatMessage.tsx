@@ -118,7 +118,7 @@ export function ChatMessage({
           <Icon name={localExpanded ? 'chevronUp' : 'chevronDown'} size={12} />
         </button>
         {localExpanded && (
-        <div id={detailsId} role="region" aria-label="Execution details" className="cc-msg-details-content" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, paddingLeft: 12, borderLeft: '2px solid #e5e7eb' }}>
+        <div id={detailsId} role="region" aria-label="Execution details" className="cc-msg-details-content" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8, paddingLeft: 12, borderLeft: '2px solid var(--cc-border)' }}>
           {executionPhase && (
             <div className="cc-msg-phase">
               <span className="cc-hint" style={{ textTransform: 'uppercase', fontSize: '10px', letterSpacing: '0.05em' }}>Phase</span>
@@ -167,7 +167,7 @@ export function ChatMessage({
       case 'user':
         return 'You';
       case 'assistant':
-        return 'AI';
+        return 'CodeConClave';
       case 'system':
         return 'System';
       default:
@@ -182,18 +182,19 @@ export function ChatMessage({
         display: 'flex',
         flexDirection: 'column',
         gap: 4,
-        padding: '8px 0',
-        borderBottom: '1px solid #f3f4f6',
+        padding: '10px 0',
         ...getRoleStyle(message.role),
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start' }}>
         {message.role !== 'system' && (
-          <span className="cc-msg-role" style={{ fontSize: '11px', fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0, marginTop: 2 }}>
-            {getRolePrefix(message.role)}
-          </span>
+          // Claude-style: no visible role tag; screen readers still hear who spoke.
+          <span className="cc-msg-role cc-sr-only">{getRolePrefix(message.role)}:</span>
         )}
-        <div style={{ maxWidth: '85%', display: 'flex', flexDirection: 'column', gap: 4, textAlign: message.role === 'user' ? 'right' : 'left' }}>
+        <div
+          className={message.role === 'user' ? 'cc-msg-bubble cc-msg-bubble--user' : 'cc-msg-bubble'}
+          style={{ maxWidth: message.role === 'user' ? '78%' : '100%', display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left' }}
+        >
           {isEditing ? (
             <textarea
               className="cc-textarea"

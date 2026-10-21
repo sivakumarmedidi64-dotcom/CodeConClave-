@@ -218,7 +218,7 @@ export function PaymentGateModal() {
               <div>
                 <div style={{ fontWeight: 600 }}>API Access</div>
                 <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--cc-accent)' }}>
-                  ₹{capability.plans?.api ?? 9999}
+                  ₹{capability.plans?.api ?? 50000}
                   <span className="cc-hint" style={{ fontSize: 12, fontWeight: 400 }}> / month</span>
                 </div>
                 <p className="cc-hint" style={{ maxWidth: 460 }}>
@@ -226,7 +226,7 @@ export function PaymentGateModal() {
                 </p>
               </div>
               <button className="cc-btn" disabled={billingBusy} onClick={() => void upgrade('api')}>
-                {billingBusy ? 'Starting checkout…' : `Upgrade (₹${capability.plans?.api ?? 9999})`}
+                {billingBusy ? 'Starting checkout…' : `Upgrade (₹${capability.plans?.api ?? 50000})`}
               </button>
             </div>
           </div>

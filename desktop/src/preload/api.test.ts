@@ -43,6 +43,8 @@ const SURFACE_METHODS = [
   'voice.support',
   'teamCollab.support', 'teamCollab.presence', 'teamCollab.skills', 'teamCollab.queue',
   'screen.capture', 'screen.sources',
+  'browser.state', 'browser.open', 'browser.nav', 'browser.setBounds', 'browser.show', 'browser.hide', 'browser.close',
+  'browser.list', 'browser.choose', 'browser.openExternal',
 ];
 
 describe('preload surface', () => {

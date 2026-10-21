@@ -30,7 +30,8 @@
     "acceptance:preflight": "tsx src/scripts/acceptance-preflight.ts",
     "acceptance:oauth:preflight": "tsx src/scripts/acceptance-preflight.ts",
     "acceptance:status": "tsx src/scripts/acceptance-status.ts",
-    "provider:reprobe": "tsx src/scripts/provider-reprobe.ts"
+    "provider:reprobe": "tsx src/scripts/provider-reprobe.ts",
+    "mcp:demo": "tsx src/scripts/mcp-demo-server.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.714.0",

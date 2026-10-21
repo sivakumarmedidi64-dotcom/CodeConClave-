@@ -13,7 +13,7 @@
  *            entitlement_required) and FREE_LIMITS are restored verbatim.
  *   C. GOOGLE — customer Google sign-in stays removed and cannot mint a session;
  *            plugin OAuth is left intact.
- *   D. API ACCESS — the separate ₹9,999 API entitlement is NOT unlocked.
+ *   D. API ACCESS — the separate ₹50,000 API entitlement is NOT unlocked.
  *   E. SECURITY — rate limits, bounded AI/resource caps, no client-side bypass,
  *            and REVOKED stays revoked.
  */
@@ -350,7 +350,7 @@ describe('D. API ACCESS — never unlocked by demo mode', () => {
     expect(err).toBeDefined();
     expect(err.status).toBe(402);
     expect(err.errorCode).toBe('api_access_required');
-    expect(err.message).toContain('9,999');
+    expect(err.message).toContain('50,000');
   });
 
   it('the API-key gate contains no demo-mode logic at all', () => {

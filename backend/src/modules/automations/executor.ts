@@ -168,8 +168,10 @@ export async function findMatchingRules(ctx: EventContext): Promise<AutomationRu
   const rows = await withTenant<Record<string, unknown>[]>(ctx.ownerId, (q) =>
     q
       .query<Record<string, unknown>>(
+        // Kill switch (Stop everything / AUTONOMY): no rule fires while on.
         `SELECT * FROM automation_rules
          WHERE owner_id = $1 AND status = 'ACTIVE' AND event_source = $2 AND event_type = $3
+           AND NOT EXISTS (SELECT 1 FROM kill_switch k WHERE k.owner_id = $1 AND k.active AND k.scope IN ('GLOBAL','AUTONOMY'))
          ORDER BY created_at ASC LIMIT 20`,
         [ctx.ownerId, ctx.source, ctx.eventType],
       )

@@ -161,7 +161,7 @@ export async function globalSearch(userId: string, filters: SearchFilters): Prom
 
   if (!type || type === 'conversation') {
     const params: unknown[] = [userId, keyword];
-    const clauses: string[] = ['c.owner_id = $1', 'c.title ILIKE $2'];
+    const clauses: string[] = ['c.owner_id = $1', 'c.title ILIKE $2', 'NOT c.incognito'];
     const ts = teamScope('c.team_id', params);
     if (ts) clauses.push(ts);
     const ms = memberScope('c.owner_id', params);

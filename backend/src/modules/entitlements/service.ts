@@ -280,7 +280,15 @@ export function requireEntitlement(plan: 'pro' | 'team') {
       next(AppError.unauthorized());
       return;
     }
-    const current = await effectivePlan(userId);
+    let current: Awaited<ReturnType<typeof effectivePlan>>;
+    try {
+      current = await effectivePlan(userId);
+    } catch {
+      // Express 4 does not catch async middleware rejections; fail closed with
+      // an honest 503 instead of leaking an unhandled rejection.
+      next(AppError.unavailable('entitlement_check_failed', 'Could not verify entitlement. Try again.'));
+      return;
+    }
     if (current !== plan && !(plan === 'pro' && current === 'team')) {
       next(AppError.paymentRequired('entitlement_required', `This feature requires the ${plan === 'pro' ? 'Pro' : 'Team'} plan`));
       return;

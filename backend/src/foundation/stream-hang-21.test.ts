@@ -43,6 +43,9 @@ const db = vi.hoisted(() => {
 });
 
 vi.mock('../shared/db.js', () => db);
+// Plan usage limits (and the no-free-tier rule) have their own suite in
+// modules/usage/limits.test.ts; these tests exercise routing and fallback.
+vi.mock('../modules/usage/limits.js', () => ({ assertWithinPlanLimits: vi.fn(async () => undefined) }));
 
 const registry = vi.hoisted(() => ({
   getRegistry: vi.fn(async () => [] as unknown[]),

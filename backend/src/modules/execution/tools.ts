@@ -23,6 +23,10 @@ export function registerCoreTools(): void {
     const path = String(input.path ?? input.filePath ?? '');
     const userId = callerId(ctx);
     if (!projectId || !path) throw new Error('file_read requires projectId, path');
+    // Article 4: files listed in .codeconclaveignore / .aiignore are off-limits to the agent.
+    const { loadProjectIgnore, isIgnored } = await import('../projects/instructions.js');
+    const ignore = await loadProjectIgnore(userId, projectId);
+    if (isIgnored(path, ignore.rules)) return { ok: false, reason: 'ignored_by_project', path, ignoreFile: ignore.file };
     const { withTenant } = await import('../../shared/db.js');
     const { getFileContent } = await import('../files/service.js');
     const found = await withTenant(userId, (q) => q.query(
@@ -56,8 +60,14 @@ export function registerCoreTools(): void {
     const userId = callerId(ctx);
     if (!projectId) throw new Error('file_list requires projectId');
     const { listFiles } = await import('../files/service.js');
-    const files = await listFiles(userId, projectId);
-    return { ok: true, files: files.map((f) => ({ id: f.id, path: f.path, size: f.sizeBytes, sha256: f.sha256 })) };
+    const { loadProjectIgnore, isIgnored } = await import('../projects/instructions.js');
+    const [files, ignore] = await Promise.all([listFiles(userId, projectId), loadProjectIgnore(userId, projectId)]);
+    const visible = files.filter((f) => !isIgnored(f.path, ignore.rules));
+    return {
+      ok: true,
+      files: visible.map((f) => ({ id: f.id, path: f.path, size: f.sizeBytes, sha256: f.sha256 })),
+      ...(files.length !== visible.length ? { hiddenByIgnoreFile: files.length - visible.length, ignoreFile: ignore.file } : {}),
+    };
   });
 
   registerTool('memory_search', async (input, ctx) => {

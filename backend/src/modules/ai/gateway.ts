@@ -28,7 +28,8 @@ import { logger } from '../../shared/logger.js';
 import type { AiModelDescriptor, PlanId, AiFallbackReason, PrivacyClass } from '@codeconclave/shared';
 import { ComputeClass, TaskType, RoutingPreference, UsageCounterName } from '@codeconclave/shared';
 import { incrementUsage } from '../workspace/service.js';
-import { residentComplete, residentRoleForTask } from '../resident/infer.js';
+import { residentComplete, residentReady, residentRoleForTask } from '../resident/infer.js';
+import { assertWithinPlanLimits } from '../usage/limits.js';
 
 /** Task types the resident drivers answer first (v3 Dispatch: 1 role · 1 run). */
 function residentPromptFor(messages: ChatMessage[], role: string): string {
@@ -74,6 +75,8 @@ export interface RouteOptions {
   imageEditing?: boolean;
   /** Canonical task-intent taxonomy type (Model Routing 2026). Recorded in usage audit. */
   taskType?: string;
+  /** Pipeline v3: run this specialist role on its resident driver first (e.g. "Statistics"). */
+  residentRole?: string;
   /** Routing preference (AUTO/QUALITY/BALANCED/FAST/COST_SAVER). Recorded in usage audit. */
   routingPreference?: string;
   /** Canonical capability class (Provider Experience 2026). Recorded in usage audit. */
@@ -179,7 +182,7 @@ export async function routeModels(userId: string, opts: RouteOptions): Promise<R
     throw AppError.unavailable(
       'no_model_available',
       providers === 0
-        ? 'No AI provider is configured on the server. Add at least one provider API key.'
+        ? 'CodeConClave AI is not configured: no AI engine is running on the server. Start your own models (scripts/setup-resident-models.ps1) or add an engine key in .env.'
         : 'No model currently satisfies the request (entitlement/capability/privacy/health).',
     );
   }
@@ -464,12 +467,18 @@ export async function completeWithFallback(opts: CompleteOptions): Promise<Compl
   const ctx = opts.ctx;
   const requestOpts = opts.opts ?? {};
 
+  // Plan usage limits (session + weekly tokens) — one choke point for chat,
+  // Cowork bots, code review and the API.
+  await assertWithinPlanLimits(ctx.userId, ctx.planId);
+
   // Resident first: your tuned drivers answer their own roles before any
   // paid provider is touched. Costs nothing, works with zero provider keys.
   // Any resident failure falls through to the gateway chain below — the
   // receipt always names the model that REALLY answered.
-  const residentRole = residentRoleForTask(requestOpts.taskType);
-  if (residentRole && !opts.signal?.aborted) {
+  // Skipped outright (no latency) when no host is configured, or a recent
+  // call / status probe showed this driver can't answer right now.
+  const residentRole = requestOpts.residentRole ?? residentRoleForTask(requestOpts.taskType);
+  if (residentRole && !opts.signal?.aborted && residentReady(residentRole).ok) {
     const residentStart = Date.now();
     try {
       const ans = await residentComplete(residentRole, residentPromptFor(opts.messages, residentRole), opts.maxTokens);

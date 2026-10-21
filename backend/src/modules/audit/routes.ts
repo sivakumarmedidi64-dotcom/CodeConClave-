@@ -5,7 +5,7 @@ import { Router } from 'express';
 import { jsonResult } from '../auth/schemas.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
-import { listAudit } from './service.js';
+import { listAudit, verifyUserAuditChain } from './service.js';
 
 export const auditRoutes = (): Router => {
   const router = Router();
@@ -22,6 +22,14 @@ export const auditRoutes = (): Router => {
         offset: Number(req.query.offset ?? 0),
       });
       res.json(jsonResult({ events: rows }));
+    }),
+  );
+
+  // Tamper check: recompute the user's whole audit hash chain.
+  router.get(
+    '/verify',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ chain: await verifyUserAuditChain(req.ctx.user!.id) }));
     }),
   );
 

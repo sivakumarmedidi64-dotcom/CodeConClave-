@@ -6,8 +6,11 @@
  * real stored rules, ROI is labelled as an estimate, and secret guard never
  * returns stored secret values.
  */
+import { engineLabel } from '../lib/engine';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { PermissionModeCard } from '../components/PermissionModeControl';
+import { PermissionRulesCard } from '../components/PermissionRulesCard';
 import { useToast } from '../components/Toast';
 import type {
   ControlPolicyRow,
@@ -65,6 +68,10 @@ export function ControlPage() {
   const [polAction, setPolAction] = useState('create');
   const [polRisk, setPolRisk] = useState<(typeof RISK_LEVELS)[number]>('HIGH');
   const [polReq, setPolReq] = useState<(typeof REQUIREMENTS)[number]>('require_approval');
+  // '' = my personal policies; otherwise a team id (organization-wide policy).
+  const [polTarget, setPolTarget] = useState('');
+  const [adminTeams, setAdminTeams] = useState<{ id: string; name: string }[]>([]);
+  const [teamPolicies, setTeamPolicies] = useState<ControlPolicyRow[]>([]);
 
   const [scanTarget, setScanTarget] = useState<(typeof SECRET_GUARD_TARGETS)[number]>('agent_output');
   const [scanRef, setScanRef] = useState('');
@@ -99,6 +106,31 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
     void load().catch(() => undefined);
   }, [load]);
 
+  // Teams the viewer owns/administers: the only ones they can set org policy for.
+  useEffect(() => {
+    api<{ teams: { id: string; name: string }[] }>('/api/v1/skill-plugins/teams')
+      .then((res) => setAdminTeams(Array.isArray(res?.teams) ? res.teams : []))
+      .catch(() => setAdminTeams([]));
+  }, []);
+
+  const loadTeamPolicies = useCallback(async (teamId: string) => {
+    if (!teamId) {
+      setTeamPolicies([]);
+      return;
+    }
+    try {
+      const res = await api<{ policies: ControlPolicyRow[] }>(`/api/v1/control/teams/${teamId}/policies`);
+      setTeamPolicies(res.policies);
+    } catch (err) {
+      setTeamPolicies([]);
+      toast(err instanceof Error ? err.message : 'could not load team policies', 'error');
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void loadTeamPolicies(polTarget);
+  }, [polTarget, loadTeamPolicies]);
+
   const setKillSwitch = async (scope: string, active: boolean) => {
     try {
       await api<{ killSwitch: KillSwitchRow }>('/api/v1/control/kill-switch', {
@@ -115,12 +147,14 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
 
   const savePolicy = async () => {
     try {
-      await api<{ policy: ControlPolicyRow }>('/api/v1/control/policies', {
+      const path = polTarget ? `/api/v1/control/teams/${polTarget}/policies` : '/api/v1/control/policies';
+      await api<{ policy: ControlPolicyRow }>(path, {
         method: 'POST',
         body: { scope: polScope, action: polAction, riskLevel: polRisk, requirement: polReq, enabled: true },
       });
-      await load();
-      toast('Policy saved');
+      if (polTarget) await loadTeamPolicies(polTarget);
+      else await load();
+      toast(polTarget ? 'Team policy saved — applies to every member\'s work in this team' : 'Policy saved');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'policy save failed', 'error');
     }
@@ -128,6 +162,11 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
 
   const deletePolicy = async (id: string) => {
     try {
+      if (polTarget) {
+        await api(`/api/v1/control/teams/${polTarget}/policies/${id}`, { method: 'DELETE' });
+        await loadTeamPolicies(polTarget);
+        return;
+      }
       await api(`/api/v1/control/policies/${id}`, { method: 'DELETE' });
       await load();
     } catch (err) {
@@ -223,8 +262,31 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
         />
       </div>
 
+      <PermissionModeCard />
+
+      <PermissionRulesCard />
+
       <div className="cc-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }} data-testid="control-policies">
         <h3 style={{ margin: 0 }}>Risk policies</h3>
+        {adminTeams.length > 0 && (
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="cc-hint">Applies to</span>
+            <select className="cc-select" aria-label="Policy applies to" value={polTarget} onChange={(e) => setPolTarget(e.target.value)}>
+              <option value="">My work (personal)</option>
+              {adminTeams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  Team: {t.name} (all members)
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {polTarget && (
+          <p className="cc-hint" style={{ margin: 0 }}>
+            Organization policy: enforced for every member&apos;s work in this team&apos;s projects. Policies only add approvals or
+            blocks — they never grant permissions.
+          </p>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="cc-select" aria-label="Policy scope" value={polScope} onChange={(e) => setPolScope(e.target.value as typeof polScope)}>
             {POLICY_SCOPES.map((s) => (
@@ -248,11 +310,11 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
           </select>
           <button className="cc-btn cc-btn--sm" onClick={() => void savePolicy()}>Save policy</button>
         </div>
-        {policies.length === 0 ? (
+        {(polTarget ? teamPolicies : policies).length === 0 ? (
           <p className="cc-hint" style={{ margin: 0 }}>No policies defined — default behaviour is permissive with risk-based approvals.</p>
         ) : (
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {policies.map((p) => (
+            {(polTarget ? teamPolicies : policies).map((p) => (
               <li key={p.id} className="cc-mono" style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span className="cc-pill" style={{ fontSize: 10 }}>{p.scope}:{p.action}</span>
                 <span className="cc-pill" style={{ fontSize: 10, background: p.risk_level === 'CRITICAL' ? '#dc2626' : '#334155', color: '#fff' }}>{p.risk_level}</span>
@@ -413,7 +475,7 @@ const [taskCost, setTaskCost] = useState<UsageFeatureCost | null>(null);
               <li key={`${c.createdAt}-${c.providerId}-${c.modelId ?? 'anon'}-${c.inputTokens}`} className="cc-mono" style={{ fontSize: 11, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <span>{new Date(c.createdAt).toLocaleString()}</span>
                 <span>{c.agent ?? 'ai'}</span>
-                <span>{c.providerId}/{c.modelId}</span>
+                <span>{engineLabel(c.providerId, c.modelId)}</span>
                 <span className="cc-hint">{c.inputTokens}+{c.outputTokens} tok · ${c.costUsd.toFixed(4)}{c.usedFallback ? ` · fallback${c.fallbackReason ? `: ${c.fallbackReason}` : ''}` : ''}{c.outcome !== 'ok' ? ` · ${c.outcome}` : ''}</span>
               </li>
             ))}

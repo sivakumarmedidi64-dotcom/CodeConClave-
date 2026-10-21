@@ -46,6 +46,8 @@ import { agentRoutes as multiAgentRoutes } from './modules/agents/routes.js';
 import { schedulingRoutes } from './modules/scheduling/routes.js';
 import { previewRoutes } from './modules/preview/routes.js';
 import { auditRoutes } from './modules/audit/routes.js';
+import { pipelineRoutes } from './engines/pipeline/routes.js';
+import { mcpRoutes } from './modules/mcp/routes.js';
 import { ideasRoutes } from './modules/ideas/routes.js';
 import { brainstormingRoutes } from './modules/brainstorming/routes.js';
 import { historyRoutes } from './modules/history/routes.js';
@@ -53,13 +55,17 @@ import { recommendationsRoutes } from './modules/recommendations/routes.js';
 import { trashRoutes } from './modules/trash/routes.js';
 import { activityRoutes } from './modules/activity/routes.js';
 import { digestRoutes } from './modules/digests/routes.js';
+import { skillPluginRoutes } from './modules/skillplugins/routes.js';
+import { accountRoutes } from './modules/account/routes.js';
+import { usageRoutes } from './modules/usage/routes.js';
+import { permissionModeRefresher } from './modules/control/permissionMode.js';
 import { operationRoutes } from './modules/operations/routes.js';
 import { apiKeyRoutes } from './modules/apikeys/routes.js';
 import { workspaceShareRoutes } from './modules/workspace/shares-routes.js';
 import { automationRoutes, webhookRoutes } from './modules/automations/routes.js';
 import { recoveryRoutes } from './modules/recovery/routes.js';
 import { engineeringRoutes } from './modules/engineering/routes.js';
-import { controlRoutes } from './modules/control/routes.js';
+import { controlRoutes, emergencyStopRoutes } from './modules/control/routes.js';
 import { engineeringIntelligenceRoutes } from './modules/engineering-intelligence/routes.js';
 import { securityIntelligenceRoutes } from './modules/security-intelligence/routes.js';
 import { developerProductivityRoutes } from './modules/developer-productivity/routes.js';
@@ -242,9 +248,15 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   // Phase 16: per-route API latency (route pattern only — never user content).
   app.use(apiLatency());
   app.use('/api/v1/auth', authRoutes());
+  // Refresh the synchronous permission-mode cache the policy engine reads.
+  app.use('/api/v1', permissionModeRefresher());
   // Entry gate: ungated authenticated status so clients can route to Billing
   // vs the workspace (server remains authoritative for the actual gates below).
   app.use('/api/v1/access', accessRoutes());
+  // Data rights (export / deletion) stay available without a paid plan.
+  app.use('/api/v1/account', accountRoutes());
+  // Your own token usage stays visible regardless of plan state.
+  app.use('/api/v1/usage', usageRoutes());
 
   // NO FREE TIER — every vendor-listed workspace router behind this comment is
   // mounted ONLY behind requireWorkspaceEntitlement(): an authenticated user
@@ -276,8 +288,8 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/copilot', paid, copilotRoutes());
   app.use('/api/v1/autonomy', paid, autonomyRoutes());
   app.use('/api/v1/dna', paid, dnaRoutes());
-  // The AI API routes are the ONE choke point external (Bearer cc_live_* key)
-  // clients use. apiKeyAuth gates them per key: authentication, the ₹9,999 API
+  // The AI API routes are the ONE choke point external (Bearer SHA_live_* key)
+  // clients use. apiKeyAuth gates them per key: authentication, the ₹50,000 API
   // Access entitlement (402 if absent) and STRICT per-key rate limits (window,
   // daily, concurrency). Requests without a Bearer key pass through unchanged
   // (session flow) and the gateway's own entitlement check covers those.
@@ -321,6 +333,9 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/scheduling', paid, schedulingRoutes());
   app.use('/api/v1/preview', paid, previewRoutes());
   app.use('/api/v1/audit', paid, auditRoutes());
+  // Execution pipeline v3: registry, runs + receipts, and the 0-token verification kernel.
+  app.use('/api/v1/pipeline', paid, pipelineRoutes());
+  app.use('/api/v1/mcp', paid, mcpRoutes());
   app.use('/api/v1/ideas', paid, ideasRoutes());
   app.use('/api/v1/brainstorming', paid, brainstormingRoutes());
   app.use('/api/v1/history', paid, historyRoutes());
@@ -328,6 +343,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/trash', paid, trashRoutes());
   app.use('/api/v1/activity', paid, activityRoutes());
   app.use('/api/v1/digests', paid, digestRoutes());
+  app.use('/api/v1/skill-plugins', paid, skillPluginRoutes());
   app.use('/api/v1/operations', paid, operationRoutes());
   app.use('/api/v1/apikeys', apiKeyRoutes());
   app.use('/api/v1/automations', paid, automationRoutes());
@@ -340,6 +356,8 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/developer-productivity', paid, developerProductivityRoutes());
   app.use('/api/v1/production-intelligence', paid, productionIntelligenceRoutes());
   app.use('/api/v1/deployment-wizard', paid, deploymentWizardRoutes());
+  // Stop everything stays reachable without a paid plan (safety control).
+  app.use('/api/v1/control/emergency-stop', emergencyStopRoutes());
   app.use('/api/v1/control', paid, controlRoutes());
   // Local Agent surface. NOT behind `paid`: `requireWorkspaceEntitlement()`
   // rejects any request without `req.ctx.user`, but POST /pair is called by the
@@ -374,7 +392,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
     '/api/v1/developer-productivity', '/api/v1/production-intelligence',
     '/api/v1/deployment-wizard', '/api/v1/control', '/api/v1/agent', '/api/v1/terminal',
     '/api/v1/remote', '/api/v1/reviews', '/api/v1/codeworkspace', '/api/v1/superpowers',
-    '/api/v1/apikeys',
+    '/api/v1/apikeys', '/api/v1/pipeline', '/api/v1/mcp',
   ]);
 
   // Built-in SPA host (OPT-IN): serves frontend/dist when it exists in the

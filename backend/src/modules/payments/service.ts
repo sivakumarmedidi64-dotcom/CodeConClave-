@@ -38,12 +38,12 @@ export interface PaymentSessionRow {
   idempotency_key?: string | null;
 }
 
-export const PLAN_PRICES_INR: Record<string, number> = { pro: 999, team: 4999, api: 9999 };
+export const PLAN_PRICES_INR: Record<string, number> = { pro: 999, team: 4999, api: 50000 };
 export const SESSION_TTL_MS = 30 * 60 * 1000;
 
 /**
  * Server-authoritative plan -> payment link mapping (from trusted config).
- * SOLO/PRO -> ₹999 link, TEAM -> ₹4999 link, API ACCESS -> ₹9,999 link.
+ * SOLO/PRO -> ₹999 link, TEAM -> ₹4999 link, API ACCESS -> ₹50,000 link.
  * Product identity is NEVER derived from amount/link alone: the intent's own
  * plan + purchase_type is the source of truth. API Access is a SEPARATE
  * product whose link is founder-provided (RAZORPAY_API_PAYMENT_LINK); there is

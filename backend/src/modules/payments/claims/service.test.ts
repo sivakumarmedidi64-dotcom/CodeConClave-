@@ -40,7 +40,7 @@ vi.mock('../../../shared/db.js', () => db);
 
 const activateEntitlement = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../service.js', () => ({
-  PLAN_PRICES_INR: { pro: 999, team: 4999, api: 9999 },
+  PLAN_PRICES_INR: { pro: 999, team: 4999, api: 50000 },
   paymentLinkForPlan: (_plan: string) => 'https://rzp.io/rzp/x',
   createRazorpayPaymentLinkForIntent: async () => null,
   activateEntitlement,
@@ -72,7 +72,7 @@ function claimRow(over: Partial<PaymentClaimRow> = {}): PaymentClaimRow {
     intent_id: 'pin_1',
     plan_id: 'api',
     purchase_type: 'api_access',
-    amount_inr: 9999,
+    amount_inr: 50000,
     currency: 'INR',
     razorpay_payment_id: 'pay_abcdefgh',
     status: 'PENDING',
@@ -94,7 +94,7 @@ function intentRow(over: Record<string, unknown> = {}): Record<string, unknown> 
     owner_id: USER,
     plan_id: 'api',
     purchase_type: 'api_access',
-    amount_inr: 9999,
+    amount_inr: 50000,
     currency: 'INR',
     reference: 'CCAPI-ABC123',
     payment_link: 'https://rzp.io/rzp/api',
@@ -184,7 +184,7 @@ describe('submitPaymentClaim — validation and server-authoritative data', () =
     expect(insert!.params[3]).toBe('pin_1');
     expect(insert!.params[4]).toBe('api');
     expect(insert!.params[5]).toBe('api_access');
-    expect(insert!.params[6]).toBe(9999);
+    expect(insert!.params[6]).toBe(50000);
     expect(insert!.params[7]).toBe('pay_abcdefgh');
   });
 
@@ -222,7 +222,7 @@ describe('submitPaymentClaim — validation and server-authoritative data', () =
     expect(view).toMatchObject({
       planId: 'api',
       purchaseType: 'api_access',
-      amountInr: 9999,
+      amountInr: 50000,
       status: 'PENDING',
       source: 'manual',
       razorpayPaymentId: 'pay_abcdefgh',

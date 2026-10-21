@@ -20,7 +20,86 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from '../components/BrandLogo';
+import { Bot, type BotState } from '../components/Bot';
 import '../styles/landing.css';
+
+/** The bot team shown on the landing page — the same specialists as in the app. */
+const LANDING_BOTS: { kind: string; state: BotState; line: string }[] = [
+  { kind: 'PLANNER', state: 'thinking', line: 'Breaks your goal into steps' },
+  { kind: 'ARCHITECT', state: 'idle', line: 'Designs the structure' },
+  { kind: 'CODER', state: 'working', line: 'Writes the code' },
+  { kind: 'TESTER', state: 'idle', line: 'Proves it works' },
+  { kind: 'SECURITY', state: 'blocked', line: 'Stops risky steps for you' },
+  { kind: 'REVIEWER', state: 'idle', line: 'Reviews every change' },
+  { kind: 'DOCS', state: 'waiting', line: 'Writes it up' },
+];
+
+interface Plan {
+  id: string;
+  name: string;
+  price: string;
+  period: string;
+  tagline: string;
+  features: string[];
+  highlight?: boolean;
+}
+
+const PLANS: Plan[] = [
+  {
+    id: 'solo',
+    name: 'Solo',
+    price: '₹999',
+    period: 'per month',
+    tagline: 'Your own AI coworker team, on web and desktop.',
+    features: [
+      'Verified answers: every reply runs the v3 pipeline and comes with a receipt',
+      'Scientific Verification Kernel: math, units, statistics, quantum and reactor physics',
+      'Chat and Cowork with the full bot team',
+      'Live preview while it builds (artifacts)',
+      'Edit local files from the web, with a diff and your OK',
+      'Desktop app: files, terminal and browser on your machine',
+      'Memory and project DNA, plus Incognito chats',
+      'Manual / Auto-accept edits / Auto, Power Mode and Stop everything',
+      'Plugins, skills and slash commands',
+      'Live usage: 5-hour session and weekly limits',
+    ],
+  },
+  {
+    id: 'team',
+    name: 'Team',
+    price: '₹4,999',
+    period: 'per month',
+    tagline: 'Everything in Solo, shared with your team.',
+    highlight: true,
+    features: [
+      'Everything in Solo for every member',
+      'Shared team workspace and projects',
+      'Team plugins: shared instructions and approved workflows',
+      'Organization-wide execution policies (strictest wins)',
+      'Roles: owner, admin, member, viewer',
+      'Team approvals and reviewer routing',
+      'Tamper-evident team audit log',
+      'Higher limits: 1M tokens per session, 10M per week',
+      'Coming soon: share a Cowork session by link, team mail and spend tracking',
+    ],
+  },
+  {
+    id: 'api',
+    name: 'API',
+    price: '₹50,000',
+    period: 'prepaid credits',
+    tagline: 'Use CodeConClave inside your own products.',
+    features: [
+      '₹50,000 of API credits per purchase',
+      'Each call uses its real token cost (₹1 per 1,000 tokens by default)',
+      'Live credits and calls meter, top right in the app',
+      'When credits run out, calls stop — top up ₹50,000 any time',
+      'OpenAI-compatible /chat/completions with SHA_live_ keys',
+      'Per-key limits: 500 calls a day, 60 a minute (defaults)',
+      'Keys stored hashed and shown once; revoke any time',
+    ],
+  },
+];
 
 interface InstallInfo {
   available: boolean;
@@ -171,6 +250,9 @@ export function LandingPage() {
             <a className="lp-nav__link lp-nav__link--secondary" href="#lp-about">
               About
             </a>
+            <a className="lp-nav__link lp-nav__link--secondary" href="#lp-pricing">
+              Pricing
+            </a>
             <a className="lp-nav__link lp-nav__link--secondary" href="#lp-features">
               Features
             </a>
@@ -211,6 +293,30 @@ export function LandingPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* -------------------------------------------------------- bot team */}
+        <section className="lp-bots" aria-labelledby="lp-bots-title">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">Your coworkers</p>
+              <h2 className="lp-section__title" id="lp-bots-title">
+                Ask once. A team of bots does the work.
+              </h2>
+              <p className="lp-section__sub">
+                Each specialist appears when your task needs them, shows you exactly what it is doing, and bursts away when its
+                part is done. The final answer lands in your chat.
+              </p>
+            </div>
+            <div className="lp-bots__row">
+              {LANDING_BOTS.map((b) => (
+                <figure key={b.kind} className="lp-bots__item">
+                  <Bot kind={b.kind} state={b.state} size={72} />
+                  <figcaption>{b.line}</figcaption>
+                </figure>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -316,8 +422,10 @@ export function LandingPage() {
             </div>
 
             <p className="lp-about__lead">
-              CodeConClave is an AI-native developer and founder operating system that brings project context, AI agents,
-              execution, verification, memory, continuity and control into one workflow.
+              CodeConClave is an AI-native developer and founder operating system — an AI coworker for builders. You
+              describe what you want; a team of specialist bots plans it,
+              builds it, tests it and reviews it — on the web, on your desktop, and in your own files with your permission.
+              Memory is the core: it remembers your projects, decisions and preferences, so work never starts over.
             </p>
 
             <div className="lp-about__grid">
@@ -355,6 +463,46 @@ export function LandingPage() {
                 Deployment integrations are part of the broader platform direction. Kuberns deployment is a proposed
                 integration and partnership capability and is not live today.
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* -------------------------------------------------------- pricing */}
+        <section className="lp-pricing" id="lp-pricing" aria-labelledby="lp-pricing-title">
+          <div className="lp-shell">
+            <div className="lp-section__head">
+              <p className="lp-section__eyebrow">Pricing</p>
+              <h2 className="lp-section__title" id="lp-pricing-title">
+                Simple plans. No free tier.
+              </h2>
+              <p className="lp-section__sub">During Early Access you can use the workspace without paying; these prices apply when it ends.</p>
+            </div>
+            <div className="lp-pricing__grid">
+              {PLANS.map((p) => (
+                <article key={p.id} className={`lp-plan${p.highlight ? ' lp-plan--highlight' : ''}`} aria-labelledby={`lp-plan-${p.id}`}>
+                  {p.highlight && <span className="lp-plan__badge">Most popular</span>}
+                  <h3 className="lp-plan__name" id={`lp-plan-${p.id}`}>
+                    {p.name}
+                  </h3>
+                  <p className="lp-plan__price">
+                    {p.price} <span>{p.period}</span>
+                  </p>
+                  <p className="lp-plan__tagline">{p.tagline}</p>
+                  <ul className="lp-plan__list">
+                    {p.features.map((f) => (
+                      <li key={f}>
+                        <span className="lp-choice__check" aria-hidden="true">
+                          ✓
+                        </span>
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link to="/login" className={`lp-btn ${p.highlight ? 'lp-btn--primary' : 'lp-btn--ghost'} lp-plan__cta`}>
+                    {p.id === 'api' ? 'Get API access' : `Start ${p.name}`}
+                  </Link>
+                </article>
+              ))}
             </div>
           </div>
         </section>

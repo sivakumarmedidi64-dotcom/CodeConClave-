@@ -568,32 +568,32 @@ describe('payment link-pool: real-link format tolerance (Finding 4)', () => {
 describe('payment link-pool: API ACCESS pool tier (plan "api")', () => {
   it('explicit PAYMENT_POOL_LINKS with plan "api" parses, seeds and preserves the api link', async () => {
     env.PAYMENT_POOL_LINKS = JSON.stringify([
-      { index: 1, paymentUrl: 'https://rzp.io/rzp/pool-api', referenceId: 'CCPOOL-API1', amount: 9999, currency: 'INR', plan: 'api', callbackPath: '/cb/1', paymentLinkId: 'plink_api1', enabled: true },
+      { index: 1, paymentUrl: 'https://rzp.io/rzp/pool-api', referenceId: 'CCPOOL-API1', amount: 50000, currency: 'INR', plan: 'api', callbackPath: '/cb/1', paymentLinkId: 'plink_api1', enabled: true },
       { index: 2, paymentUrl: 'https://rzp.io/rzp/pool-team2', referenceId: 'CCPOOL-TEAM2', amount: 4999, currency: 'INR', plan: 'team', callbackPath: '/cb/2', paymentLinkId: 'plink_t2', enabled: true },
     ]);
     const report = await seedPaymentPool();
     expect(report.seeded).toBe(2);
     expect(report.skipped).toBe(0);
     expect(store.poolRows.get(1)).toMatchObject({
-      plan: 'api', amount: 9999, currency: 'INR',
+      plan: 'api', amount: 50000, currency: 'INR',
       reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1', razorpay_url: 'https://rzp.io/rzp/pool-api',
     });
     expect(store.poolRows.get(2)).toMatchObject({ plan: 'team', amount: 4999 });
   });
 
-  it('placeholder (unconfigured) catalogue includes API ACCESS links at the ₹9,999 price', async () => {
+  it('placeholder (unconfigured) catalogue includes API ACCESS links at the ₹50,000 price', async () => {
     env.PAYMENT_POOL_LINKS = undefined as unknown as string;
     const cfg = paymentPoolConfig();
     const apiLinks = cfg.links.filter((l) => l.plan === 'api');
     expect(apiLinks.length).toBeGreaterThan(0);
-    expect(apiLinks.every((l) => l.amount === 9999 && l.currency === 'INR')).toBe(true);
+    expect(apiLinks.every((l) => l.amount === 50000 && l.currency === 'INR')).toBe(true);
     expect(apiLinks.every((l) => l.referenceId.startsWith('CCPOOL-'))).toBe(true);
     const report = await seedPaymentPool();
     expect(report.skipped).toBe(0);
     expect(report.active).toBeGreaterThan(0);
   });
 
-  it('rejects an explicit api link whose amount is not the authoritative ₹9,999', async () => {
+  it('rejects an explicit api link whose amount is not the authoritative ₹50,000', async () => {
     env.PAYMENT_POOL_LINKS = JSON.stringify([
       { index: 1, paymentUrl: 'https://rzp.io/rzp/pool-api', referenceId: 'CCPOOL-API1', amount: 1, currency: 'INR', plan: 'api', callbackPath: '/cb/1', paymentLinkId: 'plink_api1', enabled: true },
     ]);
@@ -601,6 +601,6 @@ describe('payment link-pool: API ACCESS pool tier (plan "api")', () => {
     expect(report.seeded).toBe(0);
     expect(report.skipped).toBe(1);
     expect(report.total).toBe(0);
-    expect(report.warnings.join(' ')).toMatch(/API price 9999/);
+    expect(report.warnings.join(' ')).toMatch(/API price 50000/);
   });
 });

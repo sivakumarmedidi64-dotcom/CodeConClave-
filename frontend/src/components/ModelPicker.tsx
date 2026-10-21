@@ -102,6 +102,7 @@ export function ModelPicker({
   onChange,
   onRouting,
   residentOnly,
+  onResidentStatus,
 }: {
   value: string | undefined;
   onChange: (modelId: string) => void;
@@ -109,12 +110,37 @@ export function ModelPicker({
   onRouting?: (r: { provider?: string; model?: string; reason?: string } | null) => void;
   /** Home screens show ONLY CodeConClave AI — one AI, router picks 1 driver per task. */
   residentOnly?: boolean;
+  /** Reports whether any resident driver can actually answer (server probe). */
+  onResidentStatus?: (ready: boolean) => void;
 }) {
   const [models, setModels] = useState<AiModel[]>([]);
   const [defaultModel, setDefaultModel] = useState<string | undefined>();
   const [preview, setPreview] = useState<RoutingPreview | null>(null);
   const [providerState, setProviderState] = useState<Record<string, string>>({});
   const [providerSnapshot, setProviderSnapshot] = useState<Record<string, string>>({});
+  // null = not known yet. CodeConClave AI is offered only when the server's
+  // probe says at least one tuned driver is reachable — never as decoration.
+  const [residentReady, setResidentReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void api<{ status: { anyReady?: boolean } }>('/api/v1/ai/resident/status')
+      .then((res) => {
+        if (!active) return;
+        const ready = res?.status?.anyReady === true;
+        setResidentReady(ready);
+        onResidentStatus?.(ready);
+      })
+      .catch(() => {
+        if (!active) return;
+        setResidentReady(false);
+        onResidentStatus?.(false);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -203,9 +229,10 @@ export function ModelPicker({
       if (snap && DEAD_SNAPSHOT.has(snap)) return false;
       return true;
     });
-    if (residentOnly) return [RESIDENT];
-    return [RESIDENT, ...rows.filter((m) => m.id !== RESIDENT.id)];
-  }, [models, providerState, providerSnapshot, residentOnly]);
+    const resident = residentReady ? [RESIDENT] : [];
+    if (residentOnly) return resident;
+    return [...resident, ...rows.filter((m) => m.id !== RESIDENT.id)];
+  }, [models, providerState, providerSnapshot, residentOnly, residentReady]);
 
   useEffect(() => {
     const current = visible.find((m) => m.id === value);
@@ -227,7 +254,12 @@ export function ModelPicker({
         onChange={(e) => onChange(e.target.value)}
       >
         <option value={AUTO_MODEL}>AUTO</option>
-        {visible.length === 0 && (
+        {residentOnly && residentReady === false && (
+          <option value="" disabled>
+            CodeConClave AI — not running (no model host connected)
+          </option>
+        )}
+        {visible.length === 0 && !residentOnly && (
           <option value="" disabled>
             No models available — connect a provider
           </option>

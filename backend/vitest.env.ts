@@ -123,4 +123,7 @@ export const ENV = {
   LOCAL_AGENT_PORT: '43121',
   LOCAL_AGENT_TOKEN_TTL_HOURS: '1',
   LOCAL_AGENT_WS_URL: 'ws://localhost:4000/agent',
+  // Legacy chat suites drive the direct gateway path; the v3 pipeline has its
+  // own suites (src/engines/**) and turns itself on where it is under test.
+  PIPELINE_V3: 'off',
 } as const;

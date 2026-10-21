@@ -80,13 +80,13 @@ afterEach(() => {
 describe('makeApiKeySecret', () => {
   it('produces a prefixed secret with the expected shape', () => {
     const secret = makeApiKeySecret();
-    expect(secret).toMatch(/^cc_live_[a-z0-9]{24}$/);
+    expect(secret).toMatch(/^SHA_live_[a-z0-9]{24}$/);
   });
 
   it('never embeds SAHARSH or any brand suffix in the secret', () => {
     for (let i = 0; i < 50; i++) {
       expect(makeApiKeySecret()).not.toContain('SAHARSH');
-      expect(makeApiKeySecret()).toMatch(/^cc_live_[a-z0-9]{24}$/);
+      expect(makeApiKeySecret()).toMatch(/^SHA_live_[a-z0-9]{24}$/);
     }
   });
 
@@ -103,7 +103,7 @@ describe('createUserApiKey — provisioning', () => {
       : text.includes('SELECT * FROM user_api_keys WHERE id') ? [row()]
       : null;
     const result = await createUserApiKey(USER_ID, '  CI pipeline  ');
-    expect(result.key).toMatch(/^cc_live_[a-z0-9]{24}$/);
+    expect(result.key).toMatch(/^SHA_live_[a-z0-9]{24}$/);
     expect(result.id).toBe('ak_abc'); // id comes from the stored row
     expect(result.name).toBe('CI pipeline');
 
@@ -146,7 +146,7 @@ describe('listUserApiKeys — masking', () => {
     expect(keys).toHaveLength(2);
     keys.forEach((k) => {
       expect(k).not.toHaveProperty('key');
-      expect(k.keyPrefix).toMatch(/^cc_live_/);
+      expect(k.keyPrefix).toMatch(/^(SHA|cc)_live_/);
     });
     const call = db.state.calls.find((c) => c.text.includes('FROM user_api_keys WHERE owner_id'));
     expect(call!.params[0]).toBe(USER_ID);

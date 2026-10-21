@@ -2,7 +2,7 @@
  * CodeConClave — PAYMENT AUTOPILOT (UNLOCK_MODE=AUTOPILOT) test matrix.
  *
  * Covers the three paid products (Solo/Pro ₹999, Team ₹4,999, API Access
- * ₹9,999) on the AUTOPILOT webhook rail, the fail-closed rules (invalid,
+ * ₹50,000) on the AUTOPILOT webhook rail, the fail-closed rules (invalid,
  * mismatched, duplicate, replayed, unverifiable), exactly-once/idempotent
  * behavior, offline-admin independence, and the API-access security boundary
  * (a Solo/Team purchase can never produce API Access).
@@ -276,7 +276,7 @@ describe('resolveAutopilotIntent — all three products auto-resolve (offline ad
   const matrix = [
     { plan: 'pro', price: 999, linkId: 'plink_pro', email: 'alice@example.com' },
     { plan: 'team', price: 4999, linkId: 'plink_team', email: 'bob@example.com' },
-    { plan: 'api', purchase: 'api_access', price: 9999, linkId: 'plink_api', email: 'carol@example.com' },
+    { plan: 'api', purchase: 'api_access', price: 50000, linkId: 'plink_api', email: 'carol@example.com' },
   ];
 
   it.each(matrix)('resolves $plan ₹$price to its unique pending intent', async ({ plan, price, linkId, email }) => {
@@ -292,8 +292,8 @@ describe('resolveAutopilotIntent — all three products auto-resolve (offline ad
   it('an api purchase resolves to the api intent (never pro/team)', async () => {
     seedUser('u_owner', 'carol@example.com');
     seedIntent({ id: 'pin_pro', owner_id: 'u_owner', plan_id: 'pro', amount_inr: 999 });
-    seedIntent({ id: 'pin_api', owner_id: 'u_owner', plan_id: 'api', amount_inr: 9999 });
-    const r = await resolveAutopilotIntent(webhook('plink_api', 999900, 'carol@example.com'));
+    seedIntent({ id: 'pin_api', owner_id: 'u_owner', plan_id: 'api', amount_inr: 50000 });
+    const r = await resolveAutopilotIntent(webhook('plink_api', 5000000, 'carol@example.com'));
     expect(r?.intent?.id).toBe('pin_api');
   });
 });
@@ -396,9 +396,9 @@ describe('API security boundary', () => {
 
   it('API-first: resolver never returns an api intent from an unknown-link payment', async () => {
     seedUser('u_owner', 'carol@example.com');
-    seedIntent({ id: 'pin_api', owner_id: 'u_owner', plan_id: 'api', amount_inr: 9999 });
+    seedIntent({ id: 'pin_api', owner_id: 'u_owner', plan_id: 'api', amount_inr: 50000 });
     // Correct amount, wrong/unconfigured link identity: refuse.
-    expect(await resolveAutopilotIntent(webhook('plink_unknown', 999900, 'carol@example.com'))).toBeNull();
+    expect(await resolveAutopilotIntent(webhook('plink_unknown', 5000000, 'carol@example.com'))).toBeNull();
   });
 });
 

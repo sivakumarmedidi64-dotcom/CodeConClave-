@@ -5,11 +5,14 @@
  * collapsible "More" group; admin routes are appended for operators. Labels
  * are short OS-style names, no marketing or feature-catalog language.
  */
-import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { BrandLogo } from './BrandLogo';
-import type { User } from '../lib/types';
+import { api } from '../lib/api';
+import { CONVERSATIONS_CHANGED, TOGGLE_SIDEBAR } from '../lib/appEvents';
+import { UserAvatar } from './UserAvatar';
+import type { Conversation, User } from '../lib/types';
 import { useEarlyAccess } from '../lib/accessMode';
 
 interface NavItem {
@@ -26,7 +29,10 @@ const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
       { to: '/projects', label: 'Projects', icon: 'folder' },
       { to: '/agents', label: 'Agents', icon: 'layers' },
       { to: '/work', label: 'Tasks', icon: 'bolt' },
-      { to: '/plugins', label: 'Connectors', icon: 'puzzle' },
+      { to: '/code-review', label: 'Code review', icon: 'eye' },
+      { to: '/local', label: 'Local files', icon: 'monitor' },
+      { to: '/skills', label: 'Plugins', icon: 'puzzle' },
+      { to: '/plugins', label: 'Connectors', icon: 'plug' },
       { to: '/settings', label: 'Settings', icon: 'settings' },
     ],
   },
@@ -38,10 +44,12 @@ const MORE_ITEMS: NavItem[] = [
   { to: '/coworker#scan', label: 'Code Map', icon: 'search' },
   { to: '/files', label: 'Files', icon: 'file' },
   { to: '/terminal', label: 'Terminal', icon: 'terminal' },
+  { to: '/browser', label: 'Browser', icon: 'compass' },
   { to: '/automation', label: 'Automation', icon: 'cog' },
   { to: '/workspace', label: 'Repo Workspace', icon: 'monitor' },
   { to: '/coworkers', label: 'Coworkers', icon: 'users' },
   { to: '/teams', label: 'Teams', icon: 'users' },
+  { to: '/pipeline', label: 'Pipeline', icon: 'shield-check' },
   { to: '/control', label: 'Control', icon: 'sliders' },
   { to: '/remote', label: 'Remote', icon: 'radio' },
   { to: '/ideas', label: 'Ideas', icon: 'bulb' },
@@ -56,14 +64,6 @@ const ADMIN_ITEMS: NavItem[] = [
   { to: '/admin/ai-usage', label: 'AI Usage', icon: 'sparkle' },
 ];
 
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  const first = parts[0]?.charAt(0) ?? '';
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.charAt(0) ?? '') : '';
-  return (first + last).toUpperCase();
-}
-
 /** Friendly plan pill label (customer names, not internal ids). */
 function planLabel(user: User): string {
   switch (user.planId) {
@@ -76,8 +76,41 @@ function planLabel(user: User): string {
     case 'enterprise':
       return 'Enterprise';
     default:
-      return 'Free';
+      // There is no free tier: an unpaid account has no plan yet.
+      return 'No plan';
   }
+}
+
+const RECENTS_LIMIT = 8;
+
+/** Most recent non-archived conversations; refreshed when the route changes. */
+function useRecentConversations(): Conversation[] {
+  const location = useLocation();
+  const [recents, setRecents] = useState<Conversation[]>([]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    window.addEventListener(CONVERSATIONS_CHANGED, bump);
+    return () => window.removeEventListener(CONVERSATIONS_CHANGED, bump);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    api<{ conversations: Conversation[] }>('/api/v1/conversations')
+      .then((res) => {
+        if (!alive || !Array.isArray(res?.conversations)) return;
+        const sorted = [...res.conversations]
+          .filter((c) => !c.archived && !c.deletedAt)
+          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+        setRecents(sorted.slice(0, RECENTS_LIMIT));
+      })
+      .catch(() => {
+        if (alive) setRecents([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [location.pathname, tick]);
+  return recents;
 }
 
 function NavRow({ item }: { item: NavItem }) {
@@ -101,6 +134,10 @@ export function Sidebar({ user }: { user: User }) {
   // Early access: the account pill reports the access stage, never a plan tier.
   const earlyAccess = useEarlyAccess();
   const [moreOpen, setMoreOpen] = useState(false);
+  const recents = useRecentConversations();
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const activeConv = location.pathname === '/chat' ? params.get('c') : null;
 
   const name = user.displayName ?? user.email ?? 'Account';
 
@@ -110,6 +147,21 @@ export function Sidebar({ user }: { user: User }) {
         <BrandLogo variant="mark" height={22} />
         <span style={{ fontWeight: 700 }}>CodeConClave</span>
       </NavLink>
+      <button
+        type="button"
+        className="cc-sidebar__close"
+        aria-label="Close sidebar"
+        title="Close sidebar (Ctrl+B)"
+        onClick={() => window.dispatchEvent(new Event(TOGGLE_SIDEBAR))}
+      >
+        <Icon name="panel-left" size={16} />
+      </button>
+      <Link to="/chat?new=1" className="cc-sidebar__new" title="Start a new conversation">
+        <span className="cc-sidebar__new-icon" aria-hidden="true">
+          <Icon name="plus" size={14} />
+        </span>
+        <span className="cc-sidebar__label">New chat</span>
+      </Link>
       <nav className="cc-sidebar__nav" aria-label="Workspace navigation">
         {PRIMARY_SECTIONS.map((section) => (
           <div key={section.label}>
@@ -136,6 +188,25 @@ export function Sidebar({ user }: { user: User }) {
           ))}
         </div>
 
+        {recents.length > 0 && (
+          <div className="cc-sidebar__recents" aria-label="Recent conversations">
+            <div className="cc-sidebar__section">Recents</div>
+            {recents.map((c) => (
+              <Link
+                key={c.id}
+                to={`/chat?c=${encodeURIComponent(c.id)}`}
+                className={`cc-sidebar__recent${activeConv === c.id ? ' active' : ''}`}
+                title={c.title}
+              >
+                <span className="cc-sidebar__label">{c.title || 'Untitled conversation'}</span>
+              </Link>
+            ))}
+            <Link to="/chats" className="cc-sidebar__recent cc-sidebar__recent--all">
+              <span className="cc-sidebar__label">All chats →</span>
+            </Link>
+          </div>
+        )}
+
         {isAdmin && (
           <div>
             <div className="cc-sidebar__section">Admin</div>
@@ -146,8 +217,8 @@ export function Sidebar({ user }: { user: User }) {
         )}
       </nav>
       <div className="cc-sidebar__foot">
-        <span className="cc-moon cc-moon--sm" title={name} aria-hidden="true">
-          {initialsOf(name)}
+        <span title={name}>
+          <UserAvatar name={name} size={26} />
         </span>
         <span className="cc-sidebar__label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
           {name}

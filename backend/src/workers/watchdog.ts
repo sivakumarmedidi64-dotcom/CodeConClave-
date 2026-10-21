@@ -24,6 +24,9 @@ import { expireIdempotencyKeys } from '../modules/idempotency/service.js';
 import { sweepScheduledRuns } from '../modules/scheduling/executor.js';
 import { sweepAutomations } from '../modules/automations/executor.js';
 import { sweepAutopsies } from '../modules/recovery/autopsy.js';
+import { sweepDueDeletions } from '../modules/account/service.js';
+import { purgeIdleIncognito } from '../modules/conversations/service.js';
+import { env } from '../config/env.js';
 import { expireDurableCounters } from '../shared/durable-counters.js';
 import { expireChallengeUses } from '../shared/durable-challenges.js';
 import { expireStaleApiKeyConcurrency } from '../shared/durable-concurrency.js';
@@ -86,6 +89,8 @@ export async function sweepOnce(): Promise<Record<string, number>> {
   await sweep('scheduledRuns', out, () => sweepScheduledRuns());
   await sweep('automations', out, () => sweepAutomations());
   await sweep('autopsies', out, () => sweepAutopsies());
+  await sweep('accountDeletions', out, () => sweepDueDeletions());
+  await sweep('incognito', out, () => purgeIdleIncognito(env.INCOGNITO_RETENTION_HOURS));
   // Deterministic TTL cleanup for the durable state that replaces the Redis
   // store. Every one of these predicates is indexed on expires_at, bounded, and
   // idempotent, so running them from several instances concurrently is safe and

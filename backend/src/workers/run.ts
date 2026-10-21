@@ -9,8 +9,10 @@ import { registerPaymentTools } from '../modules/payments/tools.js';
 import { registerPlugins } from '../modules/plugins/index.js';
 import { initCache } from '../shared/cache.js';
 import { logger } from '../shared/logger.js';
+import { installProcessGuards } from '../shared/process-guards.js';
 
 async function main(): Promise<void> {
+  installProcessGuards();
   await initCache();
   registerCoreTools();
   registerPaymentTools();

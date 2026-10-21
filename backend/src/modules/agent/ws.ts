@@ -48,7 +48,19 @@ export class AgentHub {
   private alive = new Map<string, boolean>();
 
   constructor() {
-    this.wss.on('connection', (ws) => this.onConnection(ws));
+    // onConnection/onMessage hit the database (agent auth, heartbeats). An
+    // event-emitter callback has no caller to reject to, so a DB outage here
+    // must be caught explicitly — otherwise it is an unhandled rejection.
+    this.wss.on('connection', (ws) => {
+      this.onConnection(ws).catch((err) => {
+        logger.warn('agent connection setup failed', { err: err instanceof Error ? err.message : String(err) });
+        try {
+          ws.close(1011, 'server unavailable');
+        } catch {
+          /* already closed */
+        }
+      });
+    });
     setInterval(() => this.keepaliveSweep(), KEEPALIVE_MS).unref();
   }
 
@@ -113,7 +125,11 @@ export class AgentHub {
     logger.info('agent connected', { userId: device.user_id, deviceId: device.id });
     await recordAgentAudit('AGENT_CONNECTED', device.user_id, device.id);
 
-    ws.on('message', (data) => void this.onMessage(connectionKey, device, data.toString()));
+    ws.on('message', (data) => {
+      this.onMessage(connectionKey, device, data.toString()).catch((err) =>
+        logger.warn('agent message handling failed', { err: err instanceof Error ? err.message : String(err) }),
+      );
+    });
     ws.on('close', () => {
       this.clients.delete(connectionKey);
       this.alive.delete(connectionKey);

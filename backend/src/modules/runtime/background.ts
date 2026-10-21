@@ -10,6 +10,7 @@
  */
 import { withTenant } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
+import { logger } from '../../shared/logger.js';
 import { newId, PREFIX } from '../../shared/ids.js';
 import type { BackgroundTask, CreateBackgroundInput, RuntimeExecutionStatus } from './types.js';
 import {
@@ -109,7 +110,11 @@ export class RuntimeBackgroundEngine {
     broadcastRuntime(input.projectId, { type: 'background', id, projectId: input.projectId, status: 'STARTING', ts: new Date().toISOString() });
 
     const timeoutMs = input.timeoutMs && input.timeoutMs > 0 ? input.timeoutMs : this.config().timeoutMs;
-    void this.finalizeRun(userId, id, input.projectId, command, root!, timeoutMs);
+    // Detached: nothing awaits this, so a DB failure (e.g. pool connect
+    // timeout) must be caught here rather than escape as an unhandled rejection.
+    this.finalizeRun(userId, id, input.projectId, command, root!, timeoutMs).catch((err) =>
+      logger.warn('background task finalize failed', { id, error: err instanceof Error ? err.message : String(err) }),
+    );
     return this.getRowView(userId, id, input.projectId);
   }
 

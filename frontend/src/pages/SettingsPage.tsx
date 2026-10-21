@@ -3,12 +3,12 @@
  * Billing/payments, Preferences. Idempotent against the API contract.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { api } from '../lib/api';
 import { copyText } from '../lib/clipboard';
 import { applyTheme, isTheme } from '../lib/theme';
-import { setResponseSoundEnabled } from '../lib/responseSound';
+import { previewResponseSound, setResponseSoundEnabled } from '../lib/responseSound';
 import {
   browserNotificationCapability,
   requestBrowserNotificationPermission,
@@ -34,11 +34,108 @@ import type {
   UserApiKey,
 } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { Icon, type IconName } from '../components/Icon';
+import { PersonalizationPanel } from '../components/PersonalizationPanel';
+import { UsagePanel } from '../components/UsagePanel';
+import { AvatarPicker } from '../components/UserAvatar';
+import { AccountDataPanel } from '../components/AccountDataPanel';
+import { AuditIntegrityCard } from '../components/AuditIntegrityCard';
+import { ApiCreditsCard } from '../components/ApiCreditsCard';
 import { useEarlyAccess } from '../lib/accessMode';
 
-type Tab = 'profile' | 'security' | 'devices' | 'billing' | 'preferences' | 'notifications' | 'providers' | 'apikeys' | 'memory';
+type Tab =
+  | 'profile'
+  | 'preferences'
+  | 'notifications'
+  | 'usage'
+  | 'billing'
+  | 'security'
+  | 'devices'
+  | 'providers'
+  | 'apikeys'
+  | 'memory'
+  | 'data';
 
-const SETTINGS_TABS: readonly Tab[] = ['profile', 'security', 'devices', 'billing', 'preferences', 'notifications', 'providers', 'apikeys', 'memory'];
+const SETTINGS_TABS: readonly Tab[] = [
+  'profile',
+  'security',
+  'data',
+  'billing',
+  'usage',
+  'preferences',
+  'memory',
+  'notifications',
+  'devices',
+  'providers',
+  'apikeys',
+];
+
+/** Older ?tab= links that now live inside another section. */
+const TAB_ALIASES: Record<string, Tab> = { personalization: 'profile', models: 'providers', privacy: 'data', account: 'security' };
+
+/** Menu names + icons, Claude-style (ids stay stable for ?tab= links). */
+const TAB_META: Record<Tab, { label: string; icon: IconName }> = {
+  profile: { label: 'General', icon: 'user' },
+  security: { label: 'Account', icon: 'lock' },
+  data: { label: 'Privacy', icon: 'eye' },
+  billing: { label: 'Billing', icon: 'wallet' },
+  usage: { label: 'Usage', icon: 'chart' },
+  preferences: { label: 'Capabilities', icon: 'sliders' },
+  memory: { label: 'Memory', icon: 'brain' },
+  notifications: { label: 'Notifications', icon: 'bell' },
+  devices: { label: 'System', icon: 'monitor' },
+  providers: { label: 'Developer', icon: 'code' },
+  apikeys: { label: 'API keys', icon: 'key' },
+};
+
+interface NavLinkItem {
+  label: string;
+  icon: IconName;
+  to: string;
+}
+
+/** The settings menu, grouped like Claude's. Links open their own pages. */
+const NAV_GROUPS: { heading?: string; tabs: Tab[]; links?: NavLinkItem[] }[] = [
+  {
+    tabs: ['profile', 'security', 'data', 'billing', 'usage', 'preferences', 'memory', 'notifications'],
+    links: [{ label: 'CodeConClave Code', icon: 'code', to: '/code-review' }],
+  },
+  { heading: 'This computer', tabs: ['devices', 'providers'], links: [{ label: 'Local files', icon: 'folder', to: '/local' }] },
+  {
+    heading: 'Customize',
+    tabs: [],
+    links: [
+      { label: 'Guided setup', icon: 'rocket', to: '/home?setup=1' },
+      { label: 'Skills', icon: 'book', to: '/skills?tab=installed' },
+      { label: 'Connectors', icon: 'plug', to: '/plugins' },
+      { label: 'MCP servers', icon: 'link', to: '/mcp' },
+      { label: 'Plugins', icon: 'puzzle', to: '/skills' },
+    ],
+  },
+  { heading: 'Platform', tabs: ['apikeys'] },
+];
+
+/**
+ * "Only our AI": the individual AI engines behind the gateway are collapsed
+ * into one CodeConClave AI row (best status wins). Other services (payments,
+ * email, sign-in…) are listed as they are.
+ */
+function oneAiProviders(list: ProviderStatusEntry[]): ProviderStatusEntry[] {
+  const ai = list.filter((p) => p.category === 'ai');
+  const rest = list.filter((p) => p.category !== 'ai');
+  const rank: ProviderStatusEntry['status'][] = ['AVAILABLE', 'DEGRADED', 'LIMITED', 'REQUIRES_REAUTH', 'FAILED', 'NOT_CONFIGURED'];
+  const best = ai.map((p) => p.status).sort((a, b) => rank.indexOf(a) - rank.indexOf(b))[0] ?? 'NOT_CONFIGURED';
+  const row = {
+    id: 'codeconclave-ai',
+    name: 'CodeConClave AI',
+    category: 'ai',
+    status: best,
+    reason: ai.length
+      ? `${ai.length} engine${ai.length === 1 ? '' : 's'} configured`
+      : 'No AI engine configured yet. Start your own models (scripts/setup-resident-models.ps1) or add engine keys in .env.',
+  } as ProviderStatusEntry;
+  return [row, ...rest];
+}
 
 const PROVIDER_STATUS_LABEL: Record<ProviderStatusEntry['status'], string> = {
   AVAILABLE: 'Available',
@@ -64,7 +161,8 @@ export function SettingsPage() {
   // The URL is the single source of truth for the active tab: deep links,
   // refresh, back/forward, and in-page tab clicks all resolve identically with
   // no duplicated state to fall out of sync.
-  const tabParam = searchParams.get('tab');
+  const rawTab = searchParams.get('tab');
+  const tabParam = rawTab && TAB_ALIASES[rawTab] ? TAB_ALIASES[rawTab] : rawTab;
   // Early access drops `billing` from the available sections entirely, so a
   // leftover /settings?tab=billing deep link falls back to the default tab
   // rather than rendering dormant payment chrome. In a demo build the billing
@@ -677,21 +775,53 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="cc-page">
+    <div className="cc-page cc-settings">
       <h1>Settings</h1>
-      <div className="cc-toggle" role="tablist" aria-label="Settings sections">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            className={tab === t ? 'on' : ''}
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => selectTab(t)}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <div className="cc-settings__layout">
+      <nav className="cc-settings__nav" aria-label="Settings sections">
+        {NAV_GROUPS.map((g) => {
+          const groupTabs = g.tabs.filter((t) => tabs.includes(t));
+          return (
+            <div key={g.heading ?? 'main'} className="cc-settings__section">
+              {g.heading && <div className="cc-settings__group">{g.heading}</div>}
+              {groupTabs.length > 0 && (
+                <div role="tablist" aria-label={g.heading ?? 'Settings'} aria-orientation="vertical">
+                  {groupTabs.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`cc-settings__tab${tab === t ? ' on' : ''}`}
+                      role="tab"
+                      aria-selected={tab === t}
+                      onClick={() => selectTab(t)}
+                    >
+                      <Icon name={TAB_META[t].icon} size={16} className="cc-settings__tab-icon" />
+                      {TAB_META[t].label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {g.links?.map((l) => (
+                <Link key={l.to} to={l.to} className="cc-settings__tab cc-settings__link">
+                  <Icon name={l.icon} size={16} className="cc-settings__tab-icon" />
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
+      <div className="cc-settings__panel">
+
+      {tab === 'usage' && <UsagePanel />}
+
+      {tab === 'profile' && (
+        <div className="cc-card">
+          <h3>Profile picture</h3>
+          <p className="cc-hint" style={{ marginTop: 0 }}>Pick how you appear across CodeConClave.</p>
+          <AvatarPicker name={user?.displayName ?? user?.email ?? ''} />
+        </div>
+      )}
 
       {tab === 'profile' && (
         <div className="cc-card">
@@ -767,6 +897,8 @@ export function SettingsPage() {
           )}
         </div>
       )}
+
+      {tab === 'profile' && <PersonalizationPanel />}
 
       {tab === 'security' && (
         <>
@@ -1069,7 +1201,7 @@ export function SettingsPage() {
                 <div>
                   <div style={{ fontWeight: 600 }}>API Access</div>
                   <div style={{ fontSize: 22, fontWeight: 600, color: 'var(--cc-accent)' }}>
-                    ₹{capability.plans.api ?? 9999}
+                    ₹{capability.plans.api ?? 50000}
                     <span className="cc-hint" style={{ fontSize: 12, fontWeight: 400 }}> / month</span>
                   </div>
                   <p className="cc-home__hint" style={{ maxWidth: 460 }}>
@@ -1084,7 +1216,7 @@ export function SettingsPage() {
                     </button>
                   ) : (
                     <button className="cc-btn cc-btn--primary" disabled={billingBusy} onClick={() => void upgrade('api')}>
-                      {billingBusy ? 'Creating session…' : `Upgrade to API Access (₹${capability.plans.api ?? 9999})`}
+                      {billingBusy ? 'Creating session…' : `Upgrade to API Access (₹${capability.plans.api ?? 50000})`}
                     </button>
                   )}
                   {apiAccessState !== 'idle' && (
@@ -1164,7 +1296,7 @@ export function SettingsPage() {
                   (e.g. <span className="cc-mono">CCPRO-XXXXXX</span>), then paste the Razorpay Payment ID
                   (<span className="cc-mono">pay_...</span>) from your confirmation screen or e-mail. Startup
                   amounts are ₹{capability.plans.pro ?? 999} (Solo), ₹{capability.plans.team ?? 4999} (Team) and
-                  ₹{capability.plans.api ?? 9999} (API Access).
+                  ₹{capability.plans.api ?? 50000} (API Access).
                 </p>
               </div>
               {(() => {
@@ -1323,16 +1455,11 @@ export function SettingsPage() {
             <p className="cc-hint">Saved on the server and applied everywhere you sign in.</p>
           </div>
           <div className="cc-field">
-            <label htmlFor="pref-model">Default model</label>
-            <select id="pref-model" className="cc-input" style={{ width: 280 }} value={modelPref} onChange={(e) => void saveModelPref(e.target.value)}>
-              <option value="">server default</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label} ({m.providerId}) — {m.tier}
-                </option>
-              ))}
-            </select>
-            <p className="cc-hint">Applied when the composer has no model selected.</p>
+            <span>AI</span>
+            <p style={{ margin: 0 }}>
+              <strong>CodeConClave AI</strong> <span className="cc-hint">(automatic)</span>
+            </p>
+            <p className="cc-hint">One AI. It picks the best engine for each task — CodeConClave&apos;s own models first.</p>
           </div>
           <div className="cc-field">
             <label htmlFor="pref-sound">
@@ -1343,8 +1470,11 @@ export function SettingsPage() {
                 onChange={(e) => void toggleSound(e.target.checked)}
               />{' '}
               Response-ready sound
-            </label>
-            <p className="cc-hint">Chime when a response finishes. ON by default; generated in real time, never a static file.</p>
+            </label>{' '}
+            <button type="button" className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => previewResponseSound()}>
+              Play sample
+            </button>
+            <p className="cc-hint">Plays the CodeConClave guitar cue once when a response finishes. ON by default.</p>
           </div>
           <textarea
             className="cc-textarea cc-mono"
@@ -1484,7 +1614,7 @@ export function SettingsPage() {
 
       {tab === 'providers' && (
         <div className="cc-card">
-          <h3>Provider status</h3>
+          <h3>Service status</h3>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={() => void loadProviders()}>
               ↻ Refresh
@@ -1506,7 +1636,7 @@ export function SettingsPage() {
                 </tr>
               </thead>
               <tbody>
-                {providers.map((p) => (
+                {oneAiProviders(providers).map((p) => (
                   <tr key={p.id}>
                     <td>
                       {p.name} <span className="cc-hint">({p.category})</span>
@@ -1558,12 +1688,13 @@ export function SettingsPage() {
         </div>
       )}
 
+      {tab === 'apikeys' && <ApiCreditsCard />}
       {tab === 'apikeys' && (
         <div className="cc-card">
           <h3>API Keys</h3>
           <p className="cc-hint" style={{ marginTop: 4 }}>
             Create API keys to access CodeConClave programmatically. The secret is shown only once at creation.
-            These keys control your CodeConClave account — they are not Gemini, Mistral, or Nemotron provider keys.
+            These are CodeConClave keys (they start with SHA_live_) for calling CodeConClave AI — not keys for any other AI service.
           </p>
 
           {justCreatedKey && (
@@ -1599,7 +1730,7 @@ export function SettingsPage() {
           ) : !__DEMO_BUILD__ && apiAccess && !apiAccess.entitled ? (
             <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--cc-border, #ddd)', borderRadius: 6, background: 'var(--cc-bg-soft, #fafafa)' }}>
               <p style={{ margin: 0 }}>
-                {`API keys require the API Access add-on (₹${capability?.plans.api ?? 9999}/month). Solo and Team plans do not include API keys.`}
+                {`API keys require the API Access add-on (₹${capability?.plans.api ?? 50000}/month). Solo and Team plans do not include API keys.`}
               </p>
               <button className="cc-btn cc-btn--sm" style={{ marginTop: 8 }} onClick={() => selectTab('billing')}>
                 Go to Billing
@@ -1671,6 +1802,9 @@ export function SettingsPage() {
           )}
         </div>
       )}
+
+      {tab === 'data' && <AuditIntegrityCard />}
+      {tab === 'data' && <AccountDataPanel email={user?.email ?? ''} />}
 
       {tab === 'memory' && (
         <div className="cc-card">
@@ -1794,6 +1928,8 @@ export function SettingsPage() {
         <a className="cc-btn cc-btn--sm cc-btn--ghost" href="mailto:medidisaharsh@gmail.com">
           Contact support
         </a>
+      </div>
+      </div>
       </div>
     </div>
   );

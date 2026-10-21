@@ -94,7 +94,12 @@ describe('LandingPage', () => {
         expect(screen.queryByRole('link', { name: cta })).toBeNull();
         expect(screen.queryByRole('button', { name: cta })).toBeNull();
       }
-      expect(document.body.textContent).not.toMatch(/₹/);
+      // Prices are shown (product decision 2026-10-20) — but only inside the
+      // Pricing section, with the Early Access note, never as a pay-now push.
+      const pricing = document.querySelector('#lp-pricing') as HTMLElement;
+      expect(pricing.textContent).toMatch(/use the workspace without paying/);
+      const outside = document.body.textContent!.replace(pricing.textContent!, '');
+      expect(outside).not.toMatch(/₹/);
     });
   });
 

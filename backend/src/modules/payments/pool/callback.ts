@@ -193,7 +193,7 @@ export async function handlePoolCallback(linkIndexRaw: string, query: Record<str
   }
   // Product identity: the intent's explicit purchase_type must match its own
   // plan. Never infer a product from the amount/link — Team (₹4,999) and API
-  // Access (₹9,999) are separate products. API Access is fail-closed — a
+  // Access (₹50,000) are separate products. API Access is fail-closed — a
   // missing/wrong purchase_type never activates. For legacy pro/team intents a
   // present-but-wrong value is also rejected; a null purchase_type (pre-column
   // rows) is tolerated.

@@ -8,8 +8,18 @@ import { jsonResult } from '../auth/schemas.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
-import { listControlPolicies, upsertControlPolicy, deleteControlPolicy } from './policies.js';
+import {
+  listControlPolicies,
+  upsertControlPolicy,
+  deleteControlPolicy,
+  listTeamPolicies,
+  upsertTeamPolicy,
+  deleteTeamPolicy,
+} from './policies.js';
+import { loadPermissionModeState, setPermissionMode, PERMISSION_MODES, MAX_POWER_MINUTES } from './permissionMode.js';
+import { addPermissionRule, deletePermissionRule, loadPermissionRules, MAX_RULES, RULE_EFFECTS, RULE_TOOLS } from './permissionRules.js';
 import { killSwitchStatus, setKillSwitch } from './killSwitch.js';
+import { emergencyStop, holdStatus, releaseHold } from './emergency.js';
 import { listUndoable, undoAction, recordUndoable, UNDOABLE_KINDS } from './undo.js';
 import { listSecretGuardScans, scanContent, SECRET_GUARD_TARGETS } from '../secretGuard/service.js';
 import {
@@ -27,6 +37,39 @@ import { getProofOfWork, generateProofOfWork } from '../proofOfWork.js';
 const daysParam = (raw: unknown, def = 30): number => {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 90) : def;
+};
+
+/**
+ * Stop everything — mounted OUTSIDE the paid-workspace gate: a user must be
+ * able to stop running work even if their plan lapsed mid-task.
+ *   GET    /api/v1/control/emergency-stop   hold status
+ *   POST   /api/v1/control/emergency-stop   cancel running work + hold
+ *   DELETE /api/v1/control/emergency-stop   resume (release the hold)
+ */
+export const emergencyStopRoutes = (): Router => {
+  const router = Router();
+  router.use(requireAuth);
+  router.get(
+    '/',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ hold: await holdStatus(req.ctx.user!.id) }));
+    }),
+  );
+  router.post(
+    '/',
+    asyncRoute(async (req, res) => {
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : 'Stop everything';
+      const stopped = await emergencyStop(req.ctx.user!.id, reason);
+      res.json(jsonResult({ stopped, hold: await holdStatus(req.ctx.user!.id) }));
+    }),
+  );
+  router.delete(
+    '/',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ hold: await releaseHold(req.ctx.user!.id) }));
+    }),
+  );
+  return router;
 };
 
 export const controlRoutes = (): Router => {
@@ -62,6 +105,85 @@ export const controlRoutes = (): Router => {
     '/policies/:policyId',
     asyncRoute(async (req, res) => {
       await deleteControlPolicy(req.ctx.user!.id, req.params.policyId!);
+      res.json(jsonResult({ deleted: true }));
+    }),
+  );
+
+  // Permission mode: how often agent actions stop to ask (never what is allowed).
+  router.get(
+    '/permission-mode',
+    asyncRoute(async (req, res) => {
+      const state = await loadPermissionModeState(req.ctx.user!.id);
+      res.json(jsonResult({ ...state, modes: PERMISSION_MODES, maxPowerMinutes: MAX_POWER_MINUTES }));
+    }),
+  );
+
+  router.put(
+    '/permission-mode',
+    asyncRoute(async (req, res) => {
+      // Optional `minutes` = Power Mode (time-boxed, then back to the previous mode).
+      await setPermissionMode(req.ctx.user!.id, req.body?.mode, { minutes: req.body?.minutes });
+      res.json(jsonResult(await loadPermissionModeState(req.ctx.user!.id)));
+    }),
+  );
+
+  // Permission rules (allow / ask / deny): the user's own fine-grained rules,
+  // always below the immutable baseline (Article 1).
+  router.get(
+    '/permission-rules',
+    asyncRoute(async (req, res) => {
+      const rules = await loadPermissionRules(req.ctx.user!.id);
+      res.json(jsonResult({ rules, effects: RULE_EFFECTS, tools: RULE_TOOLS, maxRules: MAX_RULES }));
+    }),
+  );
+
+  router.post(
+    '/permission-rules',
+    asyncRoute(async (req, res) => {
+      const rule = await addPermissionRule(req.ctx.user!.id, req.body);
+      res.status(201).json(jsonResult({ rule }));
+    }),
+  );
+
+  router.delete(
+    '/permission-rules/:ruleId',
+    asyncRoute(async (req, res) => {
+      const deleted = await deletePermissionRule(req.ctx.user!.id, String(req.params.ruleId));
+      if (!deleted) throw AppError.notFound('PermissionRule');
+      res.json(jsonResult({ deleted: true }));
+    }),
+  );
+
+  // Organization-wide policies (Team #14): members read, owners/admins write.
+  router.get(
+    '/teams/:teamId/policies',
+    asyncRoute(async (req, res) => {
+      res.json(jsonResult({ policies: await listTeamPolicies(req.ctx.user!.id, String(req.params.teamId)) }));
+    }),
+  );
+
+  router.post(
+    '/teams/:teamId/policies',
+    asyncRoute(async (req, res) => {
+      const { scope, action, riskLevel, requirement, enabled } = req.body ?? {};
+      if (!scope || !action || !riskLevel) {
+        throw AppError.badRequest('invalid_policy_input', 'scope, action and riskLevel are required');
+      }
+      const policy = await upsertTeamPolicy(req.ctx.user!.id, String(req.params.teamId), {
+        scope: String(scope),
+        action: String(action),
+        riskLevel: String(riskLevel),
+        requirement: requirement ? String(requirement) : undefined,
+        enabled: enabled === undefined ? undefined : Boolean(enabled),
+      });
+      res.json(jsonResult({ policy }));
+    }),
+  );
+
+  router.delete(
+    '/teams/:teamId/policies/:policyId',
+    asyncRoute(async (req, res) => {
+      await deleteTeamPolicy(req.ctx.user!.id, String(req.params.teamId), req.params.policyId!);
       res.json(jsonResult({ deleted: true }));
     }),
   );

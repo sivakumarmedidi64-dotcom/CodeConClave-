@@ -42,6 +42,13 @@ export function num(v: unknown, min: number, max: number): number {
   return v;
 }
 
+/** A pane rectangle in CSS pixels. */
+export function bounds(v: unknown): { x: number; y: number; width: number; height: number } {
+  if (!v || typeof v !== 'object') throw new IpcPayloadError('expected bounds');
+  const b = v as Record<string, unknown>;
+  return { x: num(b.x, 0, 20000), y: num(b.y, 0, 20000), width: num(b.width, 0, 20000), height: num(b.height, 0, 20000) };
+}
+
 export interface ChannelDef {
   channel: IpcChannelName;
   capability: CapabilityId;
@@ -96,6 +103,28 @@ export const CHANNELS: readonly ChannelDef[] = [
       quality: (p && (p as { quality?: unknown }).quality) ?? 80,
     }) },
   { channel: 'cc:screen:sources', capability: 'screen.capture', validate: (p) => (p === undefined ? {} : {}) },
+  // Built-in browser pane (a main-process view laid over the window) + "open in my browser".
+  { channel: 'cc:browser:state', capability: 'browser.use', validate: (p) => (p === undefined ? {} : {}) },
+  { channel: 'cc:browser:open', capability: 'browser.use', validate: (p) => {
+      const o = (p ?? {}) as { url?: unknown; bounds?: unknown };
+      return { url: str(o.url, 4096), bounds: o.bounds === undefined ? undefined : bounds(o.bounds) };
+    } },
+  { channel: 'cc:browser:nav', capability: 'browser.use', validate: (p) => {
+      const action = str(p && (p as { action?: unknown }).action, 16);
+      if (!['back', 'forward', 'reload', 'stop'].includes(action)) throw new IpcPayloadError('invalid action');
+      return { action };
+    } },
+  { channel: 'cc:browser:bounds', capability: 'browser.use', validate: (p) => bounds(p) },
+  { channel: 'cc:browser:show', capability: 'browser.use', validate: (p) => (p === undefined ? {} : {}) },
+  { channel: 'cc:browser:hide', capability: 'browser.use', validate: (p) => (p === undefined ? {} : {}) },
+  { channel: 'cc:browser:close', capability: 'browser.use', validate: (p) => (p === undefined ? {} : {}) },
+  { channel: 'cc:browser:list', capability: 'browser.use', validate: (p) => (p === undefined ? {} : {}) },
+  { channel: 'cc:browser:choose', capability: 'browser.use', validate: (p) => {
+      const choice = str(p && (p as { choice?: unknown }).choice, 16);
+      if (!['builtin', 'default', 'chrome', 'edge', 'firefox', 'brave', 'opera', 'vivaldi'].includes(choice)) throw new IpcPayloadError('invalid browser');
+      return { choice };
+    } },
+  { channel: 'cc:browser:external', capability: 'browser.use', validate: (p) => ({ url: str(p && (p as { url?: unknown }).url, 4096) }) },
 ];
 
 export const CHANNEL_NAMES: ReadonlySet<string> = new Set(CHANNELS.map((c) => c.channel));

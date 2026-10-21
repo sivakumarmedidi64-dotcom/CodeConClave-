@@ -38,7 +38,19 @@ export class BrowserRelay {
   private alive = new Map<WebSocket, boolean>();
 
   constructor() {
-    this.wss.on('connection', (ws, req) => void this.onConnection(ws, req));
+    // Session lookup and device-ownership checks hit the database; event
+    // callbacks have no caller to reject to, so catch here (DB outage must not
+    // become an unhandled rejection).
+    this.wss.on('connection', (ws, req) => {
+      this.onConnection(ws, req).catch((err) => {
+        logger.warn('browser relay connection setup failed', { err: err instanceof Error ? err.message : String(err) });
+        try {
+          ws.close(1011, 'server unavailable');
+        } catch {
+          /* already closed */
+        }
+      });
+    });
     setInterval(() => this.keepaliveSweep(), KEEPALIVE_MS).unref();
   }
 
@@ -65,7 +77,11 @@ export class BrowserRelay {
       ws.close(4401, 'unauthenticated');
       return;
     }
-    ws.on('message', (data) => void this.onMessage(userId, ws, data.toString()));
+    ws.on('message', (data) => {
+      this.onMessage(userId, ws, data.toString()).catch((err) =>
+        logger.warn('browser relay message handling failed', { err: err instanceof Error ? err.message : String(err) }),
+      );
+    });
     ws.on('close', () => {
       this.alive.delete(ws);
     });

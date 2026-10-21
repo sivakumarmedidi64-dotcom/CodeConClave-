@@ -164,7 +164,7 @@ function reset() {
 
 function seedIntent(id: string, owner = 'u_alice', plan = 'pro') {
   store.intents.set(id, {
-    id, owner_id: owner, plan_id: plan, amount_inr: plan === 'team' ? 4999 : plan === 'api' ? 9999 : 999, status: 'PENDING', created_at: new Date(),
+    id, owner_id: owner, plan_id: plan, amount_inr: plan === 'team' ? 4999 : plan === 'api' ? 50000 : 999, status: 'PENDING', created_at: new Date(),
   });
 }
 
@@ -176,7 +176,7 @@ const PAYLOAD = { paymentId: 'pay_testing_12345', amountInr: 999, payerEmail: 'p
 
 function req(intentId: string, plan = 'pro') {
   return requestAutoApproval({
-    intent: { id: intentId, owner_id: 'u_alice', plan_id: plan, amount_inr: plan === 'team' ? 4999 : plan === 'api' ? 9999 : 999 },
+    intent: { id: intentId, owner_id: 'u_alice', plan_id: plan, amount_inr: plan === 'team' ? 4999 : plan === 'api' ? 50000 : 999 },
     signal: PAYLOAD,
   });
 }

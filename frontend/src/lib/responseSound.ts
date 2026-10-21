@@ -1,7 +1,10 @@
 /**
  * CodeConClave — RESPONSE_READY notification sound (§6).
  *
- * Generated in real time with the Web Audio API (never a static file).
+ * Plays the CodeConClave brand cue (public/sounds/notify.mp3, a 3-second cut
+ * of the upbeat guitar cue) through Web Audio with a short fade-out. If the
+ * clip cannot be fetched or decoded, the synthesized call below is used, so
+ * a missing asset never silences the notification.
  * Safety rules enforced here:
  *  - plays ONLY on RESPONSE_READY (a meaningful user-facing result became
  *    ready) — never on tokens, chunks, page load, task start, or tool calls;
@@ -19,10 +22,54 @@ type ProduceSound = (audioCtx: AudioContext, now: number) => void;
 let soundEnabled: boolean | null = null;
 let armed = false;
 let audioCtx: AudioContext | null = null;
-let produce: ProduceSound = defaultEagleCall;
+let produce: ProduceSound = brandCue;
 let autoplayQueued = false;
 
-/** The provided eagle call (§6) — sawtooth glide, ~1.2s, real-time only. */
+export const BRAND_CUE_URL = '/sounds/notify.mp3';
+const CUE_VOLUME = 0.55;
+const CUE_FADE_START = 2.2;
+const CUE_END = 3.0;
+let cueBuffer: AudioBuffer | null = null;
+let cueLoad: Promise<AudioBuffer | null> | null = null;
+
+function loadCue(ac: AudioContext): Promise<AudioBuffer | null> {
+  if (cueBuffer) return Promise.resolve(cueBuffer);
+  if (!cueLoad) {
+    cueLoad = fetch(BRAND_CUE_URL)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`cue ${r.status}`))))
+      .then((data) => ac.decodeAudioData(data))
+      .then((decoded) => (cueBuffer = decoded))
+      .catch(() => null);
+  }
+  return cueLoad;
+}
+
+function playBuffer(ac: AudioContext, buffer: AudioBuffer, now: number): void {
+  const src = ac.createBufferSource();
+  const gain = ac.createGain();
+  src.buffer = buffer;
+  gain.gain.setValueAtTime(CUE_VOLUME, now);
+  gain.gain.setValueAtTime(CUE_VOLUME, now + CUE_FADE_START);
+  gain.gain.linearRampToValueAtTime(0.0001, now + CUE_END);
+  src.connect(gain);
+  gain.connect(ac.destination);
+  src.start(now);
+  src.stop(now + CUE_END);
+}
+
+/** Brand cue: decoded once, then replayed from memory. */
+function brandCue(ac: AudioContext, now: number): void {
+  if (cueBuffer) {
+    playBuffer(ac, cueBuffer, now);
+    return;
+  }
+  void loadCue(ac).then((buffer) => {
+    if (buffer) playBuffer(ac, buffer, ac.currentTime);
+    else defaultEagleCall(ac, ac.currentTime);
+  });
+}
+
+/** Fallback: the synthesized eagle call (§6) — sawtooth glide, ~1.2s. */
 function defaultEagleCall(ac: AudioContext, now: number): void {
   const osc = ac.createOscillator();
   const gainNode = ac.createGain();
@@ -150,7 +197,17 @@ export function playResponseReadySound(): void {
   queueForFirstInteraction();
 }
 
+/** Settings "Play sample": a direct user click, so autoplay rules allow it. */
+export function previewResponseSound(): void {
+  const ac = getContext();
+  if (!ac) return;
+  void ac
+    .resume()
+    .catch(() => undefined)
+    .then(() => playNow());
+}
+
 /** Test seam: swap the real Web Audio producer for a counted stub. */
 export function __setSoundProducerForTests(p: ProduceSound | null): void {
-  produce = p ?? defaultEagleCall;
+  produce = p ?? brandCue;
 }

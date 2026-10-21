@@ -69,6 +69,8 @@ export interface ConversationRow {
   tags: string[];
   sharing: Record<string, unknown>;
   search_metadata: Record<string, unknown>;
+  /** Incognito: never listed, never feeds memory, purged after idle retention. */
+  incognito?: boolean;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -110,6 +112,7 @@ export function toConversationJson(c: ConversationRow) {
     favorite: c.is_favorite ?? false,
     tags: c.tags ?? [],
     sharing: c.sharing ?? {},
+    incognito: c.incognito ?? false,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     deletedAt: c.deleted_at,
@@ -118,7 +121,7 @@ export function toConversationJson(c: ConversationRow) {
 
 export async function createConversation(
   userId: string,
-  input: { projectId?: string; title?: string; mode?: 'CHAT' | 'COWORK' | 'IMAGE' | 'AGENT' },
+  input: { projectId?: string; title?: string; mode?: 'CHAT' | 'COWORK' | 'IMAGE' | 'AGENT'; incognito?: boolean },
 ): Promise<ConversationRow> {
   const conversationId = newId(PREFIX.CONVERSATION);
   await withTenant(userId, async (q) => {
@@ -129,15 +132,17 @@ export async function createConversation(
     }
     const title = input.title ?? 'New conversation';
     await q.query(
-      `INSERT INTO conversations (id, project_id, owner_id, title, mode, search_metadata)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+      `INSERT INTO conversations (id, project_id, owner_id, title, mode, search_metadata, incognito)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
       [
         conversationId,
         input.projectId ?? null,
         userId,
         title,
         input.mode ?? 'CHAT',
-        JSON.stringify({ title }),
+        // Incognito chats keep nothing searchable.
+        JSON.stringify(input.incognito ? {} : { title }),
+        input.incognito === true,
       ],
     );
   });
@@ -176,6 +181,8 @@ export async function listConversations(
       ? "(owner_id = $1 OR team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE'))"
       : 'owner_id = $1',
     'deleted_at IS NULL',
+    // Incognito chats are never listed (Recents, All chats, project views).
+    'NOT incognito',
   ];
   if (projectId) {
     params.push(projectId);
@@ -830,7 +837,7 @@ export async function searchConversations(userId: string, query: string): Promis
       `SELECT DISTINCT c.* FROM conversations c
        JOIN messages m ON m.conversation_id = c.id
        WHERE (c.owner_id = $1 OR c.team_id IN (SELECT team_id FROM team_members WHERE user_id = $1 AND status = 'ACTIVE'))
-         AND c.deleted_at IS NULL AND m.deleted_at IS NULL
+         AND c.deleted_at IS NULL AND m.deleted_at IS NULL AND NOT c.incognito
          AND (to_tsvector('simple', coalesce(m.content,'')) @@ plainto_tsquery('simple', $2)
               OR m.content ILIKE $3)
        ORDER BY c.updated_at DESC LIMIT 20`,
@@ -866,3 +873,34 @@ export function toMessageJson(m: MessageRow): Message {
 }
 
 export type { ChatMessageInput };
+/**
+ * Permanently delete incognito conversations idle longer than `retentionHours`
+ * (messages, threads, mentions, reactions and edits included). Usage rows are
+ * kept for metering/billing but unlinked, so no chat content survives.
+ * System sweep (watchdog); bounded per run; idempotent.
+ */
+export async function purgeIdleIncognito(retentionHours: number, limit = 200): Promise<{ incognitoPurged: number }> {
+  const purged = await withSystem(async (q) => {
+    const ids = (
+      await q.query<{ id: string }>(
+        `SELECT id FROM conversations
+          WHERE incognito AND updated_at < now() - make_interval(hours => $1)
+          ORDER BY updated_at ASC
+          LIMIT $2
+          FOR UPDATE SKIP LOCKED`,
+        [retentionHours, limit],
+      )
+    ).rows.map((r) => r.id);
+    if (ids.length === 0) return 0;
+    await q.query('UPDATE model_usage_logs SET conversation_id = NULL WHERE conversation_id = ANY($1)', [ids]);
+    await q.query('UPDATE tasks SET conversation_id = NULL WHERE conversation_id = ANY($1)', [ids]);
+    const msgs = 'SELECT id FROM messages WHERE conversation_id = ANY($1)';
+    await q.query(`DELETE FROM mentions WHERE message_id IN (${msgs})`, [ids]);
+    await q.query(`DELETE FROM reactions WHERE message_id IN (${msgs})`, [ids]);
+    await q.query('DELETE FROM threads WHERE conversation_id = ANY($1)', [ids]);
+    await q.query('DELETE FROM messages WHERE conversation_id = ANY($1)', [ids]);
+    await q.query('DELETE FROM conversations WHERE id = ANY($1) AND incognito', [ids]);
+    return ids.length;
+  });
+  return { incognitoPurged: purged };
+}

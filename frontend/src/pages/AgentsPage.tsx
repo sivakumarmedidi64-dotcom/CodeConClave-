@@ -8,6 +8,7 @@
  * eligible set; no agent may be pinned to a model that is unconfigured,
  * unhealthy or below entitlement.
  */
+import { engineLabel } from '../lib/engine';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import {
@@ -343,7 +344,7 @@ export function AgentsPage() {
               {eligibleForRole.length === 0 && <option value="">No eligible model (configure a provider)</option>}
               {eligibleForRole.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.label} ({m.providerId})
+                  {engineLabel(m.providerId, m.id)} · {m.computeClass.toLowerCase()}
                 </option>
               ))}
             </select>

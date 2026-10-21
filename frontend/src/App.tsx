@@ -9,9 +9,13 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { TOGGLE_SIDEBAR } from './lib/appEvents';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
+import { HoldBanner } from './components/EmergencyStop';
+import { GlobalShortcuts } from './components/GlobalShortcuts';
 import { ToastProvider } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
+import { ArtifactPanel } from './components/ArtifactPanel';
 import { Topbar } from './components/Topbar';
 import { OfflineBanner } from './components/OfflineBanner';
 import { CommandPalette } from './components/CommandPalette';
@@ -34,16 +38,24 @@ const MemoryPage = lazy(() => import('./pages/MemoryPage').then(({ MemoryPage })
 const DnaPage = lazy(() => import('./pages/DnaPage').then(({ DnaPage }) => ({ default: DnaPage })));
 const FilesPage = lazy(() => import('./pages/FilesPage').then(({ FilesPage }) => ({ default: FilesPage })));
 const TerminalPage = lazy(() => import('./pages/TerminalPage').then(({ TerminalPage }) => ({ default: TerminalPage })));
+const BrowserPage = lazy(() => import('./pages/BrowserPage').then(({ BrowserPage }) => ({ default: BrowserPage })));
+const McpPage = lazy(() => import('./pages/McpPage').then(({ McpPage }) => ({ default: McpPage })));
+const DesktopBrowserLinks = lazy(() => import('./pages/BrowserPage').then(({ DesktopBrowserLinks }) => ({ default: DesktopBrowserLinks })));
 const WorkPage = lazy(() => import('./pages/WorkPage').then(({ WorkPage }) => ({ default: WorkPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(({ WorkspacePage }) => ({ default: WorkspacePage })));
 const WorkbenchPage = lazy(() => import('./pages/WorkbenchPage').then(({ WorkbenchPage }) => ({ default: WorkbenchPage })));
 const AutomationPage = lazy(() => import('./pages/AutomationPage').then(({ AutomationPage }) => ({ default: AutomationPage })));
 const RecoveryPage = lazy(() => import('./pages/RecoveryPage').then(({ RecoveryPage }) => ({ default: RecoveryPage })));
 const ControlPage = lazy(() => import('./pages/ControlPage').then(({ ControlPage }) => ({ default: ControlPage })));
+const PipelinePage = lazy(() => import('./pages/PipelinePage').then(({ PipelinePage }) => ({ default: PipelinePage })));
 const CoworkersPage = lazy(() => import('./pages/CoworkersPage').then(({ CoworkersPage }) => ({ default: CoworkersPage })));
 const CoworkerPage = lazy(() => import('./pages/CoworkerPage').then(({ CoworkerPage }) => ({ default: CoworkerPage })));
 const TeamsPage = lazy(() => import('./pages/TeamsPage').then(({ TeamsPage }) => ({ default: TeamsPage })));
 const PluginsPage = lazy(() => import('./pages/PluginsPage').then(({ PluginsPage }) => ({ default: PluginsPage })));
+const SessionsPage = lazy(() => import('./pages/SessionsPage').then(({ SessionsPage }) => ({ default: SessionsPage })));
+const LocalFilesPage = lazy(() => import('./pages/LocalFilesPage').then(({ LocalFilesPage }) => ({ default: LocalFilesPage })));
+const CodeReviewPage = lazy(() => import('./pages/CodeReviewPage').then(({ CodeReviewPage }) => ({ default: CodeReviewPage })));
+const SkillPluginsPage = lazy(() => import('./pages/SkillPluginsPage').then(({ SkillPluginsPage }) => ({ default: SkillPluginsPage })));
 const RemotePage = lazy(() => import('./pages/RemotePage').then(({ RemotePage }) => ({ default: RemotePage })));
 const IdeasPage = lazy(() => import('./pages/IdeasPage').then(({ IdeasPage }) => ({ default: IdeasPage })));
 const DataPage = lazy(() => import('./pages/DataPage').then(({ DataPage }) => ({ default: DataPage })));
@@ -187,6 +199,14 @@ function Shell() {
       return next;
     });
   };
+  // Ctrl/Cmd+B and the sidebar's own close button.
+  const toggleSidebarRef = useRef(toggleSidebar);
+  toggleSidebarRef.current = toggleSidebar;
+  useEffect(() => {
+    const onToggle = () => toggleSidebarRef.current();
+    window.addEventListener(TOGGLE_SIDEBAR, onToggle);
+    return () => window.removeEventListener(TOGGLE_SIDEBAR, onToggle);
+  }, []);
 
   if (status === 'loading') {
     return (
@@ -229,6 +249,13 @@ function Shell() {
         {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
         <OfflineBanner />
         <Topbar onMenuClick={toggleSidebar} />
+        <HoldBanner />
+        <GlobalShortcuts />
+        {typeof window !== 'undefined' && (window as unknown as { codeconclave?: unknown }).codeconclave ? (
+          <Suspense fallback={null}>
+            <DesktopBrowserLinks />
+          </Suspense>
+        ) : null}
         <a className="cc-skip-link" href="#main">
           Skip to content
         </a>
@@ -244,6 +271,8 @@ function Shell() {
             <Route path="/dna" element={<DnaPage />} />
             <Route path="/files" element={<FilesPage />} />
             <Route path="/terminal" element={<TerminalPage />} />
+            <Route path="/browser" element={<BrowserPage />} />
+            <Route path="/mcp" element={<McpPage />} />
             <Route path="/work" element={<WorkPage />} />
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/recovery" element={<RecoveryPage />} />
@@ -254,7 +283,12 @@ function Shell() {
             <Route path="/coworker" element={<CoworkerPage />} />
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
+            <Route path="/skills" element={<SkillPluginsPage />} />
+            <Route path="/code-review" element={<CodeReviewPage />} />
+            <Route path="/local" element={<LocalFilesPage />} />
+            <Route path="/chats" element={<SessionsPage />} />
             <Route path="/control" element={<ControlPage />} />
+            <Route path="/pipeline" element={<PipelinePage />} />
             <Route path="/remote" element={<RemotePage />} />
             <Route path="/ideas" element={<IdeasPage />} />
             <Route path="/data" element={<DataPage />} />
@@ -275,6 +309,7 @@ function Shell() {
           </Routes>
           </Suspense>
         </main>
+        <ArtifactPanel />
         <CommandPalette onToggleFocus={toggleSidebar} />
         <ProCelebration />
       </div>

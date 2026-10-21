@@ -186,7 +186,7 @@ describe('founderRevenueOverview', () => {
     store.rows = [
       row({ purchase_type: 'pro', amount_inr: 999, status: 'ACTIVE', owner_id: 'u_a' }),
       row({ purchase_type: 'team', amount_inr: 4999, status: 'GRACE', owner_id: 'u_b', paid_time: new Date(NOW.getTime() - 2 * 24 * 3600e3) }),
-      row({ purchase_type: 'api', amount_inr: 9999, status: 'ACTIVE', owner_id: 'u_c', paid_time: new Date(NOW.getTime() - 20 * 24 * 3600e3) }),
+      row({ purchase_type: 'api', amount_inr: 50000, status: 'ACTIVE', owner_id: 'u_c', paid_time: new Date(NOW.getTime() - 20 * 24 * 3600e3) }),
       row({ purchase_type: 'pro', amount_inr: 999, status: 'REFUNDED', owner_id: 'u_d', paid_time: new Date(NOW.getTime() - 3 * 24 * 3600e3) }),
     ];
     const { periods, allTime } = await founderRevenueOverview(NOW);
@@ -207,12 +207,12 @@ describe('founderRevenueOverview', () => {
     expect(month.collectedInr).toBe(999 + 4999);
 
     const prev = periods.find((p) => p.period === 'prev_month')!;
-    expect(prev.collectedInr).toBe(9999);
-    expect(prev.products.api.collectedInr).toBe(9999);
+    expect(prev.collectedInr).toBe(50000);
+    expect(prev.products.api.collectedInr).toBe(50000);
 
-    expect(allTime.collectedInr).toBe(999 + 4999 + 9999);
+    expect(allTime.collectedInr).toBe(999 + 4999 + 50000);
     expect(allTime.refundedInr).toBe(999);
-    expect(allTime.netInr).toBe(999 + 4999 + 9999 - 999);
+    expect(allTime.netInr).toBe(999 + 4999 + 50000 - 999);
     expect(allTime.customerCount).toBe(3);
   });
 
@@ -251,7 +251,7 @@ describe('founderMonthlyRevenue', () => {
     store.rows = [
       row({ purchase_type: 'solo', amount_inr: 999, status: 'ACTIVE', owner_id: 'u_a', paid_time: new Date(2026, 4, 10) }),
       row({ purchase_type: 'team', amount_inr: 4999, status: 'ACTIVE', owner_id: 'u_b', paid_time: new Date(2026, 4, 20) }),
-      row({ purchase_type: 'api', amount_inr: 9999, status: 'ACTIVE', owner_id: 'u_c', paid_time: new Date(2026, 5, 2) }),
+      row({ purchase_type: 'api', amount_inr: 50000, status: 'ACTIVE', owner_id: 'u_c', paid_time: new Date(2026, 5, 2) }),
       row({ purchase_type: 'solo', amount_inr: 999, status: 'REFUNDED', owner_id: 'u_d', paid_time: new Date(2026, 4, 25) }),
     ];
     const months = await founderMonthlyRevenue(12, NOW);
@@ -263,7 +263,7 @@ describe('founderMonthlyRevenue', () => {
     expect(may.refundedInr).toBe(999);
     expect(may.netInr).toBe(999 + 4999 - 999);
     expect(may.customerCount).toBe(2);
-    expect(jun.apiInr).toBe(9999);
+    expect(jun.apiInr).toBe(50000);
     expect(months.length).toBe(12);
   });
 

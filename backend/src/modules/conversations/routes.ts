@@ -32,7 +32,7 @@ import {
   replayMissedMessages,
   syncConversation,
 } from './service.js';
-import { sendChatMessage, type ChatStreamEvents } from './chat.js';
+import { parseEffort, parseTeam, sendChatMessage, type ChatStreamEvents } from './chat.js';
 import {
   createConversationShareLink,
   getShareLink,
@@ -59,6 +59,22 @@ import { env } from '../../config/env.js';
  * nothing renders twice and nothing missed is lost. Unknown anchors, wrong
  * conversations, and malformed ids replay nothing (fresh stream).
  */
+
+
+/**
+ * "Only our AI": the browser never learns which vendor's engine answered.
+ * Our own models keep their name (coder-lite, scout…); anything else is a
+ * cloud engine. Real provider/model ids stay server-side in usage logs.
+ */
+export function publicDoneInfo<T extends { providerId?: string; modelId?: string }>(info: T): T {
+  if (!('providerId' in info) && !('modelId' in info)) return info;
+  const own = info.providerId === 'resident';
+  return {
+    ...info,
+    providerId: 'codeconclave',
+    modelId: own ? String(info.modelId ?? '').split('/').pop()?.replace(/^codeconclave-/, '') || 'own-model' : 'cloud-engine',
+  };
+}
 
 export const conversationRoutes = (): Router => {
   const router = Router();
@@ -151,6 +167,7 @@ export const conversationRoutes = (): Router => {
         projectId: req.body.projectId ? String(req.body.projectId) : undefined,
         title: req.body.title ? String(req.body.title) : undefined,
         mode: req.body.mode === 'COWORK' ? 'COWORK' : 'CHAT',
+        incognito: req.body.incognito === true && req.body.mode !== 'COWORK',
       });
       res.status(201).json(jsonResult({ conversation: toConversationJson(conversation) }));
     }),
@@ -313,6 +330,11 @@ export const conversationRoutes = (): Router => {
 
 export interface ChatStreamRunResult {
   assistant: string | null;
+  /** Deep-work path: the filed task, so the client can follow its bot team live. */
+  taskId?: string;
+  /** Plan-first Cowork: the approval that starts the task, and the plan to show. */
+  approvalId?: string;
+  plan?: unknown;
 }
 
 export interface ChatStreamReplay {
@@ -364,6 +386,9 @@ export async function handleChatStream(
   };
 
   let settled = false;
+  // The deep-work path already streams its confirmation via onDelta; the
+  // fallback below must not send that text a second time.
+  let deltaSent = false;
   // Backstop: even if a pre-gateway step (e.g. context retrieval) stalls,
   // the stream is closed within a deterministic, finite window.
   const deadlineTimer = setTimeout(() => controller.abort('stream_timeout'), opts.deadlineMs);
@@ -378,11 +403,14 @@ export async function handleChatStream(
     const result = await run({
       signal: controller.signal,
       onThinkingStart: () => send('thinking_start', {}),
+      onStage: (ev) => send('stage', ev),
+      onToolApproval: (info) => send('tool_approval', info),
       onDelta: (delta) => {
+        deltaSent = true;
         send('delta', { delta });
       },
       onDone: (info) => {
-        send('done', info, info.messageId ? `msg_${info.messageId}` : undefined);
+        send('done', publicDoneInfo(info), info.messageId ? `msg_${info.messageId}` : undefined);
         settled = true;
         res.end();
       },
@@ -397,8 +425,13 @@ export async function handleChatStream(
     // Deep-work path resolves without streaming events: deliver its
     // confirmation text and close the stream — never leave SSE open.
     if (!settled) {
-      if (result.assistant) send('delta', { delta: result.assistant });
-      send('done', { messageId: null });
+      if (result.assistant && !deltaSent) send('delta', { delta: result.assistant });
+      send(
+        'done',
+        result.taskId
+          ? { messageId: null, taskId: result.taskId, ...(result.approvalId ? { approvalId: result.approvalId, plan: result.plan } : {}) }
+          : { messageId: null },
+      );
       settled = true;
       res.end();
     }
@@ -469,7 +502,19 @@ router.post(
     '/',
     chatLimit(),
     asyncRoute(async (req, res) => {
-      const input = chatMessageSchema.parse(req.body);
+      // The bot team the user picked (Cowork) — validated here so the shared
+      // contract stays untouched; unknown roles are dropped.
+      const input = {
+        ...chatMessageSchema.parse(req.body),
+        coworkers: parseTeam(req.body?.coworkers),
+        effort: parseEffort(req.body?.effort),
+        // Only a brand-new chat can be started incognito.
+        incognito: req.body?.incognito === true,
+        // Cowork: write the plan and wait for approval before any work runs.
+        planFirst: req.body?.planFirst === true,
+        // Chat: let the model use the user's connected MCP tools.
+        mcpTools: req.body?.mcpTools === true,
+      };
       const user = await getUserById(req.ctx.user!.id);
       await handleChatStream(req, res, (events) =>
         sendChatMessage(

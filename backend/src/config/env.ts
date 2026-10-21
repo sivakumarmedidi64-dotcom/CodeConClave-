@@ -145,7 +145,7 @@ const envSchema = z.object({
   INTERNAL_WEBHOOK_TOKEN: z.string().optional(),
   RAZORPAY_PRO_PAYMENT_LINK: z.string().default('https://rzp.io/rzp/sAgHIpxS'),
   RAZORPAY_TEAM_PAYMENT_LINK: z.string().default('https://rzp.io/rzp/3ioXlCxd'),
-  // API Access is a SEPARATE product at ₹9,999. Its own static payment link is
+  // API Access is a SEPARATE product at ₹50,000. Its own static payment link is
   // founder-provided (no sane default): when empty, any api purchase attempts to
   // fail safely (never falls back to the Team ₹4,999 link).
   RAZORPAY_API_PAYMENT_LINK: z.string().optional(),
@@ -297,8 +297,8 @@ const envSchema = z.object({
   //    a read-time allowance, exactly like the founder/test-user grants above.
   //  - It is NOT a free tier. users.plan_id / users.entitlement_state are left
   //    untouched, so nothing downstream can mistake demo access for a purchase.
-  //  - API Access (the separate ₹9,999 entitlement behind /api/v1/ai and
-  //    cc_live_* keys) is NOT unlocked by this flag; apiKeyAuth still enforces it.
+  //  - API Access (the separate ₹50,000 entitlement behind /api/v1/ai and
+  //    SHA_live_* keys) is NOT unlocked by this flag; apiKeyAuth still enforces it.
   //  - Safety limits are RETAINED, not removed: bounded message/project/storage
   //    caps, a hard per-run AI budget, auth rate limits and abuse controls all
   //    stay active. See DEMO_LIMITS in modules/entitlements/service.ts.
@@ -362,7 +362,7 @@ const envSchema = z.object({
 
   // ---------------------------------------------------------------- API ACCESS (KEY) LIMITS
   // Per-api-key request rate and per-account concurrency/daily budgets for
-  // external clients using cc_live_* keys. Enforced server-side in the Bearer
+  // external clients using SHA_live_* keys. Enforced server-side in the Bearer
   // API-key middleware; NOT client-configurable.
   API_RATE_LIMIT_REQUESTS: z.coerce.number().int().default(60),
   API_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().default(60),
@@ -381,6 +381,41 @@ const envSchema = z.object({
   FREE_MAX_PROJECTS: z.coerce.number().int().default(1),
   FREE_STORAGE_GB: z.coerce.number().int().default(2),
   FREE_MODEL_TIER: z.string().default('efficient'),
+
+  // Plan usage limits (Claude-style): tokens per session (starts with your
+  // first message, lasts USAGE_SESSION_HOURS) and per calendar week (resets
+  // Monday 00:00 UTC), counted from model_usage_logs. 0 = unlimited.
+  USAGE_SESSION_HOURS: z.coerce.number().int().min(1).default(5),
+  // API Access prepaid credits: what one API call costs (integer paise).
+  // Default ₹1.00 per 1,000 tokens, minimum ₹0.10 per call.
+  API_CREDIT_PAISE_PER_1K_TOKENS: z.coerce.number().int().min(1).default(100),
+  API_CREDIT_MIN_PAISE_PER_CALL: z.coerce.number().int().min(0).default(10),
+  // Shown when anyone asks how to reach the founder / support / partnerships.
+  FOUNDER_CONTACT_EMAIL: z.string().default('medidisaharsh@gmail.com'),
+  // Execution pipeline v3 (Intake → Route → Dispatch → Gate → Specialist →
+  // Kernel → Judge → Seal) for chat answers. 'off' falls back to a direct call.
+  PIPELINE_V3: z.string().default('on'),
+  // Sealed answers are reused (0 tokens) for this long on an exact cache hit.
+  PIPELINE_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(24 * 90).default(168),
+  // MCP (Model Context Protocol) servers users connect. Private/loopback
+  // addresses are blocked in production (SSRF); 'auto' allows them outside
+  // production so developers can run a local MCP server.
+  MCP_ALLOW_PRIVATE_NETWORK: z.enum(['auto', 'true', 'false']).default('auto'),
+  MCP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(20_000),
+  MCP_MAX_SERVERS: z.coerce.number().int().min(1).max(100).default(20),
+  // Incognito chats are permanently deleted once idle this long.
+  INCOGNITO_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+  // Weekly limits reset Monday 00:00 at this UTC offset (330 = IST).
+  USAGE_WEEK_RESET_OFFSET_MINUTES: z.coerce.number().int().min(-720).max(840).default(330),
+  // No free tier: these apply only to early-access demo mode.
+  LIMIT_DEMO_SESSION_TOKENS: z.coerce.number().int().min(0).default(100_000),
+  LIMIT_DEMO_WEEKLY_TOKENS: z.coerce.number().int().min(0).default(1_000_000),
+  LIMIT_SOLO_SESSION_TOKENS: z.coerce.number().int().min(0).default(300_000),
+  LIMIT_SOLO_WEEKLY_TOKENS: z.coerce.number().int().min(0).default(3_000_000),
+  LIMIT_TEAM_SESSION_TOKENS: z.coerce.number().int().min(0).default(1_000_000),
+  LIMIT_TEAM_WEEKLY_TOKENS: z.coerce.number().int().min(0).default(10_000_000),
+  LIMIT_API_SESSION_TOKENS: z.coerce.number().int().min(0).default(2_000_000),
+  LIMIT_API_WEEKLY_TOKENS: z.coerce.number().int().min(0).default(20_000_000),
 
   LOCAL_AGENT_PORT: z.coerce.number().int().default(43121),
   LOCAL_AGENT_TOKEN_TTL_HOURS: z.coerce.number().int().default(1),

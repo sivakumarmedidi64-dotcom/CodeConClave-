@@ -8,6 +8,7 @@
  *
  * No payment/JWT/session/provider secrets are ever added to model context.
  */
+import { scanUntrusted } from '../../shared/injectionShield.js';
 import { assertProjectAccess } from '../runtime/security.js';
 import { AppError } from '../../shared/errors.js';
 import { redactOutput } from '../runtime/security.js';
@@ -65,7 +66,9 @@ const INJECTION_PATTERNS: RegExp[] = [
 ];
 
 export function containsPromptInjection(text: string): boolean {
-  return INJECTION_PATTERNS.some((re) => re.test(text));
+  // Local patterns + the shared Injection Shield (overrides, role/system
+  // impersonation, template tokens, exfiltration, remote code, hidden text).
+  return INJECTION_PATTERNS.some((re) => re.test(text)) || scanUntrusted(text).flagged;
 }
 
 /**

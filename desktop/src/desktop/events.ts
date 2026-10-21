@@ -9,7 +9,9 @@ export type DesktopEventPayload =
   | { name: 'workspace'; payload: import('../types.js').WorkspaceSummary[] }
   | { name: 'terminal'; payload: import('../types.js').TerminalSessionSummary[] }
   | { name: 'task'; payload: import('../types.js').TaskSummary[] }
-  | { name: 'workspace-file-change'; payload: import('../types.js').FileChange };
+  | { name: 'workspace-file-change'; payload: import('../types.js').FileChange }
+  | { name: 'browser'; payload: import('../local/browser-pane.js').BrowserPaneState }
+  | { name: 'browser-request'; payload: { url: string } };
 
 export type AnyEvent = DesktopEventPayload & { name: DesktopEventName };
 

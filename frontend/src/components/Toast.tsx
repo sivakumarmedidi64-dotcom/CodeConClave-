@@ -54,3 +54,7 @@ export function useToast(): ToastContextValue {
   if (!ctx) throw new Error('useToast must be used inside ToastProvider');
   return ctx;
 }
+/** Like useToast, but a no-op outside a ToastProvider (shell widgets). */
+export function useOptionalToast(): Pick<ToastContextValue, 'toast'> {
+  return useContext(ToastContext) ?? { toast: () => undefined };
+}

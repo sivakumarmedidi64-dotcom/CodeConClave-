@@ -14,7 +14,8 @@ describe('ShortcutsHelp', () => {
     render(<ShortcutsHelp onClose={onClose} />);
     expect(screen.getByLabelText('Keyboard shortcuts')).toBeInTheDocument();
     expect(screen.getByText('Open command palette')).toBeInTheDocument();
-    expect(screen.getByText('Stop the active stream')).toBeInTheDocument();
+    expect(screen.getByText('Stop the active reply')).toBeInTheDocument();
+    expect(screen.getByText('Stop everything (tasks, laptop actions, schedules)')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
   });

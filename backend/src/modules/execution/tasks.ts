@@ -68,19 +68,25 @@ export async function createTask(input: {
   maxAttempts?: number;
   priority?: number;
   dependsOn?: string[];
+  /** Hold the task for an explicit approval before it can run (plan-first). */
+  requireApproval?: boolean;
 }): Promise<TaskRow> {
   // Stage 26G control plane: kill switch stops NEW task work; a matching
   // policy can raise risk (require approval) or block outright.
   const { assertAutonomyEnabled } = await import('../control/killSwitch.js');
   await assertAutonomyEnabled(input.userId, 'TASKS');
-  const { evaluatePolicy } = await import('../control/policies.js');
-  const policy = await evaluatePolicy(input.userId, 'task', input.title ? 'create' : 'create', input.riskLevel ?? 'MEDIUM');
   // Tenant gate: the caller must own or belong to the project (and to the
   // linked conversation when one is given). Without this, any authenticated
   // user could plant tasks into a victim's project — polluting project stats
   // and fanning team notifications to the victim's team.
   const { getProject } = await import('../projects/service.js');
-  await getProject(input.userId, input.projectId);
+  const project = await getProject(input.userId, input.projectId);
+  // Personal policies always apply; a team project also brings the team's
+  // organization-wide policies (Team #14). Strictest match wins.
+  const { evaluatePolicy } = await import('../control/policies.js');
+  const policy = await evaluatePolicy(input.userId, 'task', 'create', input.riskLevel ?? 'MEDIUM', {
+    teamId: project.team_id,
+  });
   if (input.conversationId) {
     const { getConversation } = await import('../conversations/service.js');
     await getConversation(input.userId, input.conversationId);
@@ -88,10 +94,15 @@ export async function createTask(input: {
   const id = newId(PREFIX.TASK);
   let riskLevel = input.riskLevel ?? 'MEDIUM';
   if (!policy.allowed) {
-    throw AppError.forbidden('policy_blocked', `Task blocked by control policy (${policy.matched?.scope}/${policy.matched?.action})`);
+    throw AppError.forbidden(
+      'policy_blocked',
+      `Task blocked by ${policy.matched?.team_id ? 'team' : 'control'} policy (${policy.matched?.scope}/${policy.matched?.action})`,
+    );
   }
   if (policy.requireApproval) riskLevel = 'HIGH';
-  const requiredApproval = riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
+  // Plan-first tasks are inserted already needing approval, so the worker can
+  // never claim one while its plan is still being written.
+  const requiredApproval = input.requireApproval === true || riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
   await withTenant(input.userId, async (q) =>
     q.query(
       `INSERT INTO tasks (

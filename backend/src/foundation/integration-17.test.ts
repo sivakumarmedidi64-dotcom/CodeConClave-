@@ -49,6 +49,9 @@ vi.mock('../shared/db.js', () => db);
 
 const recordAudit = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../modules/audit/service.js', () => ({ recordAudit }));
+// Plan limits / the no-free-tier rule have their own suite (modules/usage/limits.test.ts);
+// this file exercises the chat pipeline's persistence and replay.
+vi.mock('../modules/usage/limits.js', () => ({ assertWithinPlanLimits: vi.fn(async () => undefined), resolveLimitPlan: vi.fn(async () => 'solo') }));
 
 const cache = vi.hoisted(() => ({
   get: vi.fn(async () => null),
@@ -540,6 +543,38 @@ describe('PHASE 17 integration — chat fast path', () => {
     expect(tables.memories.some((m) => m.provenance === `conversation://${CONVERSATION_ID}`)).toBe(true);
     const usageEvents = db.state.calls.filter((c) => c.text.toLowerCase().includes('usage_events'));
     expect(usageEvents.length).toBeGreaterThan(0);
+  });
+
+  it('pipeline v3: the same chat runs Intake → Route → Dispatch → Gate → Verify → Seal and done carries the receipt', async () => {
+    setupJourney();
+    const { env } = await import('../config/env.js');
+    env.PIPELINE_V3 = 'on';
+    try {
+      const stages: string[] = [];
+      let receipt: Record<string, unknown> | undefined;
+      const result = await sendChatMessage(
+        { id: USER_ID, planId: 'pro', entitlementState: 'PRO_VERIFIED' },
+        'sess_1',
+        { content: 'Hello CodeConClave', conversationId: CONVERSATION_ID, projectId: PROJECT_ID, mode: 'CHAT' },
+        {
+          onStage: (e) => {
+            stages.push(e.stage);
+          },
+          onDone: (info) => {
+            receipt = info.pipeline as unknown as Record<string, unknown>;
+          },
+        },
+      );
+      expect(stages).toEqual(['intake', 'route', 'dispatch', 'gate', 'specialist', 'verify', 'act', 'seal']);
+      expect(receipt).toMatchObject({ status: 'UNVERIFIED', role: 'Documentation', engine: 'CodeConClave AI · cloud engine' });
+      expect(String(receipt!.proofHash)).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.assistant).toBe('Hello world!');
+      // Every stage was written to the hash-linked ledger before the answer was sealed.
+      const events = db.state.calls.filter((c) => c.text.includes('INSERT INTO pipeline_events'));
+      expect(events.map((c) => c.params[2])).toEqual(['intake', 'cache', 'route', 'dispatch', 'gate', 'verify', 'act', 'seal']);
+    } finally {
+      env.PIPELINE_V3 = 'off';
+    }
   });
 
   it('a retried send (same clientId, lost ack) replays the user row and consumes free quota exactly once', async () => {

@@ -110,10 +110,47 @@ export interface DesktopSurface {
     sources(): Promise<Array<{ id: string; name: string; display_id?: string; thumbnail: { width: number; height: number } }>>;
   };
 
+  /**
+   * Built-in browser: a sandboxed page view the app lays over the rectangle
+   * the renderer reserves (setBounds). Separate session; http(s) only.
+   */
+  readonly browser: {
+    state(): Promise<BrowserPaneStateView>;
+    open(url: string, bounds?: PaneRect): Promise<BrowserPaneStateView>;
+    nav(action: 'back' | 'forward' | 'reload' | 'stop'): Promise<BrowserPaneStateView>;
+    setBounds(bounds: PaneRect): Promise<BrowserPaneStateView>;
+    show(): Promise<BrowserPaneStateView>;
+    hide(): Promise<BrowserPaneStateView>;
+    close(): Promise<BrowserPaneStateView>;
+    /** Browsers the user can pick, and the current pick. */
+    list(): Promise<{ choice: string; builtinAvailable: boolean; browsers: Array<{ id: string; name: string }> }>;
+    choose(choice: string): Promise<{ choice: string }>;
+    /** Open in the picked browser (or the system default). */
+    openExternal(url: string): Promise<{ ok: boolean; openedIn: string }>;
+  };
+
   /** Subscribe to allow-listed events only; returns an unsubscribe function. */
   readonly monitor: {
     subscribe(cb: (msg: { name: DesktopEventName; payload: unknown }) => void): Promise<() => void>;
   };
+}
+
+export interface PaneRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserPaneStateView {
+  available: boolean;
+  open: boolean;
+  visible: boolean;
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  loading: boolean;
 }
 
 export interface DesktopBridge {

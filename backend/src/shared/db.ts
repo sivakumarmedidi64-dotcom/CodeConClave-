@@ -49,6 +49,18 @@ pool.on('error', (err) => {
   logger.error('pg pool error', { error: err.message });
 });
 
+// Defensive: never let a dropped socket on a checked-out client turn into an
+// unhandled 'error' event that crashes the process (observed with Neon
+// direct-host connection drops). The failing query still rejects and surfaces
+// as a clean 5xx to the caller. Attached ONCE per physical connection — adding
+// it on every checkout leaked a listener per reuse of a pooled client
+// (MaxListenersExceededWarning: 11 error listeners added to [Client]).
+pool.on('connect', (client) => {
+  client.on('error', (err) => {
+    logger.warn('pg client error', { error: err.message });
+  });
+});
+
 export type DbQueryable = pg.Pool | pg.PoolClient;
 
 export interface Tenant {
@@ -71,10 +83,6 @@ export async function withTenant<T>(
   source: pg.Pool = pool,
 ): Promise<T> {
   const client = await source.connect();
-  // Defensive: never let a dropped socket turn into an unhandled 'error' event
-  // that crashes the process (observed with Neon direct-host connection drops).
-  // The failing query still rejects and surfaces as a clean 5xx to the caller.
-  client.on('error', () => undefined);
   try {
     await client.query('BEGIN');
     if (userId) {

@@ -103,7 +103,20 @@ describe('recordAudit — append-only system-scoped insert', () => {
 
   it('never issues UPDATE/DELETE — the audit log is append-only by construction', async () => {
     await recordAudit({ action: 'test.event', scope: 'SYSTEM' });
-    expect(db.state.calls.every((c) => /INSERT INTO audit_logs/.test(c.text))).toBe(true);
+    // Reads of the chain tip + the advisory lock are allowed; writes are INSERT only.
+    expect(db.state.calls.some((c) => /INSERT INTO audit_logs/.test(c.text))).toBe(true);
+    expect(db.state.calls.some((c) => /UPDATE\s+audit_logs|DELETE\s+FROM\s+audit_logs/i.test(c.text))).toBe(false);
+  });
+
+  it('chains each row to the previous one (tamper-evident)', async () => {
+    await recordAudit({ action: 'test.event', scope: 'USER', tenantId: 'u1', actorUserId: 'u1' });
+    const lock = db.state.calls.find((c) => c.text.includes('pg_advisory_xact_lock'))!;
+    expect(lock.params[0]).toBe('USER:u1');
+    const insert = db.state.calls.find((c) => c.text.includes('INSERT INTO audit_logs'))!;
+    expect(insert.params[12]).toBe('USER:u1'); // chain_key
+    expect(insert.params[13]).toBe(1); // chain_seq (empty chain → genesis)
+    expect(insert.params[14]).toBe('GENESIS'); // prev_hash
+    expect(String(insert.params[15])).toMatch(/^[0-9a-f]{64}$/); // row_hash
   });
 });
 

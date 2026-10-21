@@ -302,3 +302,304 @@ describe('parseNavCommand', () => {
     expect(parseNavCommand('go to mars')).toBeNull();
   });
 });
+describe('HomeChat — incognito + follow-ups', () => {
+  const DONE_WITH_CONV =
+    'event: delta\ndata: {"delta":"ok"}\n\n' +
+    'event: done\ndata: {"messageId":"msg_1","conversationId":"conv_home_1"}\n\n';
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/conversations/chat')) return sseResponse(DONE_WITH_CONV);
+      return jsonResponse({ data: {} });
+    });
+  });
+
+  const chatBodies = () =>
+    fetchMock.mock.calls
+      .filter(([u]) => String(u).includes('/api/v1/conversations/chat'))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+
+  it('starts an incognito chat and continues the same conversation on follow-ups', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    await user.click(screen.getByTestId('incognito-toggle'));
+    expect(screen.getByTestId('incognito-toggle')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('incognito-banner')).toHaveTextContent(/Not saved to your history, not used for memory/);
+
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'first');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(chatBodies()).toHaveLength(1));
+    expect(chatBodies()[0]).toMatchObject({ content: 'first', mode: 'CHAT', incognito: true });
+    expect(chatBodies()[0]!.conversationId).toBeUndefined();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument());
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'second');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(chatBodies()).toHaveLength(2));
+    // Follow-up continues the (already incognito) conversation.
+    expect(chatBodies()[1]).toMatchObject({ content: 'second', conversationId: 'conv_home_1' });
+    expect(chatBodies()[1]!.incognito).toBeUndefined();
+  });
+
+  it('incognito is unavailable for Cowork runs', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Cowork' }));
+    expect(screen.getByTestId('incognito-toggle')).toBeDisabled();
+  });
+});
+
+describe('HomeChat — pipeline v3 trace + receipt', () => {
+  const receipt = {
+    runId: 'run_9',
+    status: 'VERIFIED',
+    role: 'Computational Math',
+    contractVersion: 'computational-math@abc',
+    engine: 'CodeConClave AI · cloud engine',
+    cached: false,
+    attempts: 2,
+    tokens: { used: 500, budget: 12588 },
+    proofs: [{ kind: 'identity', verifier: 'cas', verdict: 'PASS', method: 'symbolic+numeric', detail: 'symbolic residual = 0', proofHash: 'b'.repeat(64) }],
+    verdict: { passed: 1, failed: 0, errors: 0 },
+    proofHash: 'c'.repeat(64),
+  };
+  const SSE =
+    'event: stage\ndata: {"stage":"intake","status":"done","label":"Intake · budget locked"}\n\n' +
+    'event: delta\ndata: {"delta":"WRONG first try"}\n\n' +
+    'event: stage\ndata: {"stage":"repair","status":"start","label":"Repair · attempt 1 of 2","reset":true}\n\n' +
+    'event: delta\ndata: {"delta":"Correct answer."}\n\n' +
+    `event: done\ndata: ${JSON.stringify({ messageId: 'msg_9', conversationId: 'conv_9', pipeline: receipt })}\n\n`;
+
+  it('clears the first attempt on repair and shows the sealed receipt', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes('/api/v1/conversations/chat') ? sseResponse(SSE) : jsonResponse({ data: {} }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'expand (x+1)^2');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    expect(await screen.findByText('Verified · 1/1 proof pass')).toBeInTheDocument();
+    expect(screen.getByText('Correct answer.')).toBeInTheDocument();
+    expect(screen.queryByText(/WRONG first try/)).not.toBeInTheDocument();
+  });
+});
+
+import { looksLikeImageRequest } from './HomeChat';
+
+describe('HomeChat — image generation', () => {
+  it('recognises image requests in plain words', () => {
+    expect(looksLikeImageRequest('Draw an image of a gold robot on a dark desk')).toBe(true);
+    expect(looksLikeImageRequest('generate a logo for CodeConClave')).toBe(true);
+    expect(looksLikeImageRequest('create a react component')).toBe(false);
+    expect(looksLikeImageRequest('what is an image sensor?')).toBe(false);
+  });
+
+  it('sends an image request into a project and shows the picture inline', async () => {
+    const IMG_SSE = 'event: image\ndata: {"fileId":"file_1","mimeType":"image/png"}\n\nevent: done\ndata: {"messageId":"m1"}\n\n';
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/v1/conversations/chat')) return sseResponse(IMG_SSE);
+      if (url.endsWith('/api/v1/projects')) return jsonResponse({ data: { projects: [{ id: 'prj_7', updated_at: new Date().toISOString() }] } });
+      return jsonResponse({ data: {} });
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'draw an image of a lighthouse at dusk');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    const img = await screen.findByAltText('Generated image');
+    expect(img.getAttribute('src')).toBe('/api/v1/files/file_1/content?projectId=prj_7');
+    const body = JSON.parse(String(fetchMock.mock.calls.find(([u]) => String(u).includes('/conversations/chat'))![1].body));
+    expect(body).toMatchObject({ imageRequest: true, projectId: 'prj_7', mode: 'CHAT' });
+  });
+});
+
+describe('HomeChat — /setup', () => {
+  it('opens the guided setup instead of sending /setup as a message', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.type(screen.getByPlaceholderText('Ask anything…'), '/setup');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    expect(await screen.findByRole('dialog', { name: 'Guided setup' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/v1/conversations/chat'))).toBe(false);
+  });
+
+  it('opens from Settings via ?setup=1', async () => {
+    render(
+      <MemoryRouter initialEntries={['/home?setup=1']}>
+        <HomeChat hero={false} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('dialog', { name: 'Guided setup' })).toBeInTheDocument();
+  });
+});
+
+describe('HomeChat — plan first (Cowork)', () => {
+  it('sends planFirst, shows the plan, and starts the team only after approval', async () => {
+    let posted: Record<string, unknown> = {};
+    let decided: Record<string, unknown> | null = null;
+    const plan = { goal: 'rebuild auth', source: 'planner', steps: [{ order: 1, coworker: 'ARCHITECT' }, { order: 2, coworker: 'CODER' }] };
+    const body =
+      'event: delta\ndata: {"delta":"Here\'s the plan. Nothing runs until you approve it."}\n\n' +
+      `event: done\ndata: ${JSON.stringify({ messageId: null, taskId: 'tsk_p1', approvalId: 'app_p1', plan })}\n\n`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(body);
+        }
+        if (url.includes('/approvals/app_p1/decide')) {
+          decided = JSON.parse(String(init?.body));
+          return jsonResponse({ data: { approval: { id: 'app_p1', status: 'APPROVED' } } });
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
+    await user.click(screen.getByRole('button', { name: 'Plan first' }));
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'rebuild auth with tests');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    const card = await screen.findByTestId('plan-approval');
+    expect(posted.planFirst).toBe(true);
+    expect(card).toHaveTextContent('Archie · Architect');
+    expect(card).toHaveTextContent('Cody · Coder');
+    await user.click(screen.getByRole('button', { name: 'Approve and start' }));
+    await waitFor(() => expect(decided).toEqual({ decision: 'APPROVE' }));
+    expect(await screen.findByText(/the team is starting/)).toBeInTheDocument();
+  });
+});
+
+describe('HomeChat — Cowork always has a project', () => {
+  it('starts a "My work" project when the account has none, instead of failing', async () => {
+    let posted: Record<string, unknown> = {};
+    let createdWith: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/v1/projects') && init?.method === 'POST') {
+          createdWith = JSON.parse(String(init.body));
+          return jsonResponse({ data: { project: { id: 'prj_new' } } });
+        }
+        if (url.includes('/api/v1/projects')) return jsonResponse({ data: { projects: [] } });
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(SSE_BODY);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'build a landing page');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(posted.projectId).toBe('prj_new'));
+    expect(createdWith).toMatchObject({ name: 'My work' });
+  });
+});
+
+describe('HomeChat — MCP tools (Article 8)', () => {
+  it('shows Tools only with a connected server, sends mcpTools, and keeps the approval card after the answer', async () => {
+    let posted: Record<string, unknown> = {};
+    const body =
+      'event: delta\ndata: {"delta":"`notes.create_note` needs your approval before it runs."}\n\n' +
+      `event: tool_approval\ndata: ${JSON.stringify({ approvalId: 'app_m1', server: 'notes', tool: 'create_note', arguments: { title: 'Launch' }, risk: 'MEDIUM', destructive: false })}\n\n` +
+      'event: done\ndata: {"messageId":"msg_1"}\n\n';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/v1/mcp/servers')) {
+          return jsonResponse({ data: { servers: [{ enabled: true, status: 'CONNECTED', tools: [{ name: 'echo' }, { name: 'create_note' }] }] } });
+        }
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(body);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Chat' }));
+    const tools = await screen.findByRole('button', { name: 'Tools' });
+    expect(tools).toHaveAttribute('aria-pressed', 'true');
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'make a note called Launch');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    const card = await screen.findByTestId('tool-approval');
+    expect(posted.mcpTools).toBe(true);
+    expect(card).toHaveTextContent('notes.create_note');
+    // The answer finished ("done") and the card is still there.
+    await waitFor(() => expect(screen.getByText(/needs your approval before it runs/)).toBeInTheDocument());
+    expect(screen.getByTestId('tool-approval')).toBeInTheDocument();
+  });
+
+  it('no MCP server → no Tools chip and no mcpTools flag', async () => {
+    let posted: Record<string, unknown> = {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/v1/mcp/servers')) return jsonResponse({ data: { servers: [] } });
+        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
+          posted = JSON.parse(String(init.body));
+          return sseResponse(SSE_BODY);
+        }
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Chat' }));
+    expect(screen.queryByRole('button', { name: 'Tools' })).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'hi');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
+    expect(posted.mcpTools).toBeUndefined();
+  });
+});

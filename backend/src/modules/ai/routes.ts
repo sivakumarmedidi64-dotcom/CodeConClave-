@@ -20,6 +20,7 @@ import {
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { completeWithFallback, type CompleteOptions, type CompletionSummary, type GatewayContext } from './gateway.js';
+import { debitApiCall } from '../apikeys/credits.js';
 import type { ChatContentPart, ChatMessage } from './providers.js';
 import { apiAccessEntitlementState } from '../apikeys/service.js';
 import { workspaceAccess, workspaceReasonMessage } from '../../middleware/entitlement.js';
@@ -29,6 +30,7 @@ import { RoutingPreference } from '@codeconclave/shared';
 import { pool, withTenant } from '../../shared/db.js';
 import { env } from '../../config/env.js';
 import { getUserById } from '../auth/service.js';
+import { residentStatus } from '../resident/infer.js';
 
 export const aiRoutes = (): Router => {
   const router = Router();
@@ -36,7 +38,7 @@ export const aiRoutes = (): Router => {
   // No-free-tier gate for the SESSION path.
   //
   // /api/v1/ai is mounted OUTSIDE requireWorkspaceEntitlement() because the
-  // Bearer cc_live_* path is gated by apiKeyAuth's 402 (API Access ?9,999).
+  // Bearer SHA_live_* path is gated by apiKeyAuth's 402 (API Access ₹50,000).
   // That left the cookie/session path ungated: any signed-in FREE user could
   // POST /chat/completions and receive real completions on EFFICIENT-tier
   // models, which is a free product by another door. A session user must
@@ -70,6 +72,16 @@ export const aiRoutes = (): Router => {
       next(AppError.unavailable('entitlement_check_failed', 'Could not verify entitlement. Try again.'));
     }
   });
+
+  // CodeConClave AI (resident drivers): real per-driver readiness, probed
+  // against the configured host (cached 5 min). The model picker only offers
+  // "CodeConClave AI" when at least one driver can actually answer.
+  router.get(
+    '/resident/status',
+    asyncRoute(async (_req, res) => {
+      res.json(jsonResult({ status: await residentStatus(true) }));
+    }),
+  );
 
   router.get(
     '/models',
@@ -268,7 +280,7 @@ export const aiRoutes = (): Router => {
   );
 
   // POST /chat/completions — OpenAI-compatible chat completion for the SELF-
-  // SERVE API product (₹9,999 API Access). Bearer cc_live_* keys are enforced
+  // SERVE API product (₹50,000 API Access). Bearer SHA_live_* keys are enforced
   // by apiKeyAuth on this mount (auth, product entitlement, per-key window/
   // daily/concurrency limits) BEFORE this handler runs; session users are
   // gated by requireAuth + the gateway's own plan checks. Streaming and
@@ -281,7 +293,7 @@ export const aiRoutes = (): Router => {
       const userId = req.ctx.user!.id;
       const owner = await getUserById(userId);
       const api = await apiAccessEntitlementState(userId);
-      // API Access is a ₹9,999 paid product: API-originated calls run with
+      // API Access is a ₹50,000 paid product: API-originated calls run with
       // paid ('pro') gateway semantics (premium-class models eligible, the
       // shared daily premium budget bounds spend — same governance as Solo).
       // `entitled` is expiry-aware, so an expired grant degrades to the
@@ -333,9 +345,18 @@ export const aiRoutes = (): Router => {
       const id = newId(PREFIX.MESSAGE);
       const created = Math.floor(Date.now() / 1000);
 
+      // API Access credits: debit the real token cost of every completed call.
+      const debit = async (summary: CompletionSummary) => {
+        if (!req.ctx.apiKeyId) return null;
+        const d = await debitApiCall(userId, summary.inputTokens + summary.outputTokens, req.ctx.apiKeyId, id);
+        return { cost_inr: d.costPaise / 100, credits_remaining_inr: Math.max(0, d.balancePaise) / 100 };
+      };
+
       if (!stream) {
         const summary = await completeWithFallback({ ctx, messages, opts: requestOpts, maxTokens, temperature });
-        res.json(jsonResult(chatCompletionObject(id, created, summary, selectedModel)));
+        const credits = await debit(summary);
+        if (credits) res.setHeader('X-CodeConClave-Credits-Remaining-INR', credits.credits_remaining_inr.toFixed(2));
+        res.json(jsonResult({ ...chatCompletionObject(id, created, summary, selectedModel), ...(credits ? { credits } : {}) }));
         return;
       }
 
@@ -363,21 +384,23 @@ export const aiRoutes = (): Router => {
               id,
               object: 'chat.completion.chunk',
               created,
-              model: selectedModel ?? 'codeconclave-ai',
+              model: 'codeconclave-ai',
               choices: [{ index: 0, delta: { content: chunk.delta }, finish_reason: null }],
             };
             res.write(`data: ${JSON.stringify(frame)}\n\n`);
           },
         });
-        // Final chunk carries finish_reason + usage, then the sentinel.
+        // Final chunk carries finish_reason + usage (+ credits), then the sentinel.
+        const credits = await debit(summary);
         res.write(
           `data: ${JSON.stringify({
             id,
             object: 'chat.completion.chunk',
             created,
-            model: summary.modelId,
+            model: 'codeconclave-ai',
             choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
             usage: usageOf(summary),
+            ...(credits ? { credits } : {}),
           })}\n\n`,
         );
         res.write('data: [DONE]\n\n');
@@ -518,7 +541,7 @@ function chatCompletionObject(
   id: string,
   created: number,
   summary: CompletionSummary,
-  plannedModel?: string,
+  _plannedModel?: string,
 ): {
   id: string;
   object: string;
@@ -531,7 +554,8 @@ function chatCompletionObject(
     id,
     object: 'chat.completion',
     created,
-    model: summary.modelId ?? plannedModel ?? 'codeconclave-ai',
+    // "Only our AI": API customers see CodeConClave AI, never a vendor model id.
+    model: 'codeconclave-ai',
     choices: [
       {
         index: 0,

@@ -42,6 +42,8 @@ export interface PersistedPlan {
   goal: string;
   status: string;
   entries: PlanEntryInput[];
+  /** Where the entries came from (set on generation; absent when loaded). */
+  source?: 'planner' | 'default_fallback' | 'user';
 }
 
 const VALID_COWORKER_TYPES = new Set([
@@ -299,7 +301,7 @@ export async function generatePlan(input: {
       pipeline: finalEntries.map((e) => e.coworker),
     },
   });
-  return plan;
+  return { ...plan, source: entries ? 'planner' : 'default_fallback' };
 }
 
 /** Turn a persisted plan into executable pipeline entries. */

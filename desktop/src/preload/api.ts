@@ -8,7 +8,7 @@
  * adapter is provided by the real preload (ipcRenderer.invoke) or by tests.
  */
 import { CHANNELS, type IpcChannelName } from '../ipc/channels.js';
-import type { DesktopBridge, DesktopSurface, EntitlementStatus } from './contract.js';
+import type { BrowserPaneStateView, DesktopBridge, DesktopSurface, EntitlementStatus, PaneRect } from './contract.js';
 
 export interface PreloadDeps {
   call: (channel: IpcChannelName, payload: unknown) => Promise<unknown>;
@@ -82,6 +82,18 @@ export function buildPreloadApi(deps: PreloadDeps): DesktopBridge {
       capture: (options?: { format?: 'png' | 'jpeg'; quality?: number }) =>
         deps.call('cc:screen:capture', options ?? {}).then((v) => v as unknown as Uint8Array | null),
       sources: () => deps.call('cc:screen:sources', {}).then((v) => v as unknown as Array<{ id: string; name: string; display_id?: string; thumbnail: { width: number; height: number } }>),
+    },
+    browser: {
+      state: () => deps.call('cc:browser:state', {}).then((v) => v as unknown as BrowserPaneStateView),
+      open: (url: string, bounds?: PaneRect) => deps.call('cc:browser:open', { url, bounds }).then((v) => v as unknown as BrowserPaneStateView),
+      nav: (action: 'back' | 'forward' | 'reload' | 'stop') => deps.call('cc:browser:nav', { action }).then((v) => v as unknown as BrowserPaneStateView),
+      setBounds: (bounds: PaneRect) => deps.call('cc:browser:bounds', bounds).then((v) => v as unknown as BrowserPaneStateView),
+      show: () => deps.call('cc:browser:show', {}).then((v) => v as unknown as BrowserPaneStateView),
+      hide: () => deps.call('cc:browser:hide', {}).then((v) => v as unknown as BrowserPaneStateView),
+      close: () => deps.call('cc:browser:close', {}).then((v) => v as unknown as BrowserPaneStateView),
+      list: () => deps.call('cc:browser:list', {}).then((v) => v as unknown as Awaited<ReturnType<DesktopSurface['browser']['list']>>),
+      choose: (choice: string) => deps.call('cc:browser:choose', { choice }).then((v) => v as unknown as { choice: string }),
+      openExternal: (url: string) => deps.call('cc:browser:external', { url }).then((v) => v as unknown as { ok: boolean; openedIn: string }),
     },
     monitor: {
       subscribe: async (cb) =>

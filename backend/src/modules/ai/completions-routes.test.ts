@@ -23,6 +23,7 @@ vi.mock('./router.js', () => ({ planRoute }));
 vi.mock('../../middleware/auth.js', () => ({ requireAuth: (_req: unknown, _res: unknown, next: () => void) => next() }));
 vi.mock('../auth/service.js', () => ({ getUserById }));
 vi.mock('../apikeys/service.js', () => ({ apiAccessEntitlementState }));
+vi.mock('../apikeys/credits.js', () => ({ debitApiCall: vi.fn(async () => ({ costPaise: 10, balancePaise: 4_999_990 })) }));
 // The AI router refuses a session user with no live paid entitlement. This
 // contract test is about completions, so the workspace lookup is mocked here
 // and gated explicitly in the "session gate" describe block below.
@@ -118,7 +119,8 @@ describe('POST /api/v1/ai/chat/completions', () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.data.id).toMatch(/^msg_/);
       expect(body.data.object).toBe('chat.completion');
-      expect(body.data.model).toBe('gemini-1.5-flash');
+      // "Only our AI": API customers see CodeConClave AI, never the vendor model id.
+      expect(body.data.model).toBe('codeconclave-ai');
       expect(body.data.choices[0].message.content).toBe('Hello, operator.');
       expect(body.data.usage).toEqual({ prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 });
     });

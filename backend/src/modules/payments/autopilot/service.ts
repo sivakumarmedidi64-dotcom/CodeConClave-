@@ -2,7 +2,7 @@
  * CodeConClave — PAYMENT AUTOPILOT (UNLOCK_MODE=AUTOPILOT).
  *
  * AUTOPILOT auto-verifies and auto-activates ALL THREE paid products — Solo/Pro
- * ₹999, Team ₹4,999, API Access ₹9,999 — from the TRUSTED signed-webhook rail,
+ * ₹999, Team ₹4,999, API Access ₹50,000 — from the TRUSTED signed-webhook rail,
  * then funnels every verified payment through the SAME existing entitlement
  * authority (activation.pipeline -> applyDecision -> activateEntitlement).
  *
@@ -268,7 +268,7 @@ export function autopilotSignalPayload(payload: unknown): {
  * product via the configured Payment Link ID (payment_link.entity.id), never
  * the amount alone, then requires:
  *   - AUTOPILOT mode is effective and the webhook rail is configured;
- *   - the amount equals the server-authoritative plan price (₹999/₹4,999/₹9,999);
+ *   - the amount equals the server-authoritative plan price (₹999/₹4,999/₹50,000);
  *   - the payer email resolves to exactly ONE account holding a PENDING/REVIEW
  *     intent for that plan (the resolved intent's plan/purchase_type is the
  *     product source of truth — Solo/Team can NEVER become API Access).

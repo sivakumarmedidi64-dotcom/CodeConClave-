@@ -66,7 +66,7 @@ export interface PaymentIntentRow {
   /**
    * Explicit purchase identity (server-authoritative). Products are NEVER
    * inferred from amount or link id — Solo(₹999), Team(₹4,999) and API
-   * Access(₹9,999) are distinct products. The intent's own plan +
+   * Access(₹50,000) are distinct products. The intent's own plan +
    * purchase_type decide the product: solo / team / api_access.
    */
   purchase_type: 'solo' | 'team' | 'api_access' | null;
@@ -87,7 +87,7 @@ export const INTENT_STATUSES: IntentStatus[] = [
  * Explicit product -> purchase identity mapping. The plan key selects the
  * entitled capability; purchase_type is the authoritative product label used
  * by the callback binding. Products are distinct (Solo ₹999, Team ₹4,999,
- * API Access ₹9,999), so purchase identity always comes from this intent
+ * API Access ₹50,000), so purchase identity always comes from this intent
  * field, never the amount or the link id.
  */
 export const PURCHASE_TYPE_BY_PLAN: Record<string, 'solo' | 'team' | 'api_access'> = {
@@ -125,9 +125,13 @@ function makeReference(planId: string): string {
 export async function createPaymentIntent(userId: string, planId: string): Promise<PaymentIntentRow> {
   if (!(planId in PLAN_PRICES_INR)) throw AppError.badRequest('invalid_plan', 'plan must be pro, team or api');
 
+  // API Access is prepaid credits: every ₹50,000 top-up is a NEW purchase, so
+  // only an unfinished (PENDING/REVIEW) API checkout is reused. Solo/Team
+  // reuse an active plan exactly as before.
+  const reusable = planId === 'api' ? `('PENDING','REVIEW')` : `('PENDING','REVIEW','ACTIVE','GRACE')`;
   const active = await withTenant(userId, async (q) =>
     (await q.query<PaymentIntentRow>(
-      `SELECT * FROM payment_intents WHERE owner_id = $1 AND plan_id = $2 AND status IN ('PENDING','REVIEW','ACTIVE','GRACE') ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM payment_intents WHERE owner_id = $1 AND plan_id = $2 AND status IN ${reusable} ORDER BY created_at DESC LIMIT 1`,
       [userId, planId],
     )).rows[0] ?? null,
   );

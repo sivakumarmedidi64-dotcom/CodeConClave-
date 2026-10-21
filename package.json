@@ -25,12 +25,14 @@
     "test:unit": "npm run test:unit --workspaces --if-present",
     "dev:backend": "npm run dev --workspace @codeconclave/backend",
     "dev:frontend": "npm run dev --workspace @codeconclave/frontend",
+    "dev:all": "node scripts/dev-all.mjs",
     "build:frontend": "npm run build --workspace @codeconclave/frontend",
     "build:ci": "npm run build --workspace @codeconclave/shared && npm run build --workspace @codeconclave/backend && npm run build --workspace @codeconclave/frontend",
     "db:migrate": "npm run db:migrate --workspace @codeconclave/backend",
     "db:migrate:down": "npm run db:migrate:down --workspace @codeconclave/backend",
     "secret:scan": "npm run secret:scan --workspace @codeconclave/backend",
-    "watchtower:run": "npm run watchtower:run --workspace @codeconclave/backend"
+    "watchtower:run": "npm run watchtower:run --workspace @codeconclave/backend",
+    "mcp:demo": "npm run mcp:demo --workspace @codeconclave/backend"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

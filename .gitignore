@@ -67,3 +67,7 @@ CodeConClave-Complete.zip
 GitHub URL*.md
 Kimi*.md
 ```.txt
+
+# Local-only files (never commit)
+.claude/launch.json
+frontend/stats.html

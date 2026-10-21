@@ -752,3 +752,142 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ==========================================================================
+   2026-10 refresh: the landing page now wears the in-app palette — warm
+   charcoal surfaces and the gold of the logo wordmark (no orange).
+   ========================================================================== */
+.lp-root {
+  --lp-bg: #1b1a18;
+  --lp-bg-2: #22211f;
+  --lp-surface: #2a2926;
+  --lp-surface-2: #34332f;
+  --lp-border: #3a3935;
+  --lp-border-strong: #4b4944;
+
+  --lp-text: #f3f1ea;
+  --lp-text-muted: #b5b0a5;
+  --lp-text-dim: #8b867c;
+
+  --lp-accent: #f2c230;
+  --lp-accent-strong: #ffd34d;
+  --lp-accent-soft: rgba(242, 194, 48, 0.12);
+  --lp-accent-line: rgba(242, 194, 48, 0.34);
+  --lp-glow: rgba(242, 194, 48, 0.12);
+}
+.lp-btn--primary,
+.lp-btn--primary:hover {
+  color: #1d1c19;
+}
+.lp-hero__title {
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* bot team */
+.lp-bots {
+  padding: 72px 0 24px;
+}
+.lp-bots__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px 28px;
+  margin-top: 28px;
+}
+.lp-bots__item {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 120px;
+  text-align: center;
+}
+.lp-bots__item figcaption {
+  font-size: 13px;
+  color: var(--lp-text-muted);
+  line-height: 1.4;
+}
+.lp-bots .cc-bb__role {
+  color: var(--lp-text-dim);
+}
+
+/* pricing */
+.lp-pricing {
+  padding: 80px 0;
+}
+.lp-pricing__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 18px;
+  margin-top: 32px;
+  align-items: stretch;
+}
+.lp-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 26px 24px;
+  border-radius: var(--lp-radius-lg);
+  border: 1px solid var(--lp-border);
+  background: var(--lp-surface);
+}
+.lp-plan--highlight {
+  border-color: var(--lp-accent-line);
+  box-shadow: 0 0 0 1px var(--lp-accent-line), 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+.lp-plan__badge {
+  position: absolute;
+  top: -11px;
+  left: 24px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--lp-accent);
+  color: #1d1c19;
+  font-size: 12px;
+  font-weight: 700;
+}
+.lp-plan__name {
+  margin: 0;
+  font-size: 18px;
+}
+.lp-plan__price {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.lp-plan__price span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lp-text-muted);
+  letter-spacing: 0;
+}
+.lp-plan__tagline {
+  margin: 0;
+  color: var(--lp-text-muted);
+}
+.lp-plan__list {
+  list-style: none;
+  margin: 6px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  flex: 1;
+}
+.lp-plan__list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.lp-plan__cta {
+  justify-content: center;
+}
+.lp-header {
+  background: rgba(27, 26, 24, 0.86);
+}

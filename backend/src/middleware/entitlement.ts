@@ -4,7 +4,7 @@
  * may use the CodeConClave workspace (chat, projects, agents, tasks,
  * execution, connectors, paid AI) only while they hold an ACTIVE VERIFIED
  * paid entitlement for the Solo (pro) or Team (team) plan. API Access is a
- * separate entitlement that unlocks /api/v1/ai for cc_live_* keys — it does
+ * separate entitlement that unlocks /api/v1/ai for SHA_live_* keys — it does
  * NOT unlock the workspace.
  *
  * The frontend hiding pages is cosmetic; the authority is enforced here, at
@@ -224,7 +224,7 @@ export function workspaceReasonMessage(reason: WorkspaceReason): string {
  * behaves exactly as before — this is the only behavioural difference.
  *
  * API Access is NOT affected: /api/v1/ai is mounted with apiKeyAuth(), not
- * behind this gate, so its ₹9,999 entitlement requirement is untouched.
+ * behind this gate, so its ₹50,000 entitlement requirement is untouched.
  */
 export function requireWorkspaceEntitlement() {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {

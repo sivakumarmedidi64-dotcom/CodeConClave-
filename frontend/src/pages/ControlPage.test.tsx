@@ -81,6 +81,14 @@ function handler(url: string, init?: RequestInit): Promise<Response> {
     if (init?.method === 'POST') return Promise.resolve(jsonResponse({ data: { rolledUp: 1, rollups: [] } }));
     return Promise.resolve(jsonResponse({ data: { rollups: [] } }));
   }
+  if (url.endsWith('/api/v1/skill-plugins/teams')) {
+    return Promise.resolve(jsonResponse({ data: { teams: [{ id: 'tm_1', name: 'Platform' }] } }));
+  }
+  if (url.includes('/api/v1/control/teams/tm_1/policies')) {
+    const teamPolicy = { ...POLICY, id: 'tpol-1', owner_id: 'tm_1', team_id: 'tm_1', action: 'deploy', requirement: 'block' };
+    if (init?.method === 'POST') return Promise.resolve(jsonResponse({ data: { policy: teamPolicy } }));
+    return Promise.resolve(jsonResponse({ data: { policies: [teamPolicy] } }));
+  }
   return Promise.resolve(jsonResponse({ data: {} }));
 }
 
@@ -142,6 +150,17 @@ describe('ControlPage', () => {
     await waitFor(() => expect(screen.getByText(/Undo APPLIED: AGENTS autonomy resumed/)).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'Refresh rollups' }));
     await waitFor(() => expect(calls.some((c) => c.startsWith('POST /api/v1/control/usage/rollup'))).toBe(true));
+  });
+
+  it('team admins switch to an organization-wide policy for their team', async () => {
+    renderPage();
+    const target = await screen.findByLabelText('Policy applies to');
+    await userEvent.selectOptions(target, 'tm_1');
+    expect(await screen.findByText('tpol-1')).toBeInTheDocument();
+    expect(screen.getByText(/enforced for every member/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save policy' }));
+    await waitFor(() => expect(calls).toContain('POST /api/v1/control/teams/tm_1/policies'));
+    expect(calls.some((c) => c === 'POST /api/v1/control/policies')).toBe(false);
   });
 
   it('labels the ROI as an estimate', async () => {

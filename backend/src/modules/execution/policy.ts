@@ -8,10 +8,23 @@
 import { RiskLevel, FileOperation } from '@codeconclave/shared';
 import { AppError } from '../../shared/errors.js';
 import { incMetric } from '../../observability/metrics.js';
+import { permissionModeFor, type PermissionMode } from '../control/permissionMode.js';
+import { permissionRulesFor, strongestRule, type PermissionRule } from '../control/permissionRules.js';
+import { scanContentForSecrets } from '../secretGuard/patterns.js';
 
 export type PolicyDecision =
-  | { allowed: true; risk: Risky; requiresApproval: boolean }
-  | { allowed: false; reason: string; deniedBy: string };
+  | {
+      allowed: true;
+      risk: Risky;
+      requiresApproval: boolean;
+      /** What skipped the approval prompt: a permission mode or one of the user's allow rules. */
+      approvalWaivedBy?: PermissionMode | 'user_rule';
+      /** One of the user's ask rules made this action stop for approval. */
+      approvalForcedBy?: 'user_rule';
+      /** The user rule that shaped this decision, if any. */
+      ruleId?: string;
+    }
+  | { allowed: false; reason: string; deniedBy: string; ruleId?: string };
 
 export type Risky = (typeof RiskLevel)[keyof typeof RiskLevel];
 
@@ -238,6 +251,96 @@ export interface ToolCallProposal {
  *   4. risk assessment → approve/auto-approve/require approval
  */
 export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
+  const withMode = applyPermissionMode(proposal.tool, baselineDecision(proposal), permissionModeFor(proposal.userId));
+  return applyPermissionRules(proposal.tool, proposal.input, withMode, permissionRulesFor(proposal.userId));
+}
+
+/**
+ * The user's own allow / ask / deny rules (Article 1). They act only on what
+ * the baseline already allowed:
+ *   deny  → blocked
+ *   ask   → approval required, even when a permission mode waived it
+ *   allow → approval skipped, but only for LOW/MEDIUM and never for a delete
+ * Exported for tests.
+ */
+export function applyPermissionRules(
+  tool: string,
+  input: Record<string, unknown>,
+  decision: PolicyDecision,
+  rules: PermissionRule[],
+): PolicyDecision {
+  if (!decision.allowed || rules.length === 0) return decision;
+  const rule = strongestRule(rules, tool, input);
+  if (!rule) return decision;
+  if (rule.effect === 'deny') {
+    incMetric('security.user_rule_denied');
+    return { allowed: false, deniedBy: 'user_rule', reason: `Blocked by your rule: deny ${rule.tool} ${rule.pattern}`, ruleId: rule.id };
+  }
+  if (rule.effect === 'ask') {
+    if (decision.requiresApproval && !decision.approvalWaivedBy) return { ...decision, ruleId: rule.id };
+    const { approvalWaivedBy: _waived, ...rest } = decision;
+    return { ...rest, requiresApproval: true, approvalForcedBy: 'user_rule', ruleId: rule.id };
+  }
+  // allow — never for deletes, and never for connector actions (sending an
+  // email, posting, publishing): those always ask, as the product promises.
+  const waivable =
+    decision.requiresApproval && (decision.risk === 'LOW' || decision.risk === 'MEDIUM') && tool !== 'file_delete' && tool !== 'plugin_action';
+  if (!waivable) return decision;
+  incMetric('security.approval_waived_user_rule');
+  return { ...decision, requiresApproval: false, approvalWaivedBy: 'user_rule', ruleId: rule.id };
+}
+
+/**
+ * Article 3 (borrowed from GitHub Copilot's agent safeguards): an agent may
+ * not write a live credential into a file. High-confidence findings only, so
+ * placeholders, docs and local dev URLs keep working.
+ */
+export function credentialFindings(content: unknown): { kind: string; label: string }[] {
+  const text = typeof content === 'string' ? content : '';
+  if (!text) return [];
+  return scanContentForSecrets(text)
+    .filter((f) => f.confidence >= 0.9)
+    .filter((f) => f.kind !== 'connection_string' || connectionStringHasLiveCredential(text, f.location))
+    .map((f) => ({ kind: f.kind, label: f.label }));
+}
+
+/** user:password@ on a host that isn't a local/dev placeholder. */
+function connectionStringHasLiveCredential(text: string, at: number): boolean {
+  const url = text.slice(at, at + 300).split(/[\s"'<>]/)[0] ?? '';
+  const m = /^[a-z+]+:\/\/([^:@/\s]+):([^@/\s]+)@([^/:?\s]+)/i.exec(url);
+  if (!m) return false;
+  const [, user, password, host] = m;
+  if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|db|postgres|mysql|redis|mongo|host\.docker\.internal)$/i.test(host!)) return false;
+  if (/^(password|pass|secret|changeme|example|your[_-]?password|\$\{?[A-Z_]+\}?|<[^>]+>|\*+|x+)$/i.test(password!)) return false;
+  return Boolean(user);
+}
+
+function denyCredentialWrite(content: unknown): Extract<PolicyDecision, { allowed: false }> | null {
+  const found = credentialFindings(content);
+  if (found.length === 0) return null;
+  const labels = [...new Set(found.map((f) => f.label))].slice(0, 3).join(', ');
+  return deny('baseline_secret_content', `The content contains a live credential (${labels}). Put it in an environment variable or secret store instead of a file.`, 'secret_content_blocked');
+}
+
+/**
+ * The user's permission mode may waive the approval PROMPT — never a denial:
+ *   accept_edits  file_write / file_create
+ *   full_access   + MEDIUM-risk terminal commands
+ * Deletes, HIGH/CRITICAL actions and every baseline/capability denial are
+ * unchanged in every mode. Exported for tests.
+ */
+export function applyPermissionMode(tool: string, decision: PolicyDecision, mode: PermissionMode): PolicyDecision {
+  if (!decision.allowed || !decision.requiresApproval || mode === 'ask') return decision;
+  const isEdit = tool === 'file_write' || tool === 'file_create';
+  const isMediumCommand = tool === 'terminal_exec' && decision.risk === 'MEDIUM';
+  if (isEdit || (mode === 'full_access' && isMediumCommand)) {
+    incMetric(`security.approval_waived_${mode}`);
+    return { ...decision, requiresApproval: false, approvalWaivedBy: mode };
+  }
+  return decision;
+}
+
+function baselineDecision(proposal: ToolCallProposal): PolicyDecision {
   const { tool, input, userId } = proposal;
   const ownerId = proposal.grantUserId ?? userId;
   const path = typeof input.path === 'string' ? input.path : typeof input.filePath === 'string' ? input.filePath : '';
@@ -291,6 +394,8 @@ export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
       if (looksLikeSecretPath(path) || osSensitivePath(path)) {
         return deny('baseline_secrets', 'Secret or sensitive paths are deny-by-default', 'secrets_blocked');
       }
+      const secretWrite = denyCredentialWrite(input.content);
+      if (secretWrite) return secretWrite;
       if (!hasCapability(ownerId, 'WRITE_WORKSPACE', path)) {
         return deny('capability', 'No WRITE_WORKSPACE grant for this path', 'capability_denied');
       }
@@ -337,6 +442,19 @@ export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
     case 'dev_server': {
       return { allowed: true, risk: 'LOW', requiresApproval: false };
     }
+    // MCP tools on a server the user connected (Article 8). The read-only /
+    // destructive labels are the SERVER's own (cached at discovery and set by
+    // modules/mcp/service.ts), never the model's claims.
+    case 'mcp_call': {
+      const server = typeof input.server === 'string' ? input.server : '';
+      const mcpTool = typeof input.tool === 'string' ? input.tool : '';
+      if (!server || !mcpTool) {
+        return deny('capability', 'An MCP server and tool are required', 'capability_denied');
+      }
+      if (input.destructive === true) return { allowed: true, risk: 'HIGH', requiresApproval: true };
+      if (input.readOnly === true) return { allowed: true, risk: 'LOW', requiresApproval: false };
+      return { allowed: true, risk: 'MEDIUM', requiresApproval: true };
+    }
     // Paired-device local tools: the cloud NEVER sees the filesystem — it
     // forwards opaque scoped commands to the owner's agent, which enforces
     // workspace containment, capability grants, and command policy on-device.
@@ -360,6 +478,8 @@ export function evaluateToolCall(proposal: ToolCallProposal): PolicyDecision {
       if (looksLikeSecretPath(path) || osSensitivePath(path)) {
         return deny('baseline_secrets', 'Secret or sensitive paths are deny-by-default', 'secrets_blocked');
       }
+      const secretLocalWrite = denyCredentialWrite(input.content);
+      if (secretLocalWrite) return secretLocalWrite;
       return { allowed: true, risk: 'MEDIUM', requiresApproval: true };
     }
     case 'local_exec': {

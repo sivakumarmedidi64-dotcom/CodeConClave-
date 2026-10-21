@@ -5,12 +5,15 @@
  *   - contextIsolation:true, nodeIntegration:false, sandbox:true, webSecurity:true
  *   - navigation allow-list (only the configured backend origin)
  *   - new-window / webview attach denied; permissions denied by default
- *   - shell.openExternal never used for windowing
+ *   - shell.openExternal never used for windowing; only for an http(s) page
+ *     the user sends to their own browser ("open in my browser")
+ *   - the built-in browser is a separate sandboxed view (electron/browser-view.ts)
  * Adapts the DesktopApp IPC registry to ipcMain.handle with sender identity
  * derived from the real event (top frame only). Secrets never cross to the
  * renderer: only the allow-listed typed surface exists.
  */
-import { app, BrowserWindow, ipcMain, session, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage } from 'electron';
+import { spawn } from 'node:child_process';
 import { type IpcMainInvokeEvent } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
@@ -24,6 +27,8 @@ import { CHANNELS, IpcPayloadError } from '../ipc/channels.js';
 import { IpcSecurityError, type SenderIdentity } from '../ipc/registry.js';
 import { DESKTOP_EVENTS } from '../types.js';
 import { ensureEmbeddedApp } from './spa-server.js';
+import { electronPaneFactory } from './browser-view.js';
+import type { PaneViewFactory } from '../local/browser-pane.js';
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -73,10 +78,28 @@ export async function launchDesktopApp(): Promise<void> {
   const settings = new SettingsStore({ path: defaultSettingsPath(app.getPath('userData')) });
   const cfg = loadConfig();
   const grants = cfg?.workspaces ?? [];
+  // The browser pane needs the window; it is created lazily on first open.
+  let paneFactory: PaneViewFactory | null = null;
   const desktop = new DesktopApp({
     baseUrl: settings.read().appUrl,
     grants,
     settings,
+    browserViewFactory: (onChange) => {
+      if (!paneFactory) {
+        if (!win) throw new Error('The window is not ready yet.');
+        paneFactory = electronPaneFactory(win);
+      }
+      return paneFactory(onChange);
+    },
+    openExternal: (url) => shell.openExternal(url),
+    spawnDetached: (command, args) => {
+      const child = spawn(command, args, { detached: true, stdio: 'ignore', shell: false });
+      child.on('error', () => undefined);
+      child.unref();
+    },
+    fileExists: (p) => existsSync(p),
+    platform: process.platform,
+    env: process.env,
   });
 
   // Adapt every allow-listed channel to ipcMain.handle with boundary checks.
@@ -116,7 +139,12 @@ export async function launchDesktopApp(): Promise<void> {
   win.webContents.on('will-navigate', (event: { preventDefault(): void }, url: string) => {
     if (!isAllowedTarget(url)) event.preventDefault();
   });
-  win.webContents.setWindowOpenHandler((_details) => ({ action: 'deny' }));
+  // No new app windows, ever. A web link (an answer's source, a docs link)
+  // goes to the browser the user picked: the built-in pane or their own.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url) && !isAllowedTarget(url)) void desktop.openLink(url);
+    return { action: 'deny' };
+  });
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
 
   // Forward allow-listed events to the renderer on the single 'cc:event' bus.

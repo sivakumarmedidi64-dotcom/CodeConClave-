@@ -14,6 +14,7 @@ import { useToast } from '../components/Toast';
 import { isOnline, enqueueOfflineOp } from '../lib/offline';
 import { Icon } from '../components/Icon';
 import { AICompanion } from '../components/AICompanion';
+import { PlanSteps, asPlanSummary } from '../components/PlanApproval';
 
 const RISK_CLASS: Record<string, string> = {
   LOW: 'cc-pill--success',
@@ -109,6 +110,20 @@ export function ApprovalsPage() {
     }
   };
 
+  const runMcp = async (a: Approval) => {
+    setExecutingId(a.id);
+    try {
+      await api(`/api/v1/mcp/approvals/${a.id}/run`, { method: 'POST' });
+      toast('The approved tool call ran', 'info');
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'The tool call failed', 'error');
+      await load();
+    } finally {
+      setExecutingId(null);
+    }
+  };
+
   const execute = async (a: Approval) => {
     const proposed = (a.proposedAction as Record<string, unknown>) ?? {};
     const tool = String(execTool[a.id] ?? proposed.tool ?? '').trim();
@@ -177,6 +192,30 @@ export function ApprovalsPage() {
         </div>
       );
     }
+    if (a.status === 'APPROVED' && a.detail?.kind === 'mcp_call') {
+      // Runs exactly the approved MCP call (server, tool and arguments), once.
+      return (
+        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--cc-border)' }}>
+          <button
+            type="button"
+            className="cc-btn cc-btn--primary cc-btn--sm"
+            disabled={executingId === a.id}
+            onClick={() => void runMcp(a)}
+            data-testid={`mcp-run-${a.id}`}
+          >
+            {executingId === a.id ? 'Running…' : 'Run the approved tool call'}
+          </button>
+        </div>
+      );
+    }
+    if (a.status === 'APPROVED' && a.detail?.kind === 'plan') {
+      // A plan approval has nothing to execute by hand: approving queued the task.
+      return (
+        <p className="cc-hint" style={{ marginTop: 8 }} data-testid={`plan-approved-${a.id}`}>
+          Approved — the Cowork team runs this plan in its task. Follow it on Home or in Tasks.
+        </p>
+      );
+    }
     if (a.status === 'APPROVED') {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 320, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--cc-border)' }}>
@@ -216,6 +255,31 @@ export function ApprovalsPage() {
 
   const renderApprovalDetails = (a: Approval) => {
     if (detailsId !== a.id) return null;
+    // MCP tool call: show exactly what will run.
+    if (a.detail?.kind === 'mcp_call') {
+      return (
+        <div style={{ marginTop: 8 }} data-testid={`mcp-${a.id}`}>
+          <div className="cc-hint" style={{ marginBottom: 4 }}>
+            MCP tool <code className="cc-md-code">{String(a.detail.server)}.{String(a.detail.tool)}</code> with these arguments — approving runs exactly this, once
+          </div>
+          <pre className="cc-code" style={{ whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(a.detail.arguments ?? {}, null, 2)}
+          </pre>
+        </div>
+      );
+    }
+    // Plan-first Cowork: show the team's plan as steps, not JSON.
+    const plan = a.detail?.kind === 'plan' ? asPlanSummary(a.detail) : null;
+    if (plan) {
+      return (
+        <div style={{ marginTop: 8 }} data-testid={`plan-${a.id}`}>
+          <div className="cc-hint" style={{ marginBottom: 4 }}>
+            Plan{typeof a.detail?.title === 'string' ? ` for “${a.detail.title}”` : ''} — approving starts the team on exactly these steps
+          </div>
+          <PlanSteps plan={plan} />
+        </div>
+      );
+    }
     return (
       <div style={{ marginTop: 8 }}>
         <div className="cc-hint" style={{ marginBottom: 4 }}>Proposed action</div>

@@ -288,3 +288,77 @@ describe('ApprovalsPage — honest state rendering', () => {
     expect(screen.queryByText('Reject')).not.toBeInTheDocument();
   });
 });
+describe('plan-first approvals (constitution Article 5)', () => {
+  const planRow = (status: string) =>
+    snakeRow({
+      id: 'app_plan',
+      status,
+      risk_level: 'MEDIUM',
+      action_type: null,
+      coworker: null,
+      model: null,
+      justification: null,
+      affected_resources: [],
+      proposed_action: null,
+      detail: { kind: 'plan', title: 'Add a health check', steps: [{ order: 1, coworker: 'ARCHITECT' }, { order: 2, coworker: 'CODER', acceptanceCriteria: 'GET /health returns ok' }] },
+    });
+
+  it('shows the plan as steps, not JSON', async () => {
+    renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [planRow('PENDING')], pendingCount: 1 } });
+      return jsonResponse({ data: {} });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Review details' }));
+    const plan = await screen.findByTestId('plan-app_plan');
+    expect(plan).toHaveTextContent('Plan for “Add a health check”');
+    expect(plan).toHaveTextContent('Archie · Architect');
+    expect(plan).toHaveTextContent('done when: GET /health returns ok');
+  });
+
+  it('an approved plan has nothing to run by hand', async () => {
+    renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [planRow('APPROVED')], pendingCount: 0 } });
+      return jsonResponse({ data: {} });
+    });
+    expect(await screen.findByTestId('plan-approved-app_plan')).toHaveTextContent('the Cowork team runs this plan');
+    expect(screen.queryByPlaceholderText('tool (e.g. file_write)')).not.toBeInTheDocument();
+  });
+});
+
+describe('MCP tool-call approvals (Article 8)', () => {
+  const mcpRow = (status: string) =>
+    snakeRow({
+      id: 'app_mcp',
+      status,
+      risk_level: 'MEDIUM',
+      action_type: null,
+      coworker: null,
+      model: null,
+      justification: null,
+      affected_resources: [],
+      proposed_action: null,
+      detail: { kind: 'mcp_call', server: 'notes', tool: 'create_note', arguments: { title: 'Launch' } },
+    });
+
+  it('shows the exact server, tool and arguments', async () => {
+    renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [mcpRow('PENDING')], pendingCount: 1 } });
+      return jsonResponse({ data: {} });
+    });
+    await userEvent.click(await screen.findByRole('button', { name: 'Review details' }));
+    const box = await screen.findByTestId('mcp-app_mcp');
+    expect(box).toHaveTextContent('notes.create_note');
+    expect(box).toHaveTextContent('"title": "Launch"');
+  });
+
+  it('an approved call runs through the MCP endpoint (never a hand-typed tool)', async () => {
+    const { fetchFn } = renderPage(async (url) => {
+      if (url.includes('/approvals?')) return jsonResponse({ data: { approvals: [mcpRow('APPROVED')], pendingCount: 0 } });
+      if (url.includes('/mcp/approvals/app_mcp/run')) return jsonResponse({ data: { result: { text: 'created', isError: false } } });
+      return jsonResponse({ data: {} });
+    });
+    await userEvent.click(await screen.findByTestId('mcp-run-app_mcp'));
+    await waitFor(() => expect(fetchFn.mock.calls.some(([u]) => String(u).includes('/api/v1/mcp/approvals/app_mcp/run'))).toBe(true));
+    expect(screen.queryByPlaceholderText('tool (e.g. file_write)')).not.toBeInTheDocument();
+  });
+});

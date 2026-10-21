@@ -230,7 +230,10 @@ async function advanceSchedule(
 export async function schedulerTick(limit = 50): Promise<number> {
   const due = await withSystem(async (q) =>
     (await q.query<ScheduledTaskRow>(
+      // Kill switch (Stop everything / SCHEDULES): no unattended runs until
+      // Resume — the occurrence stays due and follows its missed-run policy.
       `SELECT * FROM scheduled_tasks WHERE enabled = true AND next_run_at <= now()
+         AND NOT EXISTS (SELECT 1 FROM kill_switch k WHERE k.owner_id = scheduled_tasks.owner_id AND k.active AND k.scope IN ('GLOBAL','SCHEDULES'))
        ORDER BY next_run_at LIMIT $1 FOR UPDATE SKIP LOCKED`,
       [limit],
     )).rows,

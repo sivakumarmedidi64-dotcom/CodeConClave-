@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, csrfToken } from '../lib/api';
 import { streamChat } from '../lib/sse';
 import type { ChatStreamEvent } from '../lib/sse';
 import { getContinuityCache, enqueuePendingMessage, newClientId, syncAllPending, pendingOutboxCount } from '../lib/continuity';
@@ -24,7 +24,8 @@ import { copyText, splitCodeBlocks } from '../lib/clipboard';
 import { uploadFileWithProgress } from '../lib/upload';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { useEarlyAccess } from '../lib/accessMode';
-import { ModelPicker } from '../components/ModelPicker';
+import { ModelChoice } from '../components/ModelChoice';
+import { EffortChip, useEffort } from '../components/EffortChip';
 import { AICompanion, type CompanionState } from '../components/AICompanion';
 import { ThinkingMoon } from '../components/ThinkingMoon';
 import { FreeLimitMoon } from '../components/FreeLimitMoon';
@@ -37,7 +38,7 @@ import { useToast } from '../components/Toast';
 import { useAuth } from '../auth/AuthProvider';
 import { VoiceControl, useVoice } from '../components/VoiceControl';
 import { useVoiceCommands } from '../hooks/useVoiceCommands';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
 
 interface UiMessage {
   key: string;
@@ -54,6 +55,9 @@ interface UiMessage {
   pending?: boolean;
   /** Continuity: the completed exchange recorded a decision — surface a chip. */
   decisionRecorded?: { id: string; title: string; status: string } | null;
+  /** Pipeline v3: live stages while building, then the sealed receipt. */
+  stages?: PipelineStage[];
+  receipt?: PipelineReceipt;
 }
 
 interface AttachItem {
@@ -80,23 +84,56 @@ const STATE_KEYS = {
 const MAX_ATTACHMENTS = 16;
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
+import { matchSkillCommands, pluginIcon, useSkillCommands } from '../lib/skillCommands';
+import { CONVERSATIONS_CHANGED } from '../lib/appEvents';
+import { notifyUsageChanged } from '../lib/usage';
+import { PermissionModeChip } from '../components/PermissionModeControl';
+import { IncognitoBanner, IncognitoToggle } from '../components/Incognito';
+import { useIncognito } from '../lib/incognito';
+import { CopyButton } from '../components/CopyButton';
+import { PipelineTrace, ReceiptChip, asReceipt, type PipelineReceipt } from '../components/PipelineReceipt';
+import { PastedChip, UserMessageContent } from '../components/PastedChip';
+import { PipelineBots } from '../components/PipelineBots';
+import { detectPaste, serializePasted, shouldChip, type PastedItem } from '../lib/paste';
+import type { PipelineStage } from '../lib/sse';
+import { chatAsMarkdown, estimateTokens } from '../lib/chatExport';
+import { SetupWizard, isSetupCommand } from '../components/SetupWizard';
+import { AGENT_MODE, CHAT_MODE, COWORK_MODE, ModeSwitch } from '../components/ModeSwitch';
+
 const SLASH_COMMANDS = [
   { id: '/idea', label: '/idea <text>', hint: 'Capture the text as an idea (saved to Memory)' },
   { id: '/new', label: '/new', hint: 'Start a new conversation' },
   { id: '/cowork', label: '/cowork', hint: 'Switch to Cowork mode' },
   { id: '/agent', label: '/agent', hint: 'Switch to Agent mode (model controls this laptop)' },
   { id: '/chat', label: '/chat', hint: 'Switch to Chat mode' },
+  { id: '/setup', label: '/setup', hint: 'Guided setup: pick your role, install plugins, connect tools' },
 ];
 
 export function ChatPage() {
   const { toast } = useToast();
+  const skillCommands = useSkillCommands();
+  const effort = useEffort();
+  const [setupOpen, setSetupOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Sidebar deep links: /chat?c=<id> opens a conversation, /chat?new=1 starts one.
+  const deepLinkConv = searchParams.get('c');
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(null);
+  // Incognito: the toggle applies to the NEXT new chat; chats created that way
+  // are never in the list, so we remember them to keep them selected.
+  const [incognito, setIncognito] = useIncognito();
+  const incognitoIdsRef = useRef<Set<string>>(new Set());
+  // Big pastes become labelled chips (Claude-style) instead of flooding the box.
+  const [pasted, setPasted] = useState<PastedItem[]>([]);
+  // Receipts by assistant message id, so they survive the post-stream reload.
+  const receiptsRef = useRef<Map<string, PipelineReceipt>>(new Map());
+  const [incognitoConv, setIncognitoConv] = useState<string | null>(null);
+  // Scrolled up away from the newest message → offer a "Jump to latest" button.
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [ui, setUi] = useState<UiMessage[]>([]);
   const [mode, setMode] = useState<'CHAT' | 'COWORK' | 'AGENT'>(searchParams.get('mode') === 'cowork' ? 'COWORK' : searchParams.get('mode') === 'agent' ? 'AGENT' : 'CHAT');
@@ -180,9 +217,10 @@ export function ChatPage() {
         for (const c of [...active.conversations, ...archived.conversations]) merged.set(c.id, c);
         const list = [...merged.values()];
         setConvs(list);
+        window.dispatchEvent(new Event(CONVERSATIONS_CHANGED));
         if (!preserveSelection && list.length > 0 && !convId) {
           setConvId(list[0]!.id);
-        } else if (list.length > 0 && !list.some((c) => c.id === convId)) {
+        } else if (list.length > 0 && !list.some((c) => c.id === convId) && !incognitoIdsRef.current.has(convId ?? '')) {
           // Only drop the selection when the list has other content; an
           // empty (briefly empty) list keeps the current conversation.
           setConvId(null);
@@ -213,6 +251,7 @@ export function ChatPage() {
               role: m.role,
               content: m.content,
               image: m.imageFileId ? { fileId: m.imageFileId, mimeType: m.imageMime ?? '' } : null,
+              receipt: receiptsRef.current.get(m.id),
             })),
           );
         }
@@ -305,7 +344,8 @@ export function ChatPage() {
         if (typeof project === 'string') setProjectId(project);
         if (savedMode === 'CHAT' || savedMode === 'COWORK' || savedMode === 'AGENT') setMode(savedMode);
         if (typeof savedModel === 'string') setModelId(savedModel);
-        if (typeof conversation === 'string') setConvId(conversation);
+        if (deepLinkConv) setConvId(deepLinkConv);
+        else if (typeof conversation === 'string') setConvId(conversation);
         if (typeof savedScroll === 'number') pendingScrollRef.current = savedScroll;
         if (savedLastSeen && typeof savedLastSeen === 'object') setLastSeen(savedLastSeen);
       } catch {
@@ -429,6 +469,7 @@ export function ChatPage() {
       });
       setConvs((prev) => [res.conversation, ...prev.filter((c) => c.id !== res.conversation.id)]);
       setConvId(res.conversation.id);
+      window.dispatchEvent(new Event(CONVERSATIONS_CHANGED));
       setMessages([]);
       setUi([]);
       setAttachItems([]);
@@ -438,6 +479,27 @@ export function ChatPage() {
     }
   };
 
+  // Sidebar deep links. `c` is applied on every change (a recents click while
+  // already on /chat); `new` creates exactly one conversation, then clears.
+  useEffect(() => {
+    if (deepLinkConv) {
+      setConvId(deepLinkConv);
+      saveState(STATE_KEYS.conversation, { conversationId: deepLinkConv });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkConv]);
+  const wantsNew = searchParams.get('new') === '1';
+  useEffect(() => {
+    if (!wantsNew) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('new');
+      return next;
+    }, { replace: true });
+    void createConv();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsNew]);
+
   const runStream = async (content: string, attachments: { fileId: string; name: string }[] | undefined, model?: string, imageRequest?: boolean) => {
     const trimmed = content.trim();
     if (!trimmed || streaming) return;
@@ -446,6 +508,7 @@ export function ChatPage() {
     setCompanion('thinking');
     const userKey = `u:${Date.now()}`;
     const asstKey = `a:${Date.now()}`;
+    const sentIncognito = !convId && incognito && mode === 'CHAT' && !imageRequest;
     // Continuity: one idempotency key per user turn. If the stream dies and the
     // user resends (or the outbox flush replays), the server dedupes on it —
     // the exact same message is never inserted twice.
@@ -494,6 +557,11 @@ export function ChatPage() {
             m.key === asstKey ? { ...m, content: m.content + delta, thinking: false } : m,
           ),
         );
+      } else if (ev.type === 'stage') {
+        const st = ev.data;
+        setStatusLabel(st.label);
+        // A repair attempt restarts the answer: clear what was streamed so far.
+        setUi((prev) => prev.map((m) => (m.key === asstKey ? { ...m, stages: [...(m.stages ?? []), st], ...(st.reset ? { content: '' } : {}) } : m)));
       } else if (ev.type === 'limit_reached') {
         streamEnded = true;
         setCompanion('waiting');
@@ -522,19 +590,30 @@ export function ChatPage() {
         setCompanion('done');
         flashStatus('Completed');
         playResponseReadySound();
+        notifyUsageChanged();
         const messageId = ev.data.messageId;
         if (convId && typeof messageId === 'string') {
           lastEventIdRef.current[convId] = `msg_${messageId}`;
         }
+        const createdId = ev.data.conversationId;
+        if (!convId && typeof createdId === 'string') {
+          if (sentIncognito) {
+            incognitoIdsRef.current.add(createdId);
+            setIncognitoConv(createdId);
+          }
+          setConvId(createdId);
+        }
         // Continuity: a decision recorded during this exchange rides the done
         // payload — render a real chip (never guessed when absent).
         const dr = ev.data.decisionRecorded;
+        const receipt = asReceipt(ev.data.pipeline);
+        if (receipt && typeof messageId === 'string') receiptsRef.current.set(messageId, receipt);
         setUi((prev) =>
           prev
             .filter((m) => m.content.length > 0)
             .map((m) => {
               if (m.key === userKey) return { ...m, pending: false };
-              if (m.key === asstKey && dr) return { ...m, decisionRecorded: dr };
+              if (m.key === asstKey) return { ...m, ...(dr ? { decisionRecorded: dr } : {}), ...(receipt ? { receipt } : {}) };
               return m;
             }),
         );
@@ -553,6 +632,8 @@ export function ChatPage() {
           attachments,
           imageRequest,
           clientId,
+          effort,
+          ...(sentIncognito ? { incognito: true } : {}),
         },
         onEvent,
         abort.signal,
@@ -584,7 +665,8 @@ export function ChatPage() {
       setStreaming(false);
       setPhase('idle');
       abortRef.current = null;
-      void loadConvs(false);
+      // Incognito chats are never listed; refreshing would select another chat.
+      if (!sentIncognito) void loadConvs(false);
       if (convId) void loadMessages(convId);
     }
     // Silent disconnect (no done/error/limit event, no user cancel): the
@@ -615,13 +697,16 @@ export function ChatPage() {
       toast('Waiting for uploads to finish…', 'error');
       return;
     }
+    const typed = input.trim();
+    const block = pasted.length ? serializePasted(pasted) : '';
     void runStream(
-      input,
+      block ? (typed ? `${typed}\n\n${block}` : block) : input,
       ready.map((a) => ({ fileId: a.fileId!, name: a.name })),
       modelId,
       imageMode && mode === 'CHAT',
     );
     setInput('');
+    setPasted([]);
     setAttachItems([]);
     setAttachOpen(false);
     if (imageMode) setImageMode(false);
@@ -697,6 +782,37 @@ export function ChatPage() {
       });
     } catch (err) {
       toast(err instanceof Error ? err.message : 'feedback failed', 'error');
+    }
+  };
+
+  // Listen: read an answer aloud with the server's voice (ElevenLabs).
+  const [speakingKey, setSpeakingKey] = useState<string | null>(null);
+  const listen = async (key: string, text: string) => {
+    if (speakingKey) return;
+    const slice = text.trim().slice(0, 2000);
+    if (!slice) return;
+    setSpeakingKey(key);
+    try {
+      const res = await fetch('/api/v1/voice/speak', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
+        body: JSON.stringify({ text: slice }),
+      });
+      if (!res.ok) {
+        toast(res.status === 400 ? 'Voice is not configured on the server yet.' : 'Voice playback failed.', 'error');
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      try {
+        await new Audio(url).play();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      toast('Voice playback failed.', 'error');
+    } finally {
+      setSpeakingKey(null);
     }
   };
 
@@ -795,9 +911,16 @@ export function ChatPage() {
 
   const messageActions = (m: UiMessage) => {
     const persisted = messages.find((msg) => msg.id === m.key);
-    const actions: { label: string; title: string; onClick: () => void; active?: boolean; icon?: 'thumbUp' | 'thumbDown' }[] = [];
+    const actions: { label: string; title: string; onClick: () => void; active?: boolean; icon?: IconName }[] = [];
     if (m.role === 'assistant' && m.content) {
-      actions.push({ label: 'Regenerate', title: 'Generate a new response', onClick: regenerate });
+      actions.push({ label: 'Regenerate', title: 'Generate a new response', onClick: regenerate, icon: 'refresh' });
+      actions.push({
+        label: 'Listen',
+        title: speakingKey === m.key ? 'Playing…' : 'Listen to this answer',
+        onClick: () => void listen(m.key, m.content),
+        active: speakingKey === m.key,
+        icon: 'volume',
+      });
       if (persisted) {
         actions.push({
           label: 'Useful',
@@ -814,7 +937,7 @@ export function ChatPage() {
           icon: 'thumbDown',
         });
       }
-      actions.push({ label: 'Share', title: 'Share or invite', onClick: () => setShareOpen(true) });
+      actions.push({ label: 'Share', title: 'Share or invite', onClick: () => setShareOpen(true), icon: 'share' });
     }
     if (m.role === 'user') {
       if (persisted) {
@@ -822,26 +945,26 @@ export function ChatPage() {
           label: 'Edit',
           title: 'Edit and resend (creates a new turn)',
           onClick: () => setEditState({ key: m.key, content: m.content }),
+          icon: 'edit',
         });
       }
-      actions.push({ label: 'Retry', title: 'Send again', onClick: regenerate });
+      actions.push({ label: 'Retry', title: 'Send again', onClick: regenerate, icon: 'refresh' });
     }
-    if (actions.length > 0) {
-      actions.unshift({ label: 'Copy', title: 'Copy message text', onClick: () => void copyMessage(m.content) });
-    } else if (m.content) {
-      actions.push({ label: 'Copy', title: 'Copy message text', onClick: () => void copyMessage(m.content) });
-    }
+    const copy = { label: 'Copy', title: 'Copy message text', onClick: () => void copyMessage(m.content), icon: 'copy' as IconName };
+    if (actions.length > 0) actions.unshift(copy);
+    else if (m.content) actions.push(copy);
+    // Claude-style: quiet icon buttons, the name lives in the tooltip/label.
     return actions.map((a) => (
       <button
         key={a.label}
-        className={`cc-btn cc-btn--ghost cc-btn--sm ${a.active ? 'cc-btn--primary' : ''}`}
+        type="button"
+        className={`cc-msg-icon-btn${a.active ? ' is-active' : ''}`}
         title={a.title}
         aria-label={a.title}
+        aria-pressed={a.active === undefined ? undefined : a.active}
         onClick={a.onClick}
-        style={{ minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
       >
-        {a.icon && <Icon name={a.icon} size={13} />}
-        {a.label}
+        <Icon name={a.icon ?? 'sparkle'} size={15} className="cc-msg-icon" />
       </button>
     ));
   };
@@ -956,6 +1079,7 @@ export function ChatPage() {
   /** Persist scroll position (debounced) for continuity across reloads/devices. */
   const onScrollSave = () => {
     const el = listRef.current;
+    if (el) setAwayFromLatest(el.scrollHeight - el.scrollTop - el.clientHeight > 240);
     if (!el || el.scrollHeight <= el.clientHeight) return;
     if (scrollTimerRef.current !== null) window.clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = window.setTimeout(() => {
@@ -1011,6 +1135,11 @@ export function ChatPage() {
       await createConv();
       return true;
     }
+    if (isSetupCommand(trimmed)) {
+      clearDraft();
+      setSetupOpen(true);
+      return true;
+    }
     if (trimmed === '/cowork') {
       clearDraft();
       changeMode('COWORK');
@@ -1051,9 +1180,11 @@ export function ChatPage() {
   };
 
   const showSlash = input.trim().startsWith('/');
+  const pluginSlash = matchSkillCommands(input, skillCommands);
 
   return (
     <div className="cc-page" style={{ minHeight: 0 }}>
+      {setupOpen && <SetupWizard onClose={() => setSetupOpen(false)} onTry={(prompt) => setInput(prompt)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <h1>Chat</h1>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1071,26 +1202,19 @@ export function ChatPage() {
               </option>
             ))}
           </select>
-          <div className="cc-toggle" role="tablist" aria-label="Chat mode">
-            <button className={mode === 'CHAT' ? 'on' : ''} onClick={() => changeMode('CHAT')} aria-pressed={mode === 'CHAT'}>
-              Chat
-            </button>
-            <button className={mode === 'COWORK' ? 'on' : ''} onClick={() => changeMode('COWORK')} aria-pressed={mode === 'COWORK'}>
-              Cowork
-            </button>
-            <button
-              className={mode === 'AGENT' ? 'on' : ''}
-              onClick={() => changeMode('AGENT')}
-              aria-pressed={mode === 'AGENT'}
-              title="The selected model can run commands / open the browser / work files on this laptop via the Local Agent"
-            >
-              Agent
-            </button>
-          </div>
+          <ModeSwitch<'CHAT' | 'COWORK' | 'AGENT'> label="Chat mode" value={mode} options={[CHAT_MODE, COWORK_MODE, AGENT_MODE]} onChange={changeMode} />
           {/* Companion presence: mirrors the real stream lifecycle, never
               decorates. Textual status stays in the status pill. */}
           <AICompanion state={companion} />
-          {convId && (
+          {ui.some((m) => m.content.trim()) && (
+            <CopyButton
+              text={() => chatAsMarkdown(ui, convs.find((c) => c.id === convId)?.title)}
+              label="Copy chat"
+              showLabel
+              className="cc-btn cc-btn--sm"
+            />
+          )}
+          {convId && convId !== incognitoConv && (
             <>
               <button className="cc-btn cc-btn--sm" onClick={() => setShareOpen((o) => !o)}>
                 Share &amp; Invite
@@ -1121,6 +1245,20 @@ export function ChatPage() {
             </div>
           )}
           {shortcutsOpen && <ShortcutsHelp onClose={() => setShortcutsOpen(false)} />}
+          {((convId && convId === incognitoConv) || (!convId && incognito && mode === 'CHAT')) && <IncognitoBanner />}
+          {awayFromLatest && (
+            <button
+              type="button"
+              className="cc-jump-latest"
+              onClick={() => {
+                listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+                setAwayFromLatest(false);
+              }}
+            >
+              <Icon name="arrow-down" size={14} />
+              {streaming ? 'New reply below' : 'Jump to latest'}
+            </button>
+          )}
           <div ref={listRef} className="cc-chat__messages" onScroll={onScrollSave}>
             {ui.length === 0 && !streaming ? (
               <div className="cc-empty" style={{ flexDirection: 'column', gap: 12, padding: 32, textAlign: 'center' }}>
@@ -1168,7 +1306,7 @@ export function ChatPage() {
                         }}
                       />
                     ) : (
-                      <span className="cc-msg-text">{m.content}</span>
+                      <span className="cc-msg-text"><UserMessageContent content={m.content} /></span>
                     )}
                     {m.pending && <span className="cc-hint cc-hint--pending">queued locally — will sync on reconnect</span>}
                     <div className="cc-msg-actions">{messageActions(m)}</div>
@@ -1180,7 +1318,10 @@ export function ChatPage() {
                   </div>
                 ) : (
                   <div key={m.key} className="cc-msg cc-msg--assistant">
+                    {!m.receipt && m.stages && <PipelineBots stages={m.stages} />}
+                    {!m.receipt && m.stages && <PipelineTrace stages={m.stages} />}
                     {renderContent(m)}
+                    {m.receipt && <ReceiptChip receipt={m.receipt} />}
                     {m.content && (
                       <div className="cc-msg-actions">{messageActions(m)}</div>
                     )}
@@ -1300,6 +1441,20 @@ export function ChatPage() {
                       <div className="cc-popover__hint">{c.hint}</div>
                     </button>
                   ))}
+                  {pluginSlash.map((c) => (
+                    <button
+                      key={`plugin-${c.name}`}
+                      className="cc-popover__item"
+                      onClick={() => setInput(`/${c.name} `)}
+                    >
+                      <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name={pluginIcon(c.icon)} size={14} />/{c.name}
+                      </strong>
+                      <div className="cc-popover__hint">
+                        {c.description} · {c.pluginName} plugin
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
               <textarea
@@ -1316,14 +1471,37 @@ export function ChatPage() {
                 }
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => void onComposerKey(e)}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData('text');
+                  if (!shouldChip(text)) return;
+                  e.preventDefault();
+                  setPasted((prev) => [...prev, { id: `p${Date.now()}${prev.length}`, text, ...detectPaste(text) }]);
+                }}
               />
+              {pasted.length > 0 && (
+                <div className="cc-composer-pasted" data-testid="composer-pasted">
+                  {pasted.map((p) => (
+                    <PastedChip key={p.id} info={p} text={p.text} onRemove={() => setPasted((prev) => prev.filter((x) => x.id !== p.id))} />
+                  ))}
+                </div>
+              )}
+              {input.length > 280 && (
+                <span className="cc-token-est" aria-live="polite" title="Rough estimate (about 4 characters per token)">
+                  ~{estimateTokens(input).toLocaleString()} tokens
+                </span>
+              )}
             </div>
             <div id="cc-model-picker" tabIndex={-1}>
-              <ModelPicker value={modelId} onChange={changeModel} />
+              <ModelChoice value={modelId} onChange={changeModel} />
+              {!convId && (
+                <IncognitoToggle on={incognito && mode === 'CHAT'} disabled={mode !== 'CHAT'} onChange={setIncognito} />
+              )}
+              <EffortChip />
+              {mode === 'AGENT' && <PermissionModeChip />}
             </div>
             <button
               className="cc-btn cc-btn--primary"
-              disabled={streaming || !input.trim() || attachItems.some((a) => a.state === 'uploading')}
+              disabled={streaming || (!input.trim() && pasted.length === 0) || attachItems.some((a) => a.state === 'uploading')}
               onClick={send}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >

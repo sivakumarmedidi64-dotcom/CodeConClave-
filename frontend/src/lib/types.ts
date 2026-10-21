@@ -407,6 +407,8 @@ export interface Approval {
   justification?: string | null;
   affectedResources?: ApprovalResource[];
   proposedAction?: Record<string, unknown>;
+  /** Free-form approval detail (e.g. a plan-first Cowork plan: { kind: 'plan', steps }). */
+  detail?: Record<string, unknown>;
   executionStatus?: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | null;
   executionStartedAt?: string | null;
   executionCompletedAt?: string | null;
@@ -433,6 +435,7 @@ export function mapApproval(row: Record<string, unknown>): Approval {
       ? (row.affected_resources as ApprovalResource[])
       : undefined,
     proposedAction: row.proposed_action ? (row.proposed_action as Record<string, unknown>) : undefined,
+    detail: row.detail && typeof row.detail === 'object' ? (row.detail as Record<string, unknown>) : undefined,
     executionStatus: row.execution_status ? (row.execution_status as Approval['executionStatus']) : null,
     executionStartedAt: row.execution_started_at ? String(row.execution_started_at) : null,
     executionCompletedAt: row.execution_completed_at ? String(row.execution_completed_at) : null,

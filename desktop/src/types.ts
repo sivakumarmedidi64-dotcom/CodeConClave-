@@ -21,7 +21,8 @@ export type CapabilityId =
   | 'reconnect.control'
   | 'voice.control'
   | 'team.collaboration'
-  | 'screen.capture';
+  | 'screen.capture'
+  | 'browser.use';
 
 export const CAPABILITY_IDS: readonly CapabilityId[] = [
   'workspace.read',
@@ -40,6 +41,7 @@ export const CAPABILITY_IDS: readonly CapabilityId[] = [
   'voice.control',
   'team.collaboration',
   'screen.capture',
+  'browser.use',
 ] as const;
 
 export type EntitlementState = 'FREE' | 'PRO_PENDING' | 'PRO_VERIFIED' | 'PRO_EXPIRED' | 'PRO_REFUNDED' | 'UNKNOWN';
@@ -194,7 +196,11 @@ export interface WorkspaceSettings {
     theme: 'light' | 'dark' | 'system';
     fontScale: number;
   };
+  /** Where links open: the built-in pane, the system default, or an installed browser. */
+  browser: { choice: BrowserChoice };
 }
+
+export type BrowserChoice = 'builtin' | 'default' | 'chrome' | 'edge' | 'firefox' | 'brave' | 'opera' | 'vivaldi';
 
 /** Fixed, allow-listed event names the renderer may subscribe to. */
 export const DESKTOP_EVENTS = [
@@ -203,6 +209,9 @@ export const DESKTOP_EVENTS = [
   'terminal',
   'task',
   'workspace-file-change',
+  'browser',
+  /** A link was clicked in the app and the user's pick is the built-in browser. */
+  'browser-request',
 ] as const;
 
 export type DesktopEventName = (typeof DESKTOP_EVENTS)[number];

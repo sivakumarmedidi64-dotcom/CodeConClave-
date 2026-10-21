@@ -5,7 +5,7 @@
  */
 import { useRef, useState } from 'react';
 import { Icon } from './Icon';
-import { ModelPicker } from './ModelPicker';
+import { ModelChoice } from './ModelChoice';
 import { VoiceControl, useVoice } from './VoiceControl';
 
 interface AttachItem {
@@ -206,7 +206,7 @@ export function ChatComposer({
               </button>
             )}
 
-            <ModelPicker value={modelId} onChange={onModelChange} />
+            <ModelChoice value={modelId} onChange={onModelChange} />
             <button
               className="cc-btn cc-btn--primary"
               disabled={streaming || !input.trim() || attachItems.some((a) => a.state === 'uploading') || disabled}

@@ -1,7 +1,7 @@
 /**
  * CodeConClave — user API key provisioning.
  *
- * CodeConClave issues per-user API keys (e.g. `cc_live_<random>`)
+ * CodeConClave issues per-user API keys (e.g. `SHA_live_<random>`)
  * so projects and external clients can call the platform's AI endpoints
  * programmatically. Every key is generated entirely from cryptographically
  * secure random entropy; no brand suffix contributes to its entropy.
@@ -30,9 +30,13 @@ import { env } from '../../config/env.js';
 
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const KEY_SECRET_BYTES = 24;
+/** Visible brand prefix of newly issued keys. */
+export const API_KEY_PREFIX = 'SHA_live_';
 /**
- * Brand prefix: every CodeConClave key starts with the fixed literal
- * `cc_live_` (product-design constant, §6). The value after the prefix is
+ * Brand prefix: every new CodeConClave key starts with the fixed literal
+ * `SHA_live_` (product decision 2026-10-20; keys issued earlier with
+ * `cc_live_` keep working — lookup is by hash of the whole key, never by
+ * prefix). The value after the prefix is
  * entirely random — no constant or brand suffix is embedded in the secret
  * entropy, so keys are instantly recognizable as CodeConClave keys while the
  * secret itself stays purely random. `SAHARSH` is metadata (key name / label)
@@ -90,7 +94,7 @@ export function makeApiKeySecret(): string {
     const b = extra[0]!;
     if (b < limit) out += alphabet[b % alphabet.length];
   }
-  return `cc_live_${out}`;
+  return `${API_KEY_PREFIX}${out}`;
 }
 
 function toView(row: UserApiKeyRow): UserApiKeyView {
@@ -117,7 +121,7 @@ async function assertWithinKeyLimit(ownerId: string): Promise<void> {
 }
 
 /**
- * API Access is a SEPARATE purchasable product (one-time ₹9,999, plan_id 'api').
+ * API Access is a SEPARATE purchasable product (one-time ₹50,000, plan_id 'api').
  * Creating API keys is gated on a VERIFIED 'api' entitlement — a Solo/Team plan
  * does not include it and no amount/link inference can ever grant it.
  *
@@ -164,7 +168,7 @@ async function assertApiAccessEntitled(ownerId: string): Promise<void> {
   if (!entitled) {
     throw AppError.paymentRequired(
       'api_access_required',
-      'API key creation requires the API Access product (₹9,999). Go to Billing to purchase it separately — a Solo/Team plan does not include API keys.',
+      'API key creation requires the API Access product (₹50,000). Go to Billing to purchase it separately — a Solo/Team plan does not include API keys.',
     );
   }
 }

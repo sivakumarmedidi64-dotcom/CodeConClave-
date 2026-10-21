@@ -1,6 +1,6 @@
 /**
  * CodeConClave — Bearer API-key auth gateway (/api/v1/ai): identity, the
- * mandatory API Access (₹9,999) product gate, per-key window/daily/concurrency
+ * mandatory API Access (₹50,000) product gate, per-key window/daily/concurrency
  * limits and FAIL-CLOSED outage behavior. Session requests without a Bearer
  * header always pass through unchanged.
  */
@@ -12,6 +12,12 @@ const svc = vi.hoisted(() => ({
   apiAccessEntitlementState: vi.fn(async () => ({ planId: 'api', entitled: true, state: 'PRO_VERIFIED' })),
 }));
 vi.mock('../modules/apikeys/service.js', () => svc);
+
+// Prepaid credits (₹50,000 blocks): healthy balance by default; tests below drain it.
+const credits = vi.hoisted(() => ({
+  assertApiCredits: vi.fn(async () => ({ balancePaise: 4_999_000, grantedPaise: 5_000_000, spentPaise: 1_000, calls: 3, exhausted: false })),
+}));
+vi.mock('../modules/apikeys/credits.js', () => credits);
 
 const mem = vi.hoisted(() => {
   interface Entry { value: string; expiresAt: number }
@@ -128,7 +134,7 @@ describe('apiKeyAuth — API Access product gate', () => {
     expect(err).toBeInstanceOf(AppError);
     expect(err.status).toBe(402);
     expect(err.errorCode).toBe('api_access_required');
-    expect(err.message).toContain('₹9,999');
+    expect(err.message).toContain('₹50,000');
     expect(mem.store.size).toBe(0);
   });
 
@@ -139,6 +145,26 @@ describe('apiKeyAuth — API Access product gate', () => {
     expect(req.ctx!.user).toMatchObject({ id: 'usr_owner', email: 'api-owner@codeconclave.dev' });
     expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Limit', '60');
     expect(res.setHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', expect.any(String));
+  });
+});
+
+describe('apiKeyAuth — prepaid API credits', () => {
+  it('reports the remaining credits on every allowed call', async () => {
+    const { next, req, res } = await run({ authorization: 'Bearer SHA_live_own' });
+    expect(next).toHaveBeenCalledWith();
+    expect(res.setHeader).toHaveBeenCalledWith('X-CodeConClave-Credits-Remaining-INR', '49990.00');
+    expect((req.ctx as { apiKeyId?: string }).apiKeyId).toBe('ak_key');
+  });
+
+  it('refuses new calls at ₹0 (402) until a ₹50,000 top-up — before any limiter counter moves', async () => {
+    credits.assertApiCredits.mockRejectedValueOnce(
+      new AppError(402, 'api_credits_exhausted', 'Your API credits are used up (₹50,000 spent). Top up ₹50,000 to keep calling the API.'),
+    );
+    const { next } = await run({ authorization: 'Bearer SHA_live_own' });
+    const err = next.mock.calls[0]![0] as AppError;
+    expect(err.status).toBe(402);
+    expect(err.errorCode).toBe('api_credits_exhausted');
+    expect(mem.store.size).toBe(0);
   });
 });
 

@@ -33,6 +33,8 @@ export interface RequestCtx {
   user: AuthUser | null;
   sessionId: string | null;
   startedAt: number;
+  /** Set by apiKeyAuth for Bearer SHA_live_ requests (credits are debited per call). */
+  apiKeyId?: string | null;
 }
 
 declare global {

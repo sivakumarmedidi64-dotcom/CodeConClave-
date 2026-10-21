@@ -50,7 +50,7 @@ async function settingsHandler(url: string): Promise<Response> {
         link: true,
         mode: 'payment_link',
         unlockMode: 'MANUAL',
-        plans: { pro: 999, team: 4999, api: 9999 },
+        plans: { pro: 999, team: 4999, api: 50000 },
         evidence: {
           link: { enabled: true, reason: null },
           api: { enabled: false, reason: 'not configured' },
@@ -114,22 +114,22 @@ describe('early access — presentation-only access mode', () => {
 describe('early access — dormant commercial surface in Settings', () => {
   it('drops the billing section entirely while early access is open', async () => {
     renderSettings('/settings', true);
-    expect(await screen.findByRole('tab', { name: 'profile' })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'billing' })).toBeNull();
+    expect(await screen.findByRole('tab', { name: 'General' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Billing' })).toBeNull();
     expect(screen.queryByText(/Entitlement:/)).toBeNull();
   });
 
   it('ignores a deep link into the dormant billing section', async () => {
     renderSettings('/settings?tab=billing', true);
-    expect(await screen.findByRole('tab', { name: 'profile' })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: 'billing' })).toBeNull();
+    expect(await screen.findByRole('tab', { name: 'General' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Billing' })).toBeNull();
     expect(screen.queryByText(/Go to Billing/)).toBeNull();
     expect(screen.queryByText(/Upgrade to/)).toBeNull();
   });
 
   it('never leaks internal demo or entitlement debug terminology', async () => {
     renderSettings('/settings', true);
-    expect(await screen.findByRole('tab', { name: 'profile' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'General' })).toBeInTheDocument();
     const text = (document.body.textContent ?? '').replace(/\s+/g, ' ');
     for (const leaked of [
       'temporaryDemoMode',
@@ -149,7 +149,7 @@ describe('early access — dormant commercial surface in Settings', () => {
 
   it('keeps the billing section once demo mode is switched off', async () => {
     renderSettings('/settings', false);
-    expect(await screen.findByRole('tab', { name: 'billing' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Billing' })).toBeInTheDocument();
   });
 
   it('keeps the entitlement debug line only outside early access', async () => {

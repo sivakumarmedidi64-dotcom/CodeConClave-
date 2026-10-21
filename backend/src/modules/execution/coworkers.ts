@@ -583,8 +583,11 @@ export async function runCoworker(
   const planRow = await withTenant<{ plan_id: string } | null>(taskContext.userId, (db) =>
   db.query<{ plan_id: string }>('SELECT plan_id FROM users WHERE id = $1', [taskContext.userId]).then((r) => r.rows[0] ?? null),
 );
+  // Article 2: the project's own instruction file shapes every coworker too.
+  const { loadProjectInstructions, projectInstructionsBlock } = await import('../projects/instructions.js');
+  const projectBlock = projectInstructionsBlock(await loadProjectInstructions(taskContext.userId, taskContext.projectId));
   const messages: ChatMessage[] = [
-    { role: 'system', content: def.systemPrompt },
+    { role: 'system', content: `${def.systemPrompt}${projectBlock}` },
     { role: 'user', content: userMessage },
   ];
 

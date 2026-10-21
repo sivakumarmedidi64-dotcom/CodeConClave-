@@ -7,6 +7,34 @@
 import type { ReactNode } from 'react';
 
 export type IconName =
+  | 'info'
+  | 'alert'
+  | 'play'
+  | 'dot'
+  | 'ghost'
+  | 'stop-circle'
+  | 'keyboard'
+  | 'shield-check'
+  | 'link'
+  | 'arrow-down'
+  | 'copy-check'
+  | 'zap'
+  | 'volume'
+  | 'palette'
+  | 'lock'
+  | 'panel-right'
+  | 'panel-left'
+  | 'compass'
+  | 'code'
+  | 'flask'
+  | 'gauge'
+  | 'book'
+  | 'eye'
+  | 'map'
+  | 'bug'
+  | 'git-branch'
+  | 'rocket'
+  | 'plug'
   | 'home'
   | 'chat'
   | 'folder'
@@ -164,6 +192,75 @@ const PATHS: Record<IconName, ReactNode> = {
       <ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" />
       <path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13" />
       <path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5M12 8h.01" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M12 3 2.5 20h19L12 3Z" />
+      <path d="M12 10v4M12 17h.01" />
+    </>
+  ),
+  play: (
+    <>
+      <path d="M7 5v14l11-7L7 5Z" />
+    </>
+  ),
+  dot: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  ghost: (
+    <>
+      <path d="M5 20V10a7 7 0 0 1 14 0v10l-2.4-1.8L14.3 20 12 18.2 9.7 20l-2.3-1.8L5 20Z" />
+      <path d="M9.5 10.5h.01M14.5 10.5h.01" />
+    </>
+  ),
+  'stop-circle': (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+    </>
+  ),
+  keyboard: (
+    <>
+      <rect x="2.5" y="6" width="19" height="12" rx="2" />
+      <path d="M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10" />
+    </>
+  ),
+  'shield-check': (
+    <>
+      <path d="M12 3 5 6v5c0 4.4 3 8.3 7 9.5 4-1.2 7-5.1 7-9.5V6l-7-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+    </>
+  ),
+  'arrow-down': (
+    <>
+      <path d="M12 5v14M6 13l6 6 6-6" />
+    </>
+  ),
+  'copy-check': (
+    <>
+      <rect x="8" y="8" width="12" height="12" rx="2" />
+      <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+      <path d="m11 14 2 2 4-4" />
+    </>
+  ),
+  zap: (
+    <>
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
     </>
   ),
   refresh: (
@@ -341,6 +438,104 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   chevronUp: <path d="M18 15l-6-6-6 6" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
+  'compass': (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m15.5 8.5-2 5-5 2 2-5z" />
+    </>
+  ),
+  'code': <path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5M13.5 4.5l-3 15" />,
+  'flask': (
+    <>
+      <path d="M9.5 3h5M10 3v6L4.8 18.2A1.9 1.9 0 0 0 6.5 21h11a1.9 1.9 0 0 0 1.7-2.8L14 9V3" />
+      <path d="M7.2 14h9.6" />
+    </>
+  ),
+  'gauge': (
+    <>
+      <path d="M4.2 17.5a9 9 0 1 1 15.6 0" />
+      <path d="m12 13.5 4-5" />
+      <circle cx="12" cy="13.5" r="1.3" />
+    </>
+  ),
+  'book': (
+    <>
+      <path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h12.5v15H7a2.5 2.5 0 0 0-2.5 2.5z" />
+      <path d="M4.5 20.5A2.5 2.5 0 0 1 7 18h12.5v3H7" />
+    </>
+  ),
+  'eye': (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  'map': (
+    <>
+      <path d="M3.5 6.5 9 4l6 2.5 5.5-2.5v13.5L15 20l-6-2.5-5.5 2.5z" />
+      <path d="M9 4v13.5M15 6.5V20" />
+    </>
+  ),
+  'bug': (
+    <>
+      <rect x="7.5" y="7.5" width="9" height="12" rx="4.5" />
+      <path d="M9.5 7.5a2.5 2.5 0 0 1 5 0M12 11v8.5M3.5 13.5h4M16.5 13.5h4M4.5 8.5l3 2M19.5 8.5l-3 2M4.5 19l3-2M19.5 19l-3-2" />
+    </>
+  ),
+  'git-branch': (
+    <>
+      <circle cx="6.5" cy="5.5" r="2" />
+      <circle cx="6.5" cy="18.5" r="2" />
+      <circle cx="17.5" cy="7.5" r="2" />
+      <path d="M6.5 7.5v9M17.5 9.5c0 4-4.5 4-9.5 7" />
+    </>
+  ),
+  'rocket': (
+    <>
+      <path d="M12 15.5 8.5 12C10 6.5 14 3.5 20.5 3.5 20.5 10 17.5 14 12 15.5z" />
+      <path d="M8.5 12 5 11.5 7.5 8h4M12 15.5l.5 3.5 3.5-2.5v-4" />
+      <path d="M6 16.5c-1.5.5-2 2-2 3.5 1.5 0 3-.5 3.5-2" />
+    </>
+  ),
+  'volume': (
+    <>
+      <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />
+      <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />
+    </>
+  ),
+  'palette': (
+    <>
+      <path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-3.9-4-7.2-9-7.2z" />
+      <circle cx="7.5" cy="11" r="1.2" />
+      <circle cx="10" cy="7" r="1.2" />
+      <circle cx="15" cy="7.5" r="1.2" />
+    </>
+  ),
+  'lock': (
+    <>
+      <rect x="5" y="10.5" width="14" height="10" rx="2" />
+      <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  'panel-left': (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M9.5 4.5v15" />
+    </>
+  ),
+  'panel-right': (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M14.5 4.5v15" />
+    </>
+  ),
+  'plug': (
+    <>
+      <path d="M9 3v4.5M15 3v4.5" />
+      <path d="M6.5 7.5h11V11a5.5 5.5 0 0 1-11 0z" />
+      <path d="M12 16.5V21" />
+    </>
+  ),
 };
 
 export function Icon({

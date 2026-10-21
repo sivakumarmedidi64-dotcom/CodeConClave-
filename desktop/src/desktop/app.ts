@@ -25,6 +25,9 @@ import { SettingsStore } from '../desktop/settings.js';
 import { DesktopEventBus } from '../desktop/events.js';
 import { getMainProcessScreenCaptureSource } from '../local/screen-capture.js';
 import { desktopCapturer } from 'electron';
+import { BrowserPane, type PaneBounds, type PaneViewFactory } from '../local/browser-pane.js';
+import { detectBrowsers, safeExternalUrl, launchCommand, type InstalledBrowser } from '../local/browser-launch.js';
+import type { BrowserChoice } from '../types.js';
 
 export interface DesktopAppDeps {
   baseUrl: string;
@@ -36,6 +39,15 @@ export interface DesktopAppDeps {
   watchFn?: WatchFn;
   probe?: () => Promise<boolean>;
   appVersion?: string;
+  /** Built-in browser view (Electron only); absent → the pane reports unavailable. */
+  browserViewFactory?: PaneViewFactory | null;
+  /** Open a URL in the system default browser (Electron shell.openExternal). */
+  openExternal?: (url: string) => Promise<void>;
+  /** Start an installed browser: no shell, detached. */
+  spawnDetached?: (command: string, args: string[]) => void;
+  fileExists?: (path: string) => boolean;
+  platform?: NodeJS.Platform;
+  env?: Record<string, string | undefined>;
 }
 
 export class DesktopApp {
@@ -53,6 +65,8 @@ export class DesktopApp {
   readonly entitlement: EntitlementReader;
   readonly reconnect: ReconnectController;
   readonly resumer: CoworkResumer;
+  readonly browser: BrowserPane;
+  private readonly browserDeps: Pick<DesktopAppDeps, 'openExternal' | 'spawnDetached' | 'fileExists' | 'platform' | 'env'>;
   private readonly probeFn: () => Promise<boolean>;
   private readonly cursors = new Map<string, number>();
   private readonly version: string;
@@ -107,7 +121,52 @@ export class DesktopApp {
       setLastCursor: (sessionId, cursor) => void this.cursors.set(sessionId, cursor),
     });
 
+    this.browser = new BrowserPane(deps.browserViewFactory ?? null, (state) => void this.bus.emit({ name: 'browser', payload: state }));
+    this.browserDeps = {
+      openExternal: deps.openExternal,
+      spawnDetached: deps.spawnDetached,
+      fileExists: deps.fileExists,
+      platform: deps.platform ?? process.platform,
+      env: deps.env ?? process.env,
+    };
+
     this.register();
+  }
+
+  /** Browsers the user can pick (builtin + system default always; others when installed). */
+  installedBrowsers(): InstalledBrowser[] {
+    const exists = this.browserDeps.fileExists ?? (() => false);
+    return detectBrowsers(this.browserDeps.platform ?? process.platform, this.browserDeps.env ?? {}, exists);
+  }
+
+  /**
+   * A link clicked inside the app (window.open / target=_blank). Built-in pick →
+   * ask the renderer to show it on the Browser page; otherwise the picked browser.
+   */
+  async openLink(input: string): Promise<void> {
+    const url = safeExternalUrl(input);
+    if (!url) return;
+    if (this.settings.read().browser.choice === 'builtin' && this.browser.available) {
+      this.bus.emit({ name: 'browser-request', payload: { url } });
+      return;
+    }
+    await this.openExternal(url).catch(() => undefined);
+  }
+
+  /** Open a page outside the app: the picked browser, else the system default. */
+  async openExternal(input: string): Promise<{ ok: boolean; openedIn: string }> {
+    const url = safeExternalUrl(input);
+    if (!url) throw new Error('Only web pages (http and https) can be opened.');
+    const choice = this.settings.read().browser.choice;
+    const picked = this.installedBrowsers().find((b) => b.id === choice);
+    const cmd = picked ? launchCommand(this.browserDeps.platform ?? process.platform, picked, url) : null;
+    if (cmd && this.browserDeps.spawnDetached) {
+      this.browserDeps.spawnDetached(cmd.command, cmd.args);
+      return { ok: true, openedIn: picked!.name };
+    }
+    if (!this.browserDeps.openExternal) throw new Error('Opening other browsers needs the CodeConClave desktop app.');
+    await this.browserDeps.openExternal(url);
+    return { ok: true, openedIn: 'System default browser' };
   }
 
   /** Exact match: only the configured backend origin (or the offline shell
@@ -191,6 +250,24 @@ export class DesktopApp {
       });
       return result?.image ?? null;
     });
+    r.register('cc:browser:state', async () => this.browser.state());
+    r.register('cc:browser:open', async (p: { url: string; bounds?: PaneBounds }) => this.browser.open(p.url, p.bounds));
+    r.register('cc:browser:nav', async (p: { action: 'back' | 'forward' | 'reload' | 'stop' }) => this.browser.nav(p.action));
+    r.register('cc:browser:bounds', async (p: PaneBounds) => this.browser.setBounds(p));
+    r.register('cc:browser:show', async () => this.browser.show());
+    r.register('cc:browser:hide', async () => this.browser.hide());
+    r.register('cc:browser:close', async () => this.browser.close());
+    r.register('cc:browser:list', async () => ({
+      choice: this.settings.read().browser.choice,
+      builtinAvailable: this.browser.available,
+      browsers: this.installedBrowsers().map(({ id, name }) => ({ id, name })),
+    }));
+    r.register('cc:browser:choose', async (p: { choice: BrowserChoice }) => {
+      if (!this.installedBrowsers().some((b) => b.id === p.choice)) throw new Error('That browser is not installed on this computer.');
+      this.settings.patch({ browser: { choice: p.choice } });
+      return { choice: p.choice };
+    });
+    r.register('cc:browser:external', async (p: { url: string }) => this.openExternal(p.url));
     r.register('cc:screen:sources', async () => {
       const sources = await desktopCapturer.getSources({
         types: ['screen', 'window'],

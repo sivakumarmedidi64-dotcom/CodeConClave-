@@ -906,10 +906,10 @@ describe('payment link-pool: signature + callback exactness', () => {
     }
   });
 
-  it('ACTIVATES API ACCESS end-to-end when the intent identity says api_access (₹9,999 link)', async () => {
-    const link = poolRow({ plan: 'api', amount: 9999, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' });
-    const res = reservationRow({ plan: 'api', amount_inr: 9999, link_reference_id: 'CCPOOL-API1' });
-    const full = { ...intentRow({ plan_id: 'api', amount_inr: 9999, purchase_type: 'api_access', reference: 'CCAPI-ABC123' }), status: 'ACTIVE', reservation_status: 'FULFILLED' };
+  it('ACTIVATES API ACCESS end-to-end when the intent identity says api_access (₹50,000 link)', async () => {
+    const link = poolRow({ plan: 'api', amount: 50000, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' });
+    const res = reservationRow({ plan: 'api', amount_inr: 50000, link_reference_id: 'CCPOOL-API1' });
+    const full = { ...intentRow({ plan_id: 'api', amount_inr: 50000, purchase_type: 'api_access', reference: 'CCAPI-ABC123' }), status: 'ACTIVE', reservation_status: 'FULFILLED' };
     mock.setHandler(acceptedFlowHandler(full, res, link));
     const s = officialSig({ referenceId: 'CCPOOL-API1', paymentLinkId: 'plink_api1' });
     const result = await handlePoolCallback('1', {
@@ -925,10 +925,10 @@ describe('payment link-pool: signature + callback exactness', () => {
 
   it('rejects an API ACCESS intent whose purchase_type is not api_access (identity, not amount, decides)', async () => {
     mock.setHandler((text) => {
-      if (text.startsWith('SELECT * FROM payment_link_pool')) return [poolRow({ plan: 'api', amount: 9999, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' })];
+      if (text.startsWith('SELECT * FROM payment_link_pool')) return [poolRow({ plan: 'api', amount: 50000, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' })];
       if (text.startsWith('SELECT id, outcome FROM payment_pool_callbacks')) return [];
-      if (text.startsWith('SELECT * FROM payment_link_reservations WHERE link_reference_id')) return [reservationRow({ plan: 'api', amount_inr: 9999, link_reference_id: 'CCPOOL-API1' })];
-      if (text.startsWith('SELECT * FROM payment_intents')) return [intentRow({ plan_id: 'api', amount_inr: 9999, purchase_type: 'team' })];
+      if (text.startsWith('SELECT * FROM payment_link_reservations WHERE link_reference_id')) return [reservationRow({ plan: 'api', amount_inr: 50000, link_reference_id: 'CCPOOL-API1' })];
+      if (text.startsWith('SELECT * FROM payment_intents')) return [intentRow({ plan_id: 'api', amount_inr: 50000, purchase_type: 'team' })];
       return [];
     });
     const s = officialSig({ referenceId: 'CCPOOL-API1', paymentLinkId: 'plink_api1' });
@@ -945,10 +945,10 @@ describe('payment link-pool: signature + callback exactness', () => {
 
   it('rejects an API ACCESS intent with NO purchase_type (fail-closed add-on)', async () => {
     mock.setHandler((text) => {
-      if (text.startsWith('SELECT * FROM payment_link_pool')) return [poolRow({ plan: 'api', amount: 9999, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' })];
+      if (text.startsWith('SELECT * FROM payment_link_pool')) return [poolRow({ plan: 'api', amount: 50000, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' })];
       if (text.startsWith('SELECT id, outcome FROM payment_pool_callbacks')) return [];
-      if (text.startsWith('SELECT * FROM payment_link_reservations WHERE link_reference_id')) return [reservationRow({ plan: 'api', amount_inr: 9999, link_reference_id: 'CCPOOL-API1' })];
-      if (text.startsWith('SELECT * FROM payment_intents')) return [intentRow({ plan_id: 'api', amount_inr: 9999 })];
+      if (text.startsWith('SELECT * FROM payment_link_reservations WHERE link_reference_id')) return [reservationRow({ plan: 'api', amount_inr: 50000, link_reference_id: 'CCPOOL-API1' })];
+      if (text.startsWith('SELECT * FROM payment_intents')) return [intentRow({ plan_id: 'api', amount_inr: 50000 })];
       return [];
     });
     const s = officialSig({ referenceId: 'CCPOOL-API1', paymentLinkId: 'plink_api1' });
@@ -963,15 +963,15 @@ describe('payment link-pool: signature + callback exactness', () => {
     expect(result.activated).toBe(false);
   });
 
-  it('TEAM (₹4999) and API ACCESS (₹9,999) are distinguished by intent identity — cross-product callback never activates the wrong product', async () => {
+  it('TEAM (₹4999) and API ACCESS (₹50,000) are distinguished by intent identity — cross-product callback never activates the wrong product', async () => {
     // Distinct amounts and links per product. A TEAM intent seen by an API pool
     // slot must fail; an API intent seen by a TEAM pool slot must fail.
     const teamFull = { ...intentRow({ plan_id: 'team', amount_inr: 4999, purchase_type: 'team', reference: 'CCTEAM-XYZ789' }), status: 'ACTIVE', reservation_status: 'FULFILLED' };
-    const apiFull = { ...intentRow({ plan_id: 'api', amount_inr: 9999, purchase_type: 'api_access', reference: 'CCAPI-ABC123' }), status: 'ACTIVE', reservation_status: 'FULFILLED' };
+    const apiFull = { ...intentRow({ plan_id: 'api', amount_inr: 50000, purchase_type: 'api_access', reference: 'CCAPI-ABC123' }), status: 'ACTIVE', reservation_status: 'FULFILLED' };
     const teamLink = poolRow({ plan: 'team', amount: 4999, reference_id: 'CCPOOL-TEAM1', payment_link_id: 'plink_team1' });
-    const apiLink = poolRow({ plan: 'api', amount: 9999, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' });
+    const apiLink = poolRow({ plan: 'api', amount: 50000, reference_id: 'CCPOOL-API1', payment_link_id: 'plink_api1' });
     const teamRes = reservationRow({ plan: 'team', amount_inr: 4999, link_reference_id: 'CCPOOL-TEAM1' });
-    const apiRes = reservationRow({ plan: 'api', amount_inr: 9999, link_reference_id: 'CCPOOL-API1' });
+    const apiRes = reservationRow({ plan: 'api', amount_inr: 50000, link_reference_id: 'CCPOOL-API1' });
 
     // a) TEAM intent on an API pool slot -> plan mismatch.
     mock.setHandler((text) => {

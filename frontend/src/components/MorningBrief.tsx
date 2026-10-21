@@ -86,7 +86,7 @@ function RtwCard({ summary, name, open, onToggle }: { summary: RtwSummary; name:
   );
 }
 
-export function MorningBrief() {
+export function MorningBrief({ greeting = true }: { greeting?: boolean } = {}) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [unread, setUnread] = useState<number | null>(null);
@@ -207,9 +207,13 @@ export function MorningBrief() {
         <ThinkingMoon active={loading} label="Checking overnight state" />
       </div>
       <div className="cc-brief__body">
-        <h2 className="cc-brief__hi" data-testid="morning-brief-hi">
-          Hi {name}.
-        </h2>
+        {greeting ? (
+          <h2 className="cc-brief__hi" data-testid="morning-brief-hi">
+            Hi {name}.
+          </h2>
+        ) : (
+          <h2 className="cc-brief__title">Since you were away</h2>
+        )}
         {loading && <p className="cc-hint">Checking overnight state…</p>}
         {!loading && lines.length === 0 && <p className="cc-hint">All clear — nothing needs you right now.</p>}
         {!loading && lines.length > 0 && (

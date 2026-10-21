@@ -164,7 +164,7 @@ describe('App shell', () => {
         });
       }
       if (url.includes('/api/v1/payments/capabilities')) {
-        return jsonResponse({ data: { plans: { pro: 999, team: 4999, api: 9999 }, unlockMode: 'MANUAL', currency: 'INR' } });
+        return jsonResponse({ data: { plans: { pro: 999, team: 4999, api: 50000 }, unlockMode: 'MANUAL', currency: 'INR' } });
       }
       if (url.includes('/api/v1/payments/status')) {
         return jsonResponse({ data: { effectivePlan: 'free', accountEmail: 'alice@example.com', plans: [] } });

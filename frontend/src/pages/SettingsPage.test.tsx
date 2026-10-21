@@ -52,7 +52,7 @@ const capability = {
   link: true,
   mode: 'payment_link',
   unlockMode: 'MANUAL',
-  plans: { pro: 999, team: 4999, api: 9999 },
+  plans: { pro: 999, team: 4999, api: 50000 },
   evidence: {
     link: { enabled: true, reason: null },
     api: { enabled: false, reason: 'RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are not both configured' },
@@ -124,7 +124,7 @@ beforeEach(() => {
 
 async function openBilling() {
   const userEventApi = userEvent.setup();
-  await userEventApi.click(screen.getByRole('tab', { name: 'billing' }));
+  await userEventApi.click(screen.getByRole('tab', { name: 'Billing' }));
 }
 
 describe('billing — honest payment verification UX (Phase 4D)', () => {
@@ -145,7 +145,7 @@ describe('billing — honest payment verification UX (Phase 4D)', () => {
         [],
       ),
     );
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     const note = await screen.findByTestId('billing-pending-note');
     expect(note.textContent).toContain(
@@ -157,7 +157,7 @@ describe('billing — honest payment verification UX (Phase 4D)', () => {
 
   it('shows evidence provider chips derived from server capability (link ON, api/webhook OFF)', async () => {
     renderPage(apiHandler([], []));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     await waitFor(() => screen.getByText(/Evidence providers/));
     expect(screen.getByText('link ON')).toBeTruthy();
@@ -172,7 +172,7 @@ describe('billing — honest payment verification UX (Phase 4D)', () => {
         [],
       ),
     );
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText('VERIFIED')).toBeTruthy();
     expect(screen.queryByTestId('billing-pending-note')).toBeNull();
@@ -182,14 +182,14 @@ describe('billing — honest payment verification UX (Phase 4D)', () => {
     renderPage(
       apiHandler([], [{ id: 'ent_1', planId: 'pro', state: 'REVOKED', activatedAt: null }]),
     );
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText('REVOKED')).toBeTruthy();
   });
 
   it('renders the server-authoritative payment intent status per plan (STAGE 26H)', async () => {
     renderPage(apiHandler([], []));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     await waitFor(() => screen.getByText('Payment intent status'));
     expect(screen.getAllByText('PENDING').length).toBeGreaterThan(0);
@@ -200,12 +200,12 @@ describe('billing — honest payment verification UX (Phase 4D)', () => {
 });
 
 describe('API Access product UI (STAGE 26H add-on)', () => {
-  it('shows the API Access add-on card with the ₹9999 fallback price and an upgrade CTA when not entitled', async () => {
+  it('shows the API Access add-on card with the ₹50000 fallback price and an upgrade CTA when not entitled', async () => {
     renderPage(apiHandler([], []));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText('API Access')).toBeTruthy();
-    expect(screen.getAllByText('₹9999').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('₹50000').length).toBeGreaterThan(0);
     const cta = screen.getByRole('button', { name: /Upgrade to API Access/ });
     expect(cta).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Manage keys' })).toBeNull();
@@ -220,7 +220,7 @@ describe('API Access product UI (STAGE 26H add-on)', () => {
       }
       return base(url);
     });
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByRole('button', { name: 'Manage keys' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Upgrade to API Access/ })).toBeNull();
@@ -233,8 +233,8 @@ describe('API Keys tab — product gate (STAGE 26H add-on)', () => {
   it('locks key creation without the API Access add-on and routes to Billing', async () => {
     const userEventApi = userEvent.setup();
     renderPage(apiHandler([], []));
-    await waitFor(() => screen.getByRole('tab', { name: 'apikeys' }));
-    await userEventApi.click(screen.getByRole('tab', { name: 'apikeys' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'API keys' }));
+    await userEventApi.click(screen.getByRole('tab', { name: 'API keys' }));
     expect(await screen.findByText(/API keys require the API Access add-on/)).toBeTruthy();
     expect(screen.queryByPlaceholderText('Key name (e.g. CI, laptop)')).toBeNull();
     await userEventApi.click(screen.getByRole('button', { name: /Go to Billing/ }));
@@ -267,8 +267,8 @@ describe('API Keys tab — creation UX honesty', () => {
 
   async function openKeysTab() {
     const userEventApi = userEvent.setup();
-    await waitFor(() => screen.getByRole('tab', { name: 'apikeys' }));
-    await userEventApi.click(screen.getByRole('tab', { name: 'apikeys' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'API keys' }));
+    await userEventApi.click(screen.getByRole('tab', { name: 'API keys' }));
     return userEventApi;
   }
 
@@ -276,7 +276,7 @@ describe('API Keys tab — creation UX honesty', () => {
     renderPage(entitledKeysHandler());
     await openKeysTab();
     expect(await screen.findByLabelText('API key name')).toBeTruthy();
-    expect(screen.getByText(/they are not Gemini, Mistral, or Nemotron provider keys/)).toBeTruthy();
+    expect(screen.getByText(/not keys for any other AI service/)).toBeTruthy();
   });
 
   it('shows a labelled dismiss control on the one-time secret box', async () => {
@@ -334,8 +334,8 @@ describe('API Keys tab — creation UX honesty', () => {
       }
       return base(url);
     });
-    await waitFor(() => screen.getByRole('tab', { name: 'apikeys' }));
-    await userEventApi.click(screen.getByRole('tab', { name: 'apikeys' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'API keys' }));
+    await userEventApi.click(screen.getByRole('tab', { name: 'API keys' }));
     const nameCell = await screen.findByText('CI');
     const table = nameCell.closest('table');
     expect(table).not.toBeNull();
@@ -370,7 +370,7 @@ describe('Solo/Team independent purchase states (Part E)', () => {
 
   it('keeps the Team card visible for a Solo-active user (Team is an independent purchase)', async () => {
     renderPage(statusHandler('pro'));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText('Team is a separate, independent purchase.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Upgrade to TEAM/ })).toBeTruthy();
@@ -380,14 +380,14 @@ describe('Solo/Team independent purchase states (Part E)', () => {
 
   it('states the 30-member Team cap on the Team plan card', async () => {
     renderPage(apiHandler([], []));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText(/up to 30 team members/)).toBeTruthy();
   });
 
   it('labels the active plan accurately (TEAM, not PRO) and still offers the API Access add-on', async () => {
     renderPage(statusHandler('team'));
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
     await openBilling();
     expect(await screen.findByText(/plan active — billing and cancellation below/)).toBeTruthy();
     expect(screen.getByText('TEAM')).toBeTruthy();
@@ -399,37 +399,37 @@ describe('Solo/Team independent purchase states (Part E)', () => {
 describe('Settings deep links (W-1)', () => {
   it('opens the Security tab from ?tab=security', () => {
     renderPage(apiHandler([], []), '/settings?tab=security');
-    expect(selectedTab()).toBe('security');
+    expect(selectedTab()).toBe('Account');
     expect(screen.getByText('Two-factor authentication')).toBeTruthy();
   });
 
   it('opens the Devices tab from ?tab=devices', () => {
     renderPage(apiHandler([], []), '/settings?tab=devices');
-    expect(selectedTab()).toBe('devices');
+    expect(selectedTab()).toBe('System');
     expect(screen.getByText('Devices & sessions')).toBeTruthy();
   });
 
   it('opens the Preferences tab from ?tab=preferences', () => {
     renderPage(apiHandler([], []), '/settings?tab=preferences');
-    expect(selectedTab()).toBe('preferences');
+    expect(selectedTab()).toBe('Capabilities');
     expect(screen.getByText('Workspace preferences')).toBeTruthy();
   });
 
   it('keeps the Billing deep link working', () => {
     renderPage(apiHandler([], []), '/settings?tab=billing');
-    expect(selectedTab()).toBe('billing');
+    expect(selectedTab()).toBe('Billing');
     expect(screen.getByText('Payments & plan')).toBeTruthy();
   });
 
   it('falls back to Profile for an unknown tab value', () => {
     renderPage(apiHandler([], []), '/settings?tab=bogus');
-    expect(selectedTab()).toBe('profile');
-    expect(screen.getByText('Profile')).toBeTruthy();
+    expect(selectedTab()).toBe('General');
+    expect(screen.getAllByText('Profile').length).toBeGreaterThan(0);
   });
 
   it('defaults to Profile on a bare /settings route', () => {
     renderPage(apiHandler([], []));
-    expect(selectedTab()).toBe('profile');
+    expect(selectedTab()).toBe('General');
   });
 
   it('writes the active tab to the URL and clears it for Profile', async () => {
@@ -437,10 +437,10 @@ describe('Settings deep links (W-1)', () => {
     renderPage(apiHandler([], []));
     expect(screen.getByTestId('location').textContent).toBe('/settings');
 
-    await userEventApi.click(screen.getByRole('tab', { name: 'security' }));
+    await userEventApi.click(screen.getByRole('tab', { name: 'Account' }));
     expect(screen.getByTestId('location').textContent).toBe('/settings?tab=security');
 
-    await userEventApi.click(screen.getByRole('tab', { name: 'profile' }));
+    await userEventApi.click(screen.getByRole('tab', { name: 'General' }));
     expect(screen.getByTestId('location').textContent).toBe('/settings');
   });
 });

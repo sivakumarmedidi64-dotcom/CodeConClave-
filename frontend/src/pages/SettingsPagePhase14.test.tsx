@@ -124,8 +124,8 @@ async function openTab(name: string) {
 describe('billing — server-driven pricing + cancellation + usage (Phase 14)', () => {
   it('derives the upgrade price from the server capability catalog', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
-    await openTab('billing');
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
+    await openTab('Billing');
     await waitFor(() => expect(screen.getByText('Upgrade to PRO (₹1499)')).toBeInTheDocument());
     expect(screen.queryByText('Upgrade to PRO (₹999)')).toBeNull();
   });
@@ -146,8 +146,8 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
         ],
       }),
     );
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
-    await openTab('billing');
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
+    await openTab('Billing');
     const cancelBtn = await screen.findByRole('button', { name: 'Request cancellation' });
     await userEvent.click(cancelBtn);
     await waitFor(() =>
@@ -162,8 +162,8 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
 
   it('renders measured, estimated and configured-limit usage from the server', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('tab', { name: 'billing' }));
-    await openTab('billing');
+    await waitFor(() => screen.getByRole('tab', { name: 'Billing' }));
+    await openTab('Billing');
     await waitFor(() => expect(screen.getByText('Messages this window')).toBeInTheDocument());
     expect(screen.getByText('Measured')).toBeTruthy();
     expect(screen.getByText('Estimated')).toBeTruthy();
@@ -177,8 +177,8 @@ describe('billing — server-driven pricing + cancellation + usage (Phase 14)', 
 describe('notifications — timezone + honest browser capability (Phase 14)', () => {
   it('persists the timezone with the notification preferences', async () => {
     const { fetchFn } = renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
-    await openTab('notifications');
+    await waitFor(() => screen.getByRole('tab', { name: 'Notifications' }));
+    await openTab('Notifications');
     await waitFor(() => screen.getByLabelText('Timezone (IANA, used for quiet hours & digests)'));
     await userEvent.type(screen.getByLabelText('Timezone (IANA, used for quiet hours & digests)'), 'Asia/Kolkata');
     await userEvent.click(screen.getByRole('button', { name: 'Save notification preferences' }));
@@ -194,8 +194,8 @@ describe('notifications — timezone + honest browser capability (Phase 14)', ()
 
   it('reports unsupported environments honestly and offers an enable button', async () => {
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
-    await openTab('notifications');
+    await waitFor(() => screen.getByRole('tab', { name: 'Notifications' }));
+    await openTab('Notifications');
     await waitFor(() => expect(screen.getByText(/does not support the Notification API/)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Enable browser notifications' })).toBeTruthy();
   });
@@ -207,8 +207,8 @@ describe('notifications — timezone + honest browser capability (Phase 14)', ()
     }
     (window as unknown as Record<string, unknown>).Notification = FakeNotification;
     renderPage(apiHandler());
-    await waitFor(() => screen.getByRole('tab', { name: 'notifications' }));
-    await openTab('notifications');
+    await waitFor(() => screen.getByRole('tab', { name: 'Notifications' }));
+    await openTab('Notifications');
     await waitFor(() => expect(screen.getByText(/Permission granted/)).toBeInTheDocument());
   });
 });
@@ -251,8 +251,8 @@ describe('providers — server-derived status (Phase 14)', () => {
 
   it('renders provider statuses with capability chips and reauth CTA', async () => {
     renderPage(apiHandler({ providers }));
-    await waitFor(() => screen.getByRole('tab', { name: 'providers' }));
-    await openTab('providers');
+    await waitFor(() => screen.getByRole('tab', { name: 'Developer' }));
+    await openTab('Developer');
     await waitFor(() => expect(screen.getByText('Resend')).toBeInTheDocument());
     expect(screen.getByText('Available')).toBeTruthy();
     expect(screen.getByText('Re-authorization required')).toBeTruthy();
@@ -261,10 +261,27 @@ describe('providers — server-derived status (Phase 14)', () => {
     expect(screen.getByRole('link', { name: 'Re-authorize' })).toBeTruthy();
   });
 
+  it('shows one CodeConClave AI row — never the AI engine vendors behind it', async () => {
+    const withAi = {
+      ...providers,
+      providers: [
+        { id: 'ai:anthropic', name: 'anthropic', category: 'ai', status: 'AVAILABLE', reason: null },
+        { id: 'ai:openai', name: 'openai', category: 'ai', status: 'FAILED', reason: null },
+        ...providers.providers,
+      ],
+    };
+    renderPage(apiHandler({ providers: withAi }));
+    await waitFor(() => screen.getByRole('tab', { name: 'Developer' }));
+    await openTab('Developer');
+    await waitFor(() => expect(screen.getByText('CodeConClave AI')).toBeInTheDocument());
+    expect(screen.getByText('2 engines configured')).toBeInTheDocument();
+    expect(screen.queryByText(/anthropic|openai/i)).toBeNull();
+  });
+
   it('never renders provider secrets', async () => {
     renderPage(apiHandler({ providers }));
-    await waitFor(() => screen.getByRole('tab', { name: 'providers' }));
-    await openTab('providers');
+    await waitFor(() => screen.getByRole('tab', { name: 'Developer' }));
+    await openTab('Developer');
     await waitFor(() => expect(screen.getByText('Resend')).toBeInTheDocument());
     expect(screen.queryByText(/sk-live|rzp_live|re_test|sk-ant/i)).toBeNull();
     expect(screen.getByText('[REDACTED] — token expired')).toBeTruthy();

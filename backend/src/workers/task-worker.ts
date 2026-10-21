@@ -42,7 +42,8 @@ async function pump(): Promise<void> {
       inFlight.add(run);
     }
   } catch (err) {
-    logger.error('worker pump error', { err });
+    // Message-only: an Error serialises to {} through the JSON logger.
+    logger.error('worker pump error', { err: err instanceof Error ? err.message : String(err) });
   }
 }
 

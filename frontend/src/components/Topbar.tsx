@@ -17,6 +17,9 @@ import { HealthChip } from './HealthChip';
 import { ConnectivityIndicator } from './ConnectivityIndicator';
 import { Icon } from './Icon';
 import { isOnline, enqueueOfflineOp } from '../lib/offline';
+import { UserAvatar } from './UserAvatar';
+import { ApiUsageChip } from './ApiUsageChip';
+import { EmergencyStopButton } from './EmergencyStop';
 
 const SEARCH_ROUTES: Record<string, string> = {
   file: '/files',
@@ -282,6 +285,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={openPalette} aria-label="Command palette (Ctrl+K)" title="Command palette (Ctrl+K)">
           ⌘K
         </button>
+        <ApiUsageChip />
+        <EmergencyStopButton />
         <ContextIndicator />
         <HealthChip />
         <ConnectivityIndicator />
@@ -324,7 +329,7 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
         <ThemeToggle />
         <div className="cc-menu">
           <button className="cc-menu__btn" onClick={() => setProfileOpen((o) => !o)} aria-label="Account menu" aria-expanded={profileOpen}>
-            <span aria-hidden="true">{initial}</span>
+            <UserAvatar name={user?.displayName ?? user?.email ?? initial} size={28} />
           </button>
           {profileOpen && (
             <div className="cc-popover cc-menu__panel">

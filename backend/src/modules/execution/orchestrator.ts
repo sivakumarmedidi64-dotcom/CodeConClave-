@@ -570,7 +570,9 @@ export async function createTaskFromChat(input: {
     description: input.description,
     riskLevel: input.riskLevel ?? 'MEDIUM',
     executionMode: input.executionMode ?? 'CLOUD',
-    coworkerPipeline: normalizePipeline(input.pipeline),
+    // A team the user picked is used as-is; otherwise the PLANNER picks the
+    // team for this task (falling back to the same default team if it can't).
+    coworkerPipeline: Array.isArray(input.pipeline) && input.pipeline.length > 0 ? normalizePipeline(input.pipeline) : undefined,
     localInstruction: input.localInstruction,
     priority: input.priority,
     dependsOn: input.dependsOn,
@@ -589,6 +591,84 @@ export async function createTaskFromChat(input: {
     await enqueueTask(task.id);
   }
   return task;
+}
+
+/**
+ * Plan first, then act (Article 5 — borrowed from Cursor Plan, Cline Plan/Act,
+ * Junie Plan, Windsurf/Devin Local and Replit Plan mode). The team's plan is
+ * written now and shown to the user; nothing runs until they approve it.
+ * Approving releases the task (approvals.ts → approveLinkTask → queue) and the
+ * worker runs exactly this persisted plan; rejecting cancels it.
+ */
+export async function createPlanFirstTask(input: {
+  userId: string;
+  projectId: string;
+  conversationId: string | null;
+  title: string;
+  description?: string | null;
+  pipeline?: unknown;
+}): Promise<{ task: TaskRow; plan: PersistedPlan; approvalId: string }> {
+  const { createTask, requireApprovalForTask, cancelTask } = await import('./tasks.js');
+  const { createApproval } = await import('./approvals.js');
+  const { Timeouts } = await import('./policy-shared.js');
+  const task = await createTask({
+    userId: input.userId,
+    projectId: input.projectId,
+    conversationId: input.conversationId,
+    title: input.title,
+    description: input.description,
+    riskLevel: 'MEDIUM',
+    executionMode: 'CLOUD',
+    // A team the user picked is the plan; otherwise the PLANNER writes it
+    // (normalizePipeline would substitute the default team and skip it).
+    coworkerPipeline: Array.isArray(input.pipeline) && input.pipeline.length > 0 ? normalizePipeline(input.pipeline) : undefined,
+    requireApproval: true,
+  });
+  let plan: PersistedPlan;
+  try {
+    const loaded = await loadOrGeneratePlan(task);
+    plan = { ...loaded, source: loaded.source ?? 'user' };
+  } catch (err) {
+    await cancelTask(input.userId, task.id, 'plan could not be written').catch(() => undefined);
+    throw err;
+  }
+  const approval = await createApproval({
+    ownerId: input.userId,
+    taskId: task.id,
+    riskLevel: 'MEDIUM',
+    expiresInMs: Timeouts.APPROVAL_MAX_TTL_MS,
+    detail: {
+      kind: 'plan',
+      title: task.title,
+      goal: plan.goal,
+      planId: plan.id,
+      source: plan.source ?? 'user',
+      steps: plan.entries.map((e, i) => ({
+        order: i + 1,
+        coworker: e.coworker,
+        ...(e.acceptanceCriteria ? { acceptanceCriteria: e.acceptanceCriteria } : {}),
+        ...(e.risk ? { risk: e.risk } : {}),
+        ...(e.expectedArtifacts?.length ? { expectedArtifacts: e.expectedArtifacts } : {}),
+      })),
+    },
+  });
+  await requireApprovalForTask(task.id);
+  return { task: await getTaskInternal(task.id), plan, approvalId: approval.id };
+}
+
+/** Plain-language plan for the chat reply (pure; exported for tests). */
+export function describePlanForChat(plan: Pick<PersistedPlan, 'entries' | 'source'>, minutes: number): string {
+  const lines = plan.entries.map((e, i) => {
+    const what = e.acceptanceCriteria ? ` — ${e.acceptanceCriteria}` : '';
+    return `${i + 1}. **${e.coworker.charAt(0)}${e.coworker.slice(1).toLowerCase()}**${what}`;
+  });
+  const origin =
+    plan.source === 'default_fallback'
+      ? "\n\n*The planner was unavailable, so this is CodeConClave's standard team plan.*"
+      : plan.source === 'user'
+        ? '\n\n*This plan uses the team you picked.*'
+        : '';
+  return `Here's the plan. Nothing runs until you approve it:\n\n${lines.join('\n')}${origin}\n\nApprove it to start, or reject it to cancel. The approval stays open for ${minutes} minutes.`;
 }
 
 export async function getTaskTimeline(userId: string, taskId: string) {

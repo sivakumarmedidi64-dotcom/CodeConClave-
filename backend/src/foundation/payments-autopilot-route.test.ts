@@ -465,7 +465,7 @@ const PLAN_TEAM = 'team';
 const PLAN_API = 'api';
 const AMOUNT_PRO = 999;
 const AMOUNT_TEAM = 4999;
-const AMOUNT_API = 9999;
+const AMOUNT_API = 50000;
 const LINK_PRO = 'plink_pro_test';
 const LINK_TEAM = 'plink_team_test';
 const LINK_API = 'plink_api_test';
@@ -637,7 +637,7 @@ describe('AUTOPILOT WEBHOOK RAIL (POST /api/v1/payments/webhook/razorpay)', () =
       });
     });
 
-    it('2B — valid signature for API ₹9999', async () => {
+    it('2B — valid signature for API ₹50000', async () => {
       mock.users.set(OWNER_ID, { id: OWNER_ID, email: OWNER_EMAIL, plan_id: 'free' });
       const intentId = 'pin_api_ok';
       mock.intents.set(intentId, {
@@ -976,7 +976,7 @@ describe('AUTOPILOT WEBHOOK RAIL (POST /api/v1/payments/webhook/razorpay)', () =
         expires_at: new Date(Date.now() + 86400_000), created_at: new Date(Date.now() - 60_000),
         updated_at: new Date(), provider_reference_id: null, provider_payment_link_id: null,
       });
-      // ₹9999 amount on a TEAM link → amount mismatch → null from resolver → no intent
+      // ₹50000 amount on a TEAM link → amount mismatch → null from resolver → no intent
       const payload = autopilotEvent({ amountPaise: AMOUNT_API * 100, email: OWNER_EMAIL, linkId: LINK_TEAM });
       const body = webhookBody(payload);
 

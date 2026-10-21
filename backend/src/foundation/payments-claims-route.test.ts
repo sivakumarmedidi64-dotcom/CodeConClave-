@@ -242,7 +242,7 @@ function seedSession(token: string, userId: string, rbacRole: string): void {
 
 function seedIntent(userId: string, planId: 'pro' | 'team' | 'api', status = 'PENDING'): string {
   const id = `pin_${planId}_${Math.random().toString(36).slice(2, 8)}`;
-  const amount = planId === 'pro' ? 999 : planId === 'team' ? 4999 : 9999;
+  const amount = planId === 'pro' ? 999 : planId === 'team' ? 4999 : 50000;
   const purchaseType = planId === 'pro' ? 'solo' : planId === 'team' ? 'team' : 'api_access';
   mock.intents.set(id, {
     id, owner_id: userId, plan_id: planId, amount_inr: amount, currency: 'INR',
@@ -654,7 +654,7 @@ describe('MANUAL ⇄ AUTOPILOT — one activation authority', () => {
     seedSession('tok-admin', ADMIN, 'owner');
     const intentId = seedIntent(PLAYER, 'api');
     const claimId = `mcl_13B_${Math.random().toString(36).slice(2, 8)}`;
-    seedClaim(claimId, PLAYER, intentId, 'api', 'api_access', 9999, 'pay_claim_13B_0001');
+    seedClaim(claimId, PLAYER, intentId, 'api', 'api_access', 50000, 'pay_claim_13B_0001');
 
     await withServer(async (base) => {
       const approve = await postJson(base, `/api/v1/admin/payments/claims/${claimId}/approve`, {}, 'tok-admin');
@@ -670,13 +670,13 @@ describe('MANUAL ⇄ AUTOPILOT — one activation authority', () => {
 });
 
 // =========================================================================
-// 109. ALL THREE PRODUCTS THROUGH THE MANUAL RAIL (₹999 / ₹4,999 / ₹9,999)
+// 109. ALL THREE PRODUCTS THROUGH THE MANUAL RAIL (₹999 / ₹4,999 / ₹50,000)
 // =========================================================================
 describe('ALL PRODUCTS — manual submit -> approve -> entitlement (price-bound matrix)', () => {
   const matrix = [
     { plan: 'pro',  amount: 999,  purchase: 'solo',       expectsPlanOverwrite: true },
     { plan: 'team', amount: 4999, purchase: 'team',       expectsPlanOverwrite: true },
-    { plan: 'api',  amount: 9999, purchase: 'api_access', expectsPlanOverwrite: false },
+    { plan: 'api',  amount: 50000, purchase: 'api_access', expectsPlanOverwrite: false },
   ] as const;
 
   it.each(matrix)('$plan (₹$amount) — submit + owner approve grants exactly ONE entitlement for that product', async ({ plan, amount, purchase, expectsPlanOverwrite }) => {

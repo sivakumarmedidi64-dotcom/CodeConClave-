@@ -5,10 +5,14 @@
  */
 const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: 'Ctrl/Cmd + K', what: 'Open command palette' },
+  { keys: 'Ctrl/Cmd + Shift + O', what: 'New chat' },
   { keys: 'Enter', what: 'Send message' },
   { keys: 'Shift + Enter', what: 'New line' },
-  { keys: 'Esc', what: 'Stop the active stream' },
-  { keys: '?', what: 'Show this shortcut list' },
+  { keys: 'Esc', what: 'Stop the active reply' },
+  { keys: 'Ctrl/Cmd + Shift + .', what: 'Stop everything (tasks, laptop actions, schedules)' },
+  { keys: 'Ctrl/Cmd + /', what: 'Show this shortcut list' },
+  { keys: 'Ctrl/Cmd + B', what: 'Open or close the sidebar' },
+  { keys: '?', what: 'Show this shortcut list (in chat)' },
 ];
 
 export function ShortcutsHelp({ onClose }: { onClose: () => void }) {

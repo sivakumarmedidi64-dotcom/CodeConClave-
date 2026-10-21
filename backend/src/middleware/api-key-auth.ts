@@ -1,13 +1,13 @@
 /**
  * CodeConClave — Bearer API-key authentication + STRICT per-key rate limiting.
  *
- * External clients authenticate with `Authorization: Bearer cc_live_...` (the
+ * External clients authenticate with `Authorization: Bearer SHA_live_...` (the
  * same keys provisioned in Billing > API keys). This middleware is the AI
  * API gate mounted at /api/v1/ai:
  *   - no Bearer header  -> pass through (session flow, unchanged);
  *   - invalid/revoked/expired key -> 401;
  *   - valid key WITHOUT a live (VERIFIED + unexpired) 'api' entitlement
- *     (₹9,999 API Access product) -> 402 payment_required. A Solo/Team
+ *     (₹50,000 API Access product) -> 402 payment_required. A Solo/Team
  *     purchase never grants it.
  *   - valid + entitled -> per-key window limit, per-key daily budget and
  *     in-flight concurrency cap are enforced (429). The raw key is never
@@ -22,6 +22,7 @@ import { cache } from '../shared/cache.js';
 import { env } from '../config/env.js';
 import { logger } from '../shared/logger.js';
 import { resolveUserApiKey, apiAccessEntitlementState } from '../modules/apikeys/service.js';
+import { assertApiCredits } from '../modules/apikeys/credits.js';
 import { pool } from '../shared/db.js';
 import type { AuthUser } from './context.js';
 
@@ -71,8 +72,13 @@ async function loadOwnerAsUser(ownerId: string): Promise<AuthUser | null> {
   };
 }
 
-function dayKey(): string {
+export function dayKey(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Cache key of a key's daily request counter (shared with the usage view). */
+export function dailyCounterKey(keyId: string, day = dayKey()): string {
+  return `rl:apikey:d:${keyId}:${day}`;
 }
 
 async function decConcurrent(keyId: string): Promise<void> {
@@ -112,7 +118,7 @@ export function apiKeyAuth() {
       }
       const { ownerId, keyId } = resolved;
 
-      // Mandatory product gate: only a VERIFIED, UNEXPIRED API Access (₹9,999)
+      // Mandatory product gate: only a VERIFIED, UNEXPIRED API Access (₹50,000)
       // purchase entitles a key to call the AI API. Never inferred from
       // amount/plan, and evaluated at request time so an expired entitlement
       // cannot be used until a background sweep happens to rewrite the row.
@@ -121,9 +127,18 @@ export function apiKeyAuth() {
         next(
           AppError.paymentRequired(
             'api_access_required',
-            'This API key is not entitled to use the AI API. API Access (₹9,999) is purchased separately — Solo/Team plans do not include it.',
+            'This API key is not entitled to use the AI API. API Access (₹50,000) is purchased separately — Solo/Team plans do not include it.',
           ),
         );
+        return;
+      }
+
+      // Prepaid credits: at ₹0 the API refuses new calls until a ₹50,000 top-up.
+      try {
+        const credits = await assertApiCredits(ownerId);
+        res.setHeader('X-CodeConClave-Credits-Remaining-INR', (Math.max(0, credits.balancePaise) / 100).toFixed(2));
+      } catch (err) {
+        next(err);
         return;
       }
 
@@ -140,7 +155,7 @@ export function apiKeyAuth() {
       }
 
       // Per-key daily budget.
-      const dailyKey = `rl:apikey:d:${keyId}:${dayKey()}`;
+      const dailyKey = dailyCounterKey(keyId);
       const dailyLimit = Math.max(1, Number(env.API_MAX_DAILY_REQUESTS));
       const dailyCount = await cache.incr(dailyKey, 86_400_000);
       if (dailyCount > dailyLimit) {
@@ -179,6 +194,7 @@ export function apiKeyAuth() {
           return;
         }
         req.ctx.user = user;
+        req.ctx.apiKeyId = keyId;
       }
       next();
     } catch (err) {

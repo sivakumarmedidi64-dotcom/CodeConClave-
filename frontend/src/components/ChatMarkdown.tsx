@@ -7,7 +7,9 @@
  * and only known-safe tags are emitted; links are http(s)-only. Anything
  * unrecognized stays readable plain text — never dropped, never executed.
  */
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { artifactStore, artifactTitle, isHtmlDocument, isPreviewable } from '../lib/artifacts';
+import { ChartBlock, EmailDraftCard, FileCard, parseChart } from './RichBlocks';
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -35,6 +37,21 @@ interface Block {
 
 function CodeBlock({ language, code }: { language: string; code: string }) {
   const [copied, setCopied] = useState(false);
+  const ownerId = useId();
+  const autoOpened = useRef(false);
+  const previewable = isPreviewable(language, code);
+  const openPreview = () => artifactStore.open({ ownerId, language, code, title: artifactTitle(language, code) });
+
+  // Live build: while this block keeps growing (streaming), push the new code
+  // to the open artifact. A full HTML document opens itself once, like Claude.
+  useEffect(() => {
+    artifactStore.update(ownerId, code);
+    if (!autoOpened.current && isHtmlDocument(code) && code.length > 120 && !artifactStore.get()) {
+      autoOpened.current = true;
+      openPreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
@@ -50,9 +67,16 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
       <pre className="cc-md-pre">
         <code>{code}</code>
       </pre>
-      <button type="button" className="cc-btn cc-btn--sm cc-btn--ghost" onClick={() => void copy()}>
-        {copied ? 'Copied' : 'Copy'}
-      </button>
+      <span className="cc-md-actions">
+        {previewable && (
+          <button type="button" className="cc-md-copy cc-md-preview" onClick={openPreview} aria-label="Open live preview">
+            Preview
+          </button>
+        )}
+        <button type="button" className="cc-md-copy" onClick={() => void copy()} aria-label={copied ? 'Copied' : 'Copy code'}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </span>
     </div>
   );
 }
@@ -66,8 +90,24 @@ export function ChatMarkdown({ text }: { text: string }) {
     if (part.startsWith('```')) {
       const inner = part.replace(/^```/, '').replace(/```$/, '');
       const nl = inner.indexOf('\n');
-      const language = (nl >= 0 ? inner.slice(0, nl) : '').trim().slice(0, 24);
+      const info = (nl >= 0 ? inner.slice(0, nl) : '').trim().slice(0, 100);
+      const language = info.slice(0, 24);
       const code = (nl >= 0 ? inner.slice(nl + 1) : inner).replace(/\n$/, '');
+      // Rich blocks (Claude-style): charts, downloadable files, email drafts.
+      const lower = info.toLowerCase();
+      if (lower === 'chart') {
+        const spec = parseChart(code);
+        blocks.push({ key: key++, node: spec ? <ChartBlock spec={spec} /> : <CodeBlock language="json" code={code} /> });
+        continue;
+      }
+      if (lower.startsWith('file:')) {
+        blocks.push({ key: key++, node: <FileCard name={info.slice(5).trim() || 'file.txt'} content={code} /> });
+        continue;
+      }
+      if (lower === 'email') {
+        blocks.push({ key: key++, node: <EmailDraftCard src={code} /> });
+        continue;
+      }
       blocks.push({ key: key++, node: <CodeBlock language={language} code={code} /> });
       continue;
     }

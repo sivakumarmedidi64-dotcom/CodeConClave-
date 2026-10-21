@@ -36,7 +36,7 @@ export const accessRoutes = (): Router => {
             // Set to false again to re-enable the commercial flow untouched.
             purchaseEnabled: !access.demoMode,
             // Unchanged commercial model — demo mode is not a new plan.
-            commercialPlans: { solo: 999, team: 4999, apiAccess: 9999 },
+            commercialPlans: { solo: 999, team: 4999, apiAccess: 50000 },
           },
           user: {
             id: user.id,

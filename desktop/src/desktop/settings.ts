@@ -7,7 +7,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { sep } from 'node:path';
-import type { WorkspaceSettings } from '../types.js';
+import type { BrowserChoice, WorkspaceSettings } from '../types.js';
+
+const BROWSER_CHOICES: readonly BrowserChoice[] = ['builtin', 'default', 'chrome', 'edge', 'firefox', 'brave', 'opera', 'vivaldi'];
 
 export interface SettingsFile {
   path: string;
@@ -21,6 +23,7 @@ export const DEFAULTS: WorkspaceSettings = {
   appUrl: 'http://localhost:8080',
   activeRoot: null,
   ui: { theme: 'system', fontScale: 1 },
+  browser: { choice: 'builtin' },
 };
 
 export function defaultSettingsPath(userDataDir: string): string {
@@ -65,6 +68,9 @@ export class SettingsStore {
           theme: parsed.ui?.theme === 'dark' || parsed.ui?.theme === 'light' ? parsed.ui.theme : 'system',
           fontScale: typeof parsed.ui?.fontScale === 'number' && parsed.ui.fontScale > 0 && parsed.ui.fontScale <= 3 ? parsed.ui.fontScale : 1,
         },
+        browser: {
+          choice: BROWSER_CHOICES.includes(parsed.browser?.choice as BrowserChoice) ? (parsed.browser!.choice as BrowserChoice) : 'builtin',
+        },
       };
     } catch {
       return { ...DEFAULTS };
@@ -77,6 +83,7 @@ export class SettingsStore {
       ...current,
       ...patch,
       ui: { ...current.ui, ...(patch.ui ?? {}) },
+      browser: { ...current.browser, ...(patch.browser ?? {}) },
     };
     this.io.write(this.file.path, JSON.stringify(merged, null, 2));
     return merged;

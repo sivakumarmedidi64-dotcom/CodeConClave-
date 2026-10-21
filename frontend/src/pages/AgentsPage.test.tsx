@@ -137,9 +137,13 @@ describe('AgentsPage — workspace', () => {
     await userEvent.click(await screen.findByRole('button', { name: '+ New agent' }));
     const modelSelect = screen.getByLabelText(/Model/);
     const options = within(modelSelect).getAllByRole('option').map((o) => o.textContent);
-    expect(options).toContain('Gemini Flash (google)');
-    expect(options).toContain('Claude Sonnet (anthropic)');
-    expect(options).not.toContain('Claude Opus (anthropic)');
+    // Two eligible engines (the locked one is not offered), shown only as
+    // CodeConClave AI — never a provider or vendor model name.
+    expect(options).toHaveLength(2);
+    for (const o of options) {
+      expect(o).toMatch(/^CodeConClave AI · cloud engine · /);
+      expect(o).not.toMatch(/anthropic|google|claude|gemini|opus/i);
+    }
   });
 
   it('deletes an idle agent', async () => {

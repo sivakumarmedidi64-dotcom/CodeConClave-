@@ -2,7 +2,7 @@
  * CodeConClave — MANUAL payment claims (UNLOCK_MODE=MANUAL).
  *
  * Flow: the authenticated user pays a Razorpay payment link (Solo ₹999 / Team
- * ₹4,999 / API Access ₹9,999) and submits the REAL Razorpay Payment ID
+ * ₹4,999 / API Access ₹50,000) and submits the REAL Razorpay Payment ID
  * (`pay_...`) against the AUTHENTICATED payment intent they created at
  * checkout. The founder approves/rejects the claim on the Admin > Payments
  * page. Approval NEVER trusts client input: plan, purchase identity and amount

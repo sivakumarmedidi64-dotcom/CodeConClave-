@@ -1,17 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { streamChat, type ChatStreamEvent } from '../lib/sse';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { streamChat, type ChatStreamEvent, type PipelineStage } from '../lib/sse';
 import { api, csrfToken } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
+import { parseAppAction, runAppAction } from '../lib/appActions';
 import { useAuth } from '../auth/AuthProvider';
-import { ModelPicker } from './ModelPicker';
+import { ModelChoice } from './ModelChoice';
+import { EffortChip, useEffort } from './EffortChip';
 import { ThinkingMoon } from './ThinkingMoon';
 import { ChatMarkdown } from './ChatMarkdown';
+import { BotTeam } from './BotTeam';
+import { UsageChip } from './UsageChip';
+import { notifyUsageChanged } from '../lib/usage';
+import { TeamPicker } from './TeamPicker';
 import { Icon } from './Icon';
+import { IncognitoBanner, IncognitoToggle } from './Incognito';
+import { CopyButton } from './CopyButton';
+import { PipelineTrace, ReceiptChip, asReceipt, type PipelineReceipt } from './PipelineReceipt';
+import { PastedChip, UserMessageContent } from './PastedChip';
+import { PipelineBots } from './PipelineBots';
+import { CapabilityGrid, MistakesNote } from './CapabilityGrid';
+import { SetupWizard, isSetupCommand } from './SetupWizard';
+import { CHAT_MODE, COWORK_MODE, ModeSwitch } from './ModeSwitch';
+import { PlanApprovalCard, asPlanSummary, type PlanSummary } from './PlanApproval';
+import { ToolApprovalCard, type ToolApproval } from './ToolApprovalCard';
+import { detectPaste, serializePasted, shouldChip, type PastedItem } from '../lib/paste';
+import { useIncognito } from '../lib/incognito';
 
 const MODEL_KEY = 'cc:home:model';
 const MODE_KEY = 'cc:home:chatmode';
+// A UI preference only (the Cowork review-steps toggle), never billing or access state.
+const REVIEW_STEPS_KEY = 'cc:home:review-steps-first';
+const TOOLS_KEY = 'cc:home:mcp-tools';
 const PLACEHOLDER = 'Ask anything\u2026';
 const MAX_ATTACH_CHARS = 100000;
 
@@ -76,13 +97,42 @@ function voiceRecognizerCtor(): VoiceRecognizerCtor | null {
 
 interface Row {
   key: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'team' | 'plan' | 'tool';
+  /** role 'tool': an MCP tool call waiting for the user's approval. */
+  toolCall?: ToolApproval;
+  /** role 'plan': the approval that starts this Cowork task, and its plan. */
+  approvalId?: string;
+  plan?: PlanSummary;
   content: string;
   thinking?: boolean;
   decisionRecorded?: { id: string; title: string; status: string } | null;
+  /** role 'team': the Cowork task whose bot team is shown live. */
+  taskId?: string;
+  /** Pipeline v3: live stages while building, then the sealed receipt. */
+  stages?: PipelineStage[];
+  receipt?: PipelineReceipt;
+  /** A generated image (stored in a project; shown inline). */
+  image?: { fileId: string; mimeType: string; projectId: string };
 }
 
-export function HomeChat() {
+/** "draw / generate / create an image of…" → image generation, no toggle needed. */
+/** The latest live project, or a new one with this name (images, Cowork tasks need a project). */
+async function ensureProject(name: string, description: string): Promise<string | undefined> {
+  const res = await api<{ projects?: { id: string; name?: string; updated_at?: string; deleted_at?: string | null; status?: string }[] }>('/api/v1/projects');
+  const projects = (res?.projects ?? []).filter((p) => !p.deleted_at && p.status !== 'ARCHIVED');
+  const latest = [...projects].sort((a, b) => Date.parse(b.updated_at ?? '') - Date.parse(a.updated_at ?? ''))[0];
+  if (latest) return latest.id;
+  const created = await api<{ project?: { id: string } }>('/api/v1/projects', { method: 'POST', body: { name, description } });
+  return created?.project?.id;
+}
+
+const ensureImageProject = () => ensureProject('Images', 'Images generated on Home');
+
+export function looksLikeImageRequest(text: string): boolean {
+  return /^(please )?(draw|generate|create|make|design|paint|render)\b[^.?!\n]{0,40}\b(image|picture|photo|illustration|logo|icon|poster|wallpaper|banner|drawing|art(work)?)\b/i.test(text.trim());
+}
+
+export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   let authUser: { displayName?: string | null } | null = null;
   try {
     authUser = useAuth().user;
@@ -102,6 +152,64 @@ export function HomeChat() {
     return () => window.clearInterval(timer);
   }, []);
   const [input, setInput] = useState('');
+  const [homeProjectId, setHomeProjectId] = useState<string | undefined>();
+  // Image generation on Home (Chat mode): toggle, or just ask "draw an image of…".
+  const [imageMode, setImageMode] = useState(false);
+  const [team, setTeam] = useState<string[]>([]);
+  // Cowork "Plan first": the team writes a plan and waits for your approval.
+  const [planFirst, setPlanFirst] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(REVIEW_STEPS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const togglePlanFirst = () =>
+    setPlanFirst((v) => {
+      try {
+        localStorage.setItem(REVIEW_STEPS_KEY, v ? '0' : '1');
+      } catch {
+        /* private mode: still works for this session */
+      }
+      return !v;
+    });
+  const effort = useEffort();
+  // MCP tools (Chat): the chip shows only when a connected, switched-on server offers tools.
+  const [mcpToolCount, setMcpToolCount] = useState(0);
+  const [toolsOn, setToolsOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(TOOLS_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    api<{ servers?: { enabled: boolean; status: string; tools?: unknown[] }[] }>('/api/v1/mcp/servers')
+      .then((res) => {
+        const n = (res?.servers ?? []).filter((s) => s.enabled && s.status === 'CONNECTED').reduce((acc, s) => acc + (s.tools?.length ?? 0), 0);
+        setMcpToolCount(n);
+      })
+      .catch(() => setMcpToolCount(0));
+  }, []);
+  const toggleTools = () =>
+    setToolsOn((v) => {
+      try {
+        localStorage.setItem(TOOLS_KEY, v ? '0' : '1');
+      } catch {
+        /* still works for this session */
+      }
+      return !v;
+    });
+  useEffect(() => {
+    api<{ projects: { id: string; deleted_at?: string | null; status?: string; updated_at?: string }[] }>('/api/v1/projects')
+      .then((res) => {
+        const live = (res?.projects ?? []).filter((p) => !p.deleted_at && p.status !== 'ARCHIVED');
+        live.sort((a, b) => Date.parse(b.updated_at ?? '') - Date.parse(a.updated_at ?? ''));
+        setHomeProjectId(live[0]?.id);
+      })
+      .catch(() => undefined);
+  }, []);
+  const [residentReady, setResidentReady] = useState(false);
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
   const [chatMode, setChatMode] = useState<'CHAT' | 'COWORK'>(() => {
@@ -112,6 +220,15 @@ export function HomeChat() {
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [attachments, setAttachments] = useState<{ name: string; content: string }[]>([]);
+  // Big pastes become labelled chips (Claude-style) instead of flooding the box.
+  const [pasted, setPasted] = useState<PastedItem[]>([]);
+  // `/setup` opens the guided setup (role → plugins → tools → try a skill);
+  // Settings → Customize → Guided setup links here with ?setup=1.
+  const [setupOpen, setSetupOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('setup') === '1') setSetupOpen(true);
+  }, [location.search]);
   const [listening, setListening] = useState(false);
   const [voiceSupported] = useState(() => voiceRecognizerCtor() !== null);
   const navigate = useNavigate();
@@ -120,6 +237,12 @@ export function HomeChat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceRecognizer | null>(null);
+  // Chat follow-ups continue the same conversation (so the AI keeps context);
+  // switching mode or incognito starts a fresh one.
+  const convRef = useRef<string | null>(null);
+  // The project the current image request is stored in (for the inline <img>).
+  const imageProjectRef = useRef<string | null>(null);
+  const [incognito, setIncognito] = useIncognito();
 
   const autogrow = useCallback(() => {
     const el = inputRef.current;
@@ -138,15 +261,18 @@ export function HomeChat() {
   }, []);
 
   const selectMode = (next: 'CHAT' | 'COWORK') => {
+    if (next !== chatMode) convRef.current = null;
     setChatMode(next);
     localStorage.setItem(MODE_KEY, next);
   };
 
-  const contextLine = modelId === 'codeconclave-ai'
-    ? 'CodeConClave AI · your 5 drivers, router picks 1 per task'
-    : modelId
-      ? `Model: ${modelId}`
-      : `Context: AUTO${routing?.provider ? ` → ${routing.provider}/${routing.model ?? ''}` : ''}${routing?.reason ? ` · ${routing.reason}` : ' · router decides per turn'}`;
+  // Plain words, never internal ids: which model answers is on the receipt.
+  const autoRouted = !modelId || modelId === 'codeconclave-ai';
+  const contextLine = autoRouted && residentReady
+    ? 'CodeConClave AI · your own tuned models answer coding, review and planning first'
+    : autoRouted
+      ? 'CodeConClave AI picks the best engine for each task'
+      : 'CodeConClave AI';
 
   useEffect(() => {
     // Follow the conversation upward: newest rows append at the bottom, so
@@ -186,13 +312,35 @@ export function HomeChat() {
       case 'delta':
         setRows((prev) => prev.map((m) => (m.key === asstKey ? { ...m, content: m.content + ev.data.delta, thinking: false } : m)));
         break;
+      case 'stage': {
+        const st = ev.data;
+        // A repair attempt restarts the answer: clear what was streamed so far.
+        setRows((prev) =>
+          prev.map((m) => (m.key === asstKey ? { ...m, stages: [...(m.stages ?? []), st], ...(st.reset ? { content: '' } : {}) } : m)),
+        );
+        break;
+      }
       case 'error':
         state.receivedTerminal = true;
         setRows((prev) => [
-          ...prev.map((m) => (m.key === asstKey ? { ...m, thinking: false } : m)),
+          // An answer that never started leaves no empty bubble behind.
+          ...prev
+            .filter((m) => !(m.key === asstKey && !m.content && !m.image))
+            .map((m) => (m.key === asstKey ? { ...m, thinking: false } : m)),
           { key: `s:${Date.now()}`, role: 'system', content: ev.data.message },
         ]);
         break;
+      case 'tool_approval': {
+        // An MCP tool call waits for approval: show the card under the answer.
+        const call = ev.data;
+        setRows((prev) => [...prev, { key: `tool:${call.approvalId}`, role: 'tool', content: '', toolCall: call }]);
+        break;
+      }
+      case 'image': {
+        const img = ev.data;
+        setRows((prev) => prev.map((m) => (m.key === asstKey ? { ...m, thinking: false, image: { fileId: img.fileId, mimeType: img.mimeType, projectId: imageProjectRef.current ?? '' } } : m)));
+        break;
+      }
       case 'limit_reached':
         state.receivedTerminal = true;
         setRows((prev) => [
@@ -200,18 +348,36 @@ export function HomeChat() {
           { key: `s:${Date.now()}`, role: 'system', content: 'Usage limit reached for this rolling window.' },
         ]);
         break;
-      case 'done':
+      case 'done': {
         state.receivedTerminal = true;
         playResponseReadySound();
-        setRows((prev) =>
-          prev
+        notifyUsageChanged();
+        if (typeof ev.data.conversationId === 'string') convRef.current = ev.data.conversationId;
+        const taskId = typeof ev.data.taskId === 'string' ? ev.data.taskId : undefined;
+        const approvalId = typeof ev.data.approvalId === 'string' ? ev.data.approvalId : undefined;
+        const plan = approvalId ? asPlanSummary(ev.data.plan) : null;
+        setRows((prev) => {
+          const next = prev
             .map((m) => {
-              if (m.key === asstKey && ev.data.decisionRecorded) return { ...m, decisionRecorded: ev.data.decisionRecorded };
-              return { ...m, thinking: false };
+              if (m.key !== asstKey) return { ...m, thinking: false };
+              const receipt = asReceipt(ev.data.pipeline);
+              return {
+                ...m,
+                thinking: false,
+                ...(ev.data.decisionRecorded ? { decisionRecorded: ev.data.decisionRecorded } : {}),
+                ...(receipt ? { receipt } : {}),
+              };
             })
-            .filter((m) => m.content.length > 0),
-        );
+            // Drop empty text bubbles only; card rows (bot team, plan, tool
+            // approval) have no text and must stay.
+            .filter((m) => m.content.length > 0 || Boolean(m.image) || m.role === 'team' || m.role === 'plan' || m.role === 'tool');
+          // Plan first: show the plan; the bots appear once it is approved.
+          if (taskId && approvalId && plan) return [...next, { key: `p:${taskId}`, role: 'plan' as const, content: '', taskId, approvalId, plan }];
+          // Cowork deep work: the specialist bots are born for this task.
+          return taskId ? [...next, { key: `t:${taskId}`, role: 'team' as const, content: '', taskId }] : next;
+        });
         break;
+      }
     }
   };
 
@@ -284,7 +450,37 @@ export function HomeChat() {
 
   const send = async () => {
     let content = input.trim();
-    if ((!content && attachments.length === 0) || streaming) return;
+    if ((!content && attachments.length === 0 && pasted.length === 0) || streaming) return;
+    if (isSetupCommand(content) && pasted.length === 0) {
+      setInput('');
+      setSetupOpen(true);
+      return;
+    }
+    if (pasted.length > 0) {
+      const block = serializePasted(pasted);
+      content = content ? `${content}\n\n${block}` : block;
+      setPasted([]);
+    }
+    // CodeConClave acting inside CodeConClave: a recognised app command runs
+    // for real through the app's own API, then is confirmed here.
+    const appAction = attachments.length === 0 && !content.includes('pasted kind=') ? parseAppAction(content) : null;
+    if (appAction) {
+      setInput('');
+      setRows((prev) => [...prev, { key: `u:${Date.now()}`, role: 'user', content }]);
+      try {
+        const result = await runAppAction(appAction);
+        setRows((prev) => [...prev, { key: `a:${Date.now()}`, role: 'assistant', content: result.message }]);
+        if (appAction.kind === 'create_project') {
+          const created = await api<{ projects: { id: string; updated_at?: string }[] }>('/api/v1/projects').catch(() => null);
+          const newest = created?.projects?.sort((a, b) => Date.parse(b.updated_at ?? '') - Date.parse(a.updated_at ?? ''))[0];
+          if (newest) setHomeProjectId(newest.id);
+        }
+        if (result.navigateTo) navigate(result.navigateTo);
+      } catch (err) {
+        pushSystem(err instanceof Error ? `Couldn't do that: ${err.message}` : "Couldn't do that.");
+      }
+      return;
+    }
     // "Go to ideas" — travel through the app first, then keep talking.
     // Pure destinations navigate (this composer unmounts on arrival, so a
     // command carrying a task stays here and answers in place instead of
@@ -322,12 +518,50 @@ export function HomeChat() {
     // Home offers Chat + Cowork only. Agent driving lives in the sidebar
     // (/agents + Remote pairing) — home never sends AGENT.
     const effectiveMode = chatMode === 'COWORK' ? 'COWORK' : 'CHAT';
+    // Images are saved in a project: use the current/latest one, or make "Images".
+    const wantsImage = effectiveMode === 'CHAT' && (imageMode || looksLikeImageRequest(content));
+    let imageProjectId: string | undefined;
+    if (wantsImage) {
+      imageProjectId = homeProjectId ?? (await ensureImageProject().catch(() => undefined));
+      if (!imageProjectId) {
+        setStreaming(false);
+        setRows((prev) => [...prev.filter((m) => m.key !== asstKey), { key: `s:${Date.now()}`, role: 'system', content: 'Could not find or create a project to save the image in.' }]);
+        return;
+      }
+      imageProjectRef.current = imageProjectId;
+      if (imageMode) setImageMode(false);
+    }
+    // Cowork tasks live in a project. If Home hasn't loaded one yet (slow
+    // network) or the account has none, use the latest or start "My work"
+    // instead of failing with "go pick a project".
+    let coworkProjectId = homeProjectId;
+    if (effectiveMode === 'COWORK' && !coworkProjectId) {
+      coworkProjectId = await ensureProject('My work', 'Cowork tasks started on Home').catch(() => undefined);
+      if (coworkProjectId) setHomeProjectId(coworkProjectId);
+    }
     // 'codeconclave-ai' is the frontend resident label — the server registry
     // doesn't carry it yet, so send AUTO and let the router decide. Full
     // weight-serving lands with the LOCAL_DRIVER_URLS hook (no arc change).
     const outModelId = modelId === 'codeconclave-ai' ? undefined : modelId;
     try {
-      await streamChat({ content, mode: effectiveMode, modelId: outModelId, clientId: newClientId() }, onEvent(asstKey, state), controller.signal);
+      await streamChat(
+        {
+          content,
+          mode: effectiveMode,
+          modelId: outModelId,
+          clientId: newClientId(),
+          effort,
+          ...(effectiveMode === 'CHAT' && convRef.current && !wantsImage ? { conversationId: convRef.current } : {}),
+          ...(wantsImage ? { imageRequest: true, projectId: imageProjectId } : {}),
+          ...(effectiveMode === 'CHAT' && !convRef.current && incognito ? { incognito: true } : {}),
+          ...(effectiveMode === 'COWORK' && coworkProjectId ? { projectId: coworkProjectId } : {}),
+          ...(effectiveMode === 'COWORK' && team.length > 0 ? { coworkers: team } : {}),
+          ...(effectiveMode === 'COWORK' && planFirst ? { planFirst: true } : {}),
+          ...(effectiveMode === 'CHAT' && toolsOn && mcpToolCount > 0 && !wantsImage && !incognito ? { mcpTools: true } : {}),
+        },
+        onEvent(asstKey, state),
+        controller.signal,
+      );
     } catch (err) {
       state.receivedTerminal = true;
       const aborted = err instanceof DOMException && err.name === 'AbortError';
@@ -383,7 +617,7 @@ export function HomeChat() {
 
   return (
     <div className={`cc-homechat cc-homechat--normal${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
-      {rows.length === 0 && (
+      {hero && rows.length === 0 && (
         <div className="cc-homechat__hero" data-testid="homechat-hero">
           <h1 className="cc-homechat__hi">Hi{firstName ? ` ${firstName}` : ''}</h1>
           <p className="cc-homechat__sysline" aria-live="polite">
@@ -394,7 +628,35 @@ export function HomeChat() {
       )}
       {rows.length > 0 && (
         <div className="cc-homechat__log" ref={listRef}>
-          {rows.map((row) => (
+          {rows.map((row) => row.role === 'tool' && row.toolCall ? (
+            <div key={row.key} className="cc-homechat__row cc-homechat__row--tool">
+              <ToolApprovalCard call={row.toolCall} />
+            </div>
+          ) : row.role === 'plan' && row.approvalId && row.plan && row.taskId ? (
+            <div key={row.key} className="cc-homechat__row cc-homechat__row--plan">
+              <PlanApprovalCard
+                approvalId={row.approvalId}
+                plan={row.plan}
+                onApproved={() =>
+                  setRows((prev) =>
+                    prev.some((m) => m.key === `t:${row.taskId}`) ? prev : [...prev, { key: `t:${row.taskId}`, role: 'team', content: '', taskId: row.taskId }],
+                  )
+                }
+              />
+            </div>
+          ) : row.role === 'team' && row.taskId ? (
+            <div key={row.key} className="cc-homechat__row cc-homechat__row--team">
+              <BotTeam
+                taskId={row.taskId}
+                onFinal={(text) => {
+                  // The final answer is a fresh, user-facing result: chime once.
+                  armResponseSound();
+                  playResponseReadySound();
+                  setRows((prev) => [...prev, { key: `f:${row.taskId}`, role: 'assistant', content: text }]);
+                }}
+              />
+            </div>
+          ) : (
             <div key={row.key} className={`cc-homechat__row cc-homechat__row--${row.role}`}>
               {row.role === 'assistant' && row.thinking ? (
                 <div className="cc-homechat__bubble cc-homechat__bubble--assistant cc-homechat__thinking">
@@ -402,10 +664,28 @@ export function HomeChat() {
                     <i /><i /><i />
                   </span>
                   <span>CodeConClave is thinking&hellip;</span>
+                  {row.stages && <PipelineBots stages={row.stages} />}
+                  {row.stages && <PipelineTrace stages={row.stages} />}
                 </div>
               ) : (
                 <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
-                  {row.role === 'assistant' ? <ChatMarkdown text={row.content} /> : row.content}
+                  {row.role === 'assistant' && !row.receipt && row.stages && <PipelineBots stages={row.stages} />}
+                  {row.role === 'assistant' && !row.receipt && row.stages && <PipelineTrace stages={row.stages} />}
+                  {row.image && (
+                    <figure className="cc-genimage">
+                      <img src={`/api/v1/files/${row.image.fileId}/content?projectId=${encodeURIComponent(row.image.projectId)}`} alt="Generated image" loading="lazy" />
+                      <figcaption>
+                        <a href={`/api/v1/files/${row.image.fileId}/content?projectId=${encodeURIComponent(row.image.projectId)}`} download>
+                          Download image
+                        </a>
+                      </figcaption>
+                    </figure>
+                  )}
+                  {row.role === 'assistant' ? <ChatMarkdown text={row.content} /> : row.role === 'user' ? <UserMessageContent content={row.content} /> : row.content}
+                  {row.role === 'assistant' && row.receipt && <ReceiptChip receipt={row.receipt} />}
+                  {row.content.trim().length > 0 && row.role !== 'user' && (
+                    <CopyButton text={row.content} label={row.role === 'system' ? 'Copy message' : 'Copy answer'} size={13} />
+                  )}
                   {row.role === 'assistant' && row.content.trim().length > 0 && (
                     <button
                       type="button"
@@ -442,7 +722,7 @@ export function HomeChat() {
       )}
       {streaming && chatMode === 'COWORK' && (
         <p className="cc-hint" data-testid="homechat-status">
-          Specialist team is running your task — watch <Link to="/work">Tasks</Link> for live progress.
+          Assembling your specialist team — <Link to="/work">Tasks</Link> keeps the full record.
         </p>
       )}
 
@@ -463,7 +743,23 @@ export function HomeChat() {
         </div>
       )}
 
-      <div className="cc-home__command cc-homechat__bar cc-homechat__bar--normal">
+      {pasted.length > 0 && (
+        <div className="cc-homechat__pasted" data-testid="homechat-pasted">
+          {pasted.map((p) => (
+            <PastedChip key={p.id} info={p} text={p.text} onRemove={() => setPasted((prev) => prev.filter((x) => x.id !== p.id))} />
+          ))}
+        </div>
+      )}
+      <ModeSwitch<'CHAT' | 'COWORK'>
+        label="Home chat mode"
+        testId="homechat-mode"
+        value={chatMode}
+        options={[CHAT_MODE, COWORK_MODE]}
+        onChange={selectMode}
+        showHint={rows.length === 0}
+      />
+      {incognito && chatMode === 'CHAT' && <IncognitoBanner />}
+      <div className={`cc-home__command cc-homechat__bar cc-homechat__bar--normal${incognito && chatMode === 'CHAT' ? ' is-incognito' : ''}`}>
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
           rows={1}
@@ -472,6 +768,12 @@ export function HomeChat() {
           aria-label="Message CodeConClave"
           value={input}
           onChange={(e) => { setInput(e.target.value); autogrow(); }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (!shouldChip(text)) return;
+            e.preventDefault();
+            setPasted((prev) => [...prev, { id: `p${Date.now()}${prev.length}`, text, ...detectPaste(text) }]);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -481,7 +783,32 @@ export function HomeChat() {
           }}
           placeholder={PLACEHOLDER}
         />
-        <ModelPicker value={modelId} onChange={selectModel} onRouting={handleRouting} residentOnly />
+        <ModelChoice value={modelId} onChange={selectModel} onRouting={handleRouting} onResidentStatus={setResidentReady} residentOnly />
+        <EffortChip />
+        {chatMode === 'CHAT' && (
+          <button
+            type="button"
+            className={`cc-chipbtn${imageMode ? ' is-on' : ''}`}
+            aria-pressed={imageMode}
+            title={imageMode ? 'Image mode: your next message generates an image' : 'Generate an image'}
+            onClick={() => setImageMode((v) => !v)}
+          >
+            <Icon name="image" size={14} />
+            <span>Image</span>
+          </button>
+        )}
+        {chatMode === 'CHAT' && mcpToolCount > 0 && (
+          <button
+            type="button"
+            className={`cc-chipbtn${toolsOn ? ' is-on' : ''}`}
+            aria-pressed={toolsOn}
+            title={toolsOn ? `Tools on: CodeConClave AI may use your ${mcpToolCount} MCP tool${mcpToolCount === 1 ? '' : 's'}` : 'Let CodeConClave AI use your MCP tools'}
+            onClick={toggleTools}
+          >
+            <Icon name="plug" size={14} />
+            <span>Tools</span>
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -517,14 +844,6 @@ export function HomeChat() {
             <Icon name="radio" size={15} />
           </button>
         )}
-        <div className="cc-toggle" role="tablist" aria-label="Home chat mode" data-testid="homechat-mode">
-          <button type="button" className={chatMode === 'CHAT' ? 'on' : ''} onClick={() => selectMode('CHAT')} aria-pressed={chatMode === 'CHAT'}>
-            Chat
-          </button>
-          <button type="button" className={chatMode === 'COWORK' ? 'on' : ''} onClick={() => selectMode('COWORK')} aria-pressed={chatMode === 'COWORK'} title="Planned task with the specialist team (architect, coder, reviewer, tester…)">
-            Cowork
-          </button>
-        </div>
         {streaming ? (
           <button
             className="cc-btn cc-btn--danger cc-btn--sm cc-homechat__action"
@@ -539,7 +858,7 @@ export function HomeChat() {
           <button
             className="cc-btn cc-btn--primary cc-btn--sm cc-homechat__action"
             type="button"
-            disabled={!input.trim() && attachments.length === 0}
+            disabled={!input.trim() && attachments.length === 0 && pasted.length === 0}
             onClick={() => void send()}
           >
             <Icon name="send" size={13} />
@@ -548,9 +867,60 @@ export function HomeChat() {
         )}
       </div>
 
+      {chatMode === 'COWORK' && (
+        <div className="cc-homechat__coworkopts">
+          <TeamPicker value={team} onChange={setTeam} />
+          <button
+            type="button"
+            className={`cc-chipbtn${planFirst ? ' is-on' : ''}`}
+            aria-pressed={planFirst}
+            title={planFirst ? 'Plan first is on: the team shows its plan and waits for your approval' : 'Have the team show its plan and wait for your approval'}
+            onClick={togglePlanFirst}
+          >
+            <Icon name="map" size={14} />
+            <span>Plan first</span>
+          </button>
+        </div>
+      )}
       <div className="cc-homechat__context cc-hint" data-testid="homechat-context">
+        <IncognitoToggle
+          on={incognito && chatMode === 'CHAT'}
+          disabled={chatMode === 'COWORK'}
+          onChange={(on) => {
+            convRef.current = null;
+            setIncognito(on);
+          }}
+        />
         {contextLine}
+        <UsageChip />
       </div>
+      <MistakesNote />
+      {rows.length === 0 && (
+        <CapabilityGrid
+          onPick={(prompt) => {
+            setInput(prompt);
+            requestAnimationFrame(() => {
+              inputRef.current?.focus();
+              autogrow();
+            });
+          }}
+        />
+      )}
+      {setupOpen && (
+        <SetupWizard
+          onClose={() => {
+            setSetupOpen(false);
+            if (new URLSearchParams(location.search).has('setup')) navigate('/home', { replace: true });
+          }}
+          onTry={(prompt) => {
+            setInput(prompt);
+            requestAnimationFrame(() => {
+              inputRef.current?.focus();
+              autogrow();
+            });
+          }}
+        />
+      )}
       {agentOnline === false && (
         <p className="cc-hint" data-testid="homechat-pair-hint">
           Agent mode needs your laptop paired — <Link to="/remote">pair it on the Remote page</Link>, then the model can

@@ -112,8 +112,8 @@ describe('ModelPicker', () => {
       'opus',
       onChange,
     );
-    // CodeConClave AI (resident) leads the list, so it wins the fallback.
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('codeconclave-ai'));
+    // No resident host reported ready, so the first usable provider model wins.
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('mini'));
   });
 
   it('hides rate-limited providers instead of showing a throttled option', async () => {
@@ -175,14 +175,35 @@ describe('ModelPicker', () => {
     expect(select.classList.contains('cc-model-select')).toBe(true);
   });
 
-  it('shows AUTO plus CodeConClave AI even when the registry is empty', async () => {
-    renderPicker(modelsEndpoint([], null));
-    const select = await screen.findByLabelText('Model') as HTMLSelectElement;
-    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '');
-    expect(options[0]).toBe('AUTO');
-    // Resident drivers need no provider key — the empty state can never occur.
-    expect(options.some((t) => t.includes('CodeConClave AI'))).toBe(true);
-    expect(options.includes('No models available — connect a provider')).toBe(false);
+  it('offers CodeConClave AI only when the server reports a ready driver', async () => {
+    const base = modelsEndpoint([], null);
+    renderPicker(async (url: string) =>
+      url === '/api/v1/ai/resident/status' ? jsonResponse({ data: { status: { anyReady: true } } }) : base(url),
+    );
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+    await waitFor(() => {
+      const options = Array.from(select.querySelectorAll('option'));
+      expect(options[0]?.textContent).toBe('AUTO');
+      expect(options.some((o) => o.textContent?.includes('CodeConClave AI') && !o.disabled)).toBe(true);
+    });
+  });
+
+  it('hides CodeConClave AI from the full picker when no driver is reachable', async () => {
+    const { fetchFn } = renderPicker(modelsEndpoint([modelFixture({})], 'mini'), 'mini');
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+    await waitFor(() => expect(fetchFn.mock.calls.some(([u]) => u === '/api/v1/ai/resident/status')).toBe(true));
+    expect(Array.from(select.querySelectorAll('option')).some((o) => o.textContent?.includes('CodeConClave AI'))).toBe(false);
+  });
+
+  it('explains on Home (resident-only) that CodeConClave AI is not running', async () => {
+    vi.stubGlobal('fetch', vi.fn(modelsEndpoint([], null)));
+    render(<ModelPicker value={undefined} onChange={() => undefined} residentOnly />);
+    const select = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+    await waitFor(() => {
+      const resident = Array.from(select.querySelectorAll('option')).find((o) => o.textContent?.includes('CodeConClave AI'));
+      expect(resident?.textContent).toContain('not running');
+      expect(resident?.disabled).toBe(true);
+    });
   });
 
   it('hides models whose provider key is invalid instead of offering them', async () => {

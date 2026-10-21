@@ -184,7 +184,7 @@ describe('routeModels — entitlement + capability gating', () => {
     vi.mocked(registry.configuredProviders).mockReturnValue([]);
     vi.mocked(registry.getRegistry).mockResolvedValue([model('only-1')]);
     await expect(routeModels('u1', {})).rejects.toMatchObject({ errorCode: 'no_model_available' });
-    await expect(routeModels('u1', {})).rejects.toThrow(/No AI provider is configured/);
+    await expect(routeModels('u1', {})).rejects.toThrow(/CodeConClave AI is not configured/);
   });
 
   it('throws when nothing is eligible (entitlement/capability/health)', async () => {

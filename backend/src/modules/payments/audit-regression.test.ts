@@ -408,9 +408,9 @@ describe('FIX 3 (P2) — API key modulo bias (rejection sampling)', () => {
   it('makeApiKeySecret produces keys with expected prefix and length', async () => {
     const { makeApiKeySecret } = await import('../apikeys/service.js');
     const key = makeApiKeySecret();
-    expect(key).toMatch(/^cc_live_[a-z0-9]+$/);
-    // KEY_SECRET_BYTES = 24, prefix = 'cc_live_' (8 chars) → total = 32
-    expect(key.length).toBe(8 + 24);
+    expect(key).toMatch(/^SHA_live_[a-z0-9]+$/);
+    // KEY_SECRET_BYTES = 24, prefix = 'SHA_live_' (9 chars) → total = 33
+    expect(key.length).toBe(9 + 24);
   });
 
   it('makeApiKeySecret produces unique keys across 1000 invocations', async () => {
@@ -432,7 +432,7 @@ describe('FIX 3 (P2) — API key modulo bias (rejection sampling)', () => {
     const totalChars = 100 * 24;
     for (let i = 0; i < 100; i++) {
       const key = makeApiKeySecret();
-      const body = key.slice('cc_live_'.length);
+      const body = key.slice('SHA_live_'.length);
       for (const c of body) {
         counts.set(c, (counts.get(c) ?? 0) + 1);
       }

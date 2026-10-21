@@ -31,6 +31,21 @@ export interface ControlPolicyRow {
   config: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
+  /** Set when the row is an organization (team) policy. */
+  team_id?: string;
+}
+
+export interface TeamPolicyRow {
+  id: string;
+  team_id: string;
+  scope: string;
+  action: string;
+  risk_level: string;
+  requirement: string;
+  enabled: boolean;
+  created_by: string;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface PolicyDecision {
@@ -51,21 +66,34 @@ export async function listControlPolicies(userId: string): Promise<ControlPolicy
 }
 
 /** Evaluate a (scope, action) at a given risk level. Unknown tables are
- * treated as "no policies" (default allowed). */
+ * treated as "no policies" (default allowed). When the work happens in a
+ * team's context (e.g. a task in a team project), that team's organization
+ * policies apply too; the strictest matching policy wins either way. */
 export async function evaluatePolicy(
   userId: string,
   scope: string,
   action: string,
   riskLevel: string,
+  context: { teamId?: string | null } = {},
 ): Promise<PolicyDecision> {
-  const rows = await withTenant<ControlPolicyRow[]>(userId, (q) =>
-    q
-      .query<ControlPolicyRow>(
+  const rows = await withTenant<ControlPolicyRow[]>(userId, async (q) => {
+    const personal = (
+      await q.query<ControlPolicyRow>(
         'SELECT * FROM control_policies WHERE owner_id = $1 AND scope = $2 AND (action = $3 OR action = $4)',
         [userId, scope, action, '*'],
       )
-      .then((r) => r.rows),
-  );
+    ).rows;
+    if (!context.teamId) return personal;
+    const team = (
+      await q.query<ControlPolicyRow>(
+        `SELECT id, team_id AS owner_id, team_id, scope, action, risk_level, requirement, enabled, NULL::jsonb AS config,
+                created_at, updated_at
+           FROM team_control_policies WHERE team_id = $1 AND scope = $2 AND (action = $3 OR action = $4)`,
+        [context.teamId, scope, action, '*'],
+      )
+    ).rows;
+    return [...personal, ...team];
+  });
   const riskRank = RISK_RANK[riskLevel] ?? 0;
   const applicable = rows.filter((r) => r.enabled && (RISK_RANK[r.risk_level] ?? 0) <= riskRank);
   if (applicable.length === 0) return DEFAULT_DECISION;
@@ -172,4 +200,84 @@ async function dbUpsert(
       [id, userId, scope, action, riskLevel, requirement, enabled],
     ),
   );
+}
+// ---------------------------------------------------------------------------
+// Organization (team) policies — spec Team #14. Members may read; only team
+// owners/admins may change them. Every change is audited at TEAM scope.
+// ---------------------------------------------------------------------------
+
+function validatePolicyInput(input: UpsertPolicyInput): { action: string; requirement: ControlPolicyRequirement } {
+  if (!POLICY_SCOPES.includes(input.scope as PolicyScope)) {
+    throw AppError.badRequest('invalid_policy_scope', `Unknown policy scope ${input.scope}`);
+  }
+  if (!input.action?.trim()) throw AppError.badRequest('invalid_policy_action', 'Policy action is required');
+  if (!(input.riskLevel in RiskLevel)) throw AppError.badRequest('invalid_policy_risk', `Unknown risk level ${input.riskLevel}`);
+  const requirement = (input.requirement ?? ControlPolicyRequirement.REQUIRE_APPROVAL) as ControlPolicyRequirement;
+  if (![ControlPolicyRequirement.REQUIRE_APPROVAL, ControlPolicyRequirement.BLOCK].includes(requirement)) {
+    throw AppError.badRequest('invalid_policy_requirement', `Unknown requirement ${requirement}`);
+  }
+  return { action: input.action.trim().slice(0, 80), requirement };
+}
+
+async function requireTeamAdmin(userId: string, teamId: string): Promise<void> {
+  const { requireTeamRole } = await import('../teams/service.js');
+  const { TeamRole } = await import('@codeconclave/shared');
+  await requireTeamRole(userId, teamId, [TeamRole.OWNER, TeamRole.ADMIN]);
+}
+
+export async function listTeamPolicies(userId: string, teamId: string): Promise<TeamPolicyRow[]> {
+  const { teamRoleFor } = await import('../teams/service.js');
+  if (!(await teamRoleFor(userId, teamId))) throw AppError.forbidden('insufficient_permission');
+  return withTenant(userId, async (q) =>
+    (
+      await q.query<TeamPolicyRow>('SELECT * FROM team_control_policies WHERE team_id = $1 ORDER BY scope, action', [teamId])
+    ).rows,
+  );
+}
+
+export async function upsertTeamPolicy(userId: string, teamId: string, input: UpsertPolicyInput): Promise<TeamPolicyRow> {
+  await requireTeamAdmin(userId, teamId);
+  const { action, requirement } = validatePolicyInput(input);
+  const row = await withTenant(userId, async (q) =>
+    (
+      await q.query<TeamPolicyRow>(
+        `INSERT INTO team_control_policies (id, team_id, scope, action, risk_level, requirement, enabled, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (team_id, scope, action)
+         DO UPDATE SET risk_level = EXCLUDED.risk_level, requirement = EXCLUDED.requirement,
+                       enabled = EXCLUDED.enabled, created_by = EXCLUDED.created_by
+         RETURNING *`,
+        [newId(PREFIX.CONTROL_POLICY), teamId, input.scope, action, input.riskLevel, requirement, input.enabled ?? true, userId],
+      )
+    ).rows[0]!,
+  );
+  await recordAudit({
+    action: AuditAction.CONTROL_POLICY_UPSERTED,
+    actorUserId: userId,
+    scope: 'TEAM',
+    tenantId: teamId,
+    resourceType: 'team_control_policy',
+    resourceId: row.id,
+    detail: { scope: input.scope, action, riskLevel: input.riskLevel, requirement, enabled: row.enabled },
+  });
+  return row;
+}
+
+export async function deleteTeamPolicy(userId: string, teamId: string, policyId: string): Promise<void> {
+  await requireTeamAdmin(userId, teamId);
+  const removed = await withTenant(userId, async (q) =>
+    (
+      await q.query<TeamPolicyRow>('DELETE FROM team_control_policies WHERE id = $1 AND team_id = $2 RETURNING *', [policyId, teamId])
+    ).rows[0],
+  );
+  if (!removed) throw AppError.notFound('Team control policy');
+  await recordAudit({
+    action: AuditAction.CONTROL_POLICY_DELETED,
+    actorUserId: userId,
+    scope: 'TEAM',
+    tenantId: teamId,
+    resourceType: 'team_control_policy',
+    resourceId: policyId,
+    detail: { scope: removed.scope, action: removed.action },
+  });
 }

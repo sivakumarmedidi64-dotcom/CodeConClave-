@@ -54,7 +54,7 @@ export interface PaymentPoolConfig {
 }
 
 /** Amount in INR for each supported plan (authoritative, matches PLAN_PRICES_INR). */
-const PLAN_AMOUNT_INR: Record<'pro' | 'team' | 'api', number> = { pro: 999, team: 4999, api: 9999 };
+const PLAN_AMOUNT_INR: Record<'pro' | 'team' | 'api', number> = { pro: 999, team: 4999, api: 50000 };
 
 const DEFAULT_SIZE = 50;
 

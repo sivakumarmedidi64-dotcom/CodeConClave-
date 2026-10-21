@@ -1,6 +1,6 @@
 /**
  * CodeConClave — API ACCESS product foundation tests.
- * API keys are a SEPARATE purchasable product (₹9,999, plan_id 'api'). Key
+ * API keys are a SEPARATE purchasable product (₹50,000, plan_id 'api'). Key
  * creation is gated on a PRO_VERIFIED 'api' entitlement; the activation hook
  * must never overwrite users.plan_id for the add-on; intents carry an explicit
  * purchase_type so Team and API Access (distinct links/amounts) are never
@@ -66,7 +66,7 @@ function intentRow(over: Record<string, unknown> = {}): Record<string, unknown> 
     owner_id: USER_ID,
     plan_id: 'api',
     purchase_type: 'api_access',
-    amount_inr: 9999,
+    amount_inr: 50000,
     currency: 'INR',
     reference: 'CCAPI-ABC123',
     payment_link: 'https://rzp.io/rzp/team',
@@ -199,7 +199,7 @@ describe('activateEntitlement — add-on never overwrites users.plan_id', () => 
 });
 
 describe('createPaymentIntent — explicit purchase_type (identity, never amount)', () => {
-  it('api intent carries purchase_type api_access on a ₹9,999 intent', async () => {
+  it('api intent carries purchase_type api_access on a ₹50,000 intent', async () => {
     db.state.resolve = (text) =>
       text.includes('payment_intents WHERE owner_id') ? []
       : text.includes('payment_intents WHERE id') ? [intentRow({ plan_id: 'api' })]
@@ -211,7 +211,7 @@ describe('createPaymentIntent — explicit purchase_type (identity, never amount
     expect(String(insert!.text)).toContain('purchase_type');
     expect(insert!.params[2]).toBe('api');
     expect(insert!.params[3]).toBe('api_access');
-    expect(insert!.params[4]).toBe(9999);
+    expect(insert!.params[4]).toBe(50000);
   });
 
   it('pro and team intents map to solo / team purchase types', async () => {

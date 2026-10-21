@@ -37,6 +37,9 @@ INSTALLER SHA256 (published, current build):
 - Renderer/preload do not embed secrets. Renderer gets entitlements/plan via
   IPC, not raw credentials.
 - Installer doesn't show unsigned/custom runtime prompts the user has to bypass.
+  The installer must be code-signed for this to hold (unsigned = SmartScreen
+  "Windows protected your PC"). See `docs/DESKTOP_CODE_SIGNING.md` and build
+  with `npm run package:desktop:signed`.
 - The SHA256 recorded in the evidence docs is the hash of the exact file the
   founder just installed (updated 2026-09-10 to the rebuilt installer).
 

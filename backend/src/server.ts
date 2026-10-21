@@ -24,8 +24,10 @@ import { initStorage } from './integrations/storage.js';
 import { env } from './config/env.js';
 import { logger } from './shared/logger.js';
 import { cache } from './shared/cache.js';
+import { installProcessGuards } from './shared/process-guards.js';
 
 async function main(): Promise<void> {
+  installProcessGuards();
   initializeSentry();
   await initCache();
 

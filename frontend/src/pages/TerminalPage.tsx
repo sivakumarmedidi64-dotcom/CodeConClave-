@@ -7,6 +7,7 @@
  * input is limited to low-risk commands — approval-requiring input is refused
  * by the backend and surfaced here, never bypassed.
  */
+import { CopyButton } from '../components/CopyButton';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, apiBlob, ApiError } from '../lib/api';
 import type {
@@ -358,8 +359,9 @@ export function TerminalPage() {
           )}
           {quickOut && (
             <div style={{ marginTop: 8 }}>
-              <div data-testid="terminal-laptop-meta" className="cc-hint">
+              <div data-testid="terminal-laptop-meta" className="cc-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 exit {quickOut.exitCode ?? '—'}
+                <CopyButton text={quickOut.output} label="Copy output" showLabel size={13} />
               </div>
               <pre data-testid="terminal-laptop-output" className="cc-mono" style={{ background: '#111', color: '#7dff9e', borderRadius: 8, padding: '12px 16px', maxHeight: 240, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
                 {quickOut.output}
@@ -402,6 +404,9 @@ export function TerminalPage() {
           <h3>
             Session {view?.session.id ?? activeId}
             {view?.session.pid ? <span className="cc-hint"> — pid {view.session.pid}</span> : null}
+            {view && view.history.length > 0 && (
+              <CopyButton text={() => view.history.map((l) => l.text).join('\n')} label="Copy output" showLabel size={13} className="cc-copy-btn--inline" />
+            )}
           </h3>
           <div
             className="cc-mono"
