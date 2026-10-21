@@ -79,8 +79,9 @@ export function PipelineBots({ stages }: { stages: PipelineStage[] }) {
   const slots = botsFromStages(stages);
   return (
     <div className="pv3-bots" aria-label="The bot team working on this answer" data-testid="pipeline-bots">
-      {slots.map((s) => (
-        <div key={s.key} className="pv3-bot">
+      {slots.map((s, i) => (
+        // Each bot is "born" in a staggered 3D entrance as the main AI hands it work.
+        <div key={s.key} className="pv3-bot pv3-bot--born" style={{ animationDelay: `${i * 110}ms` }}>
           <Bot kind={s.kind} state={s.state} size={34} showName={false} />
           <span className="pv3-bot__job">{s.job}</span>
         </div>

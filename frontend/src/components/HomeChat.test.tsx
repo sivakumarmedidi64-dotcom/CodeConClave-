@@ -77,7 +77,8 @@ describe('HomeChat', () => {
     const init = chatCalls[0]?.[1];
     const body = JSON.parse(String(init?.body ?? '')) as { content: string; mode: string };
     expect(body.content).toBe('hi');
-    expect(body.mode).toBe('COWORK');
+    // Home opens in clean single-AI chat by default (Cowork is one click away).
+    expect(body.mode).toBe('CHAT');
   });
 
   it('surfaces an interrupted stream as a system row', async () => {    fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -194,7 +195,8 @@ describe('HomeChat', () => {
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'list my project files');
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
-    expect(posted.mode).toBe('COWORK');
+    // Home now opens in CHAT by default; the point here is that AGENT never leaks from home.
+    expect(posted.mode).toBe('CHAT');
   });
 
   it('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {

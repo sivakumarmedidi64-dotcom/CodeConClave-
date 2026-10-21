@@ -7005,6 +7005,7 @@ h2 {
   align-items: flex-end;
   margin: 4px 0 2px;
   flex-wrap: wrap;
+  perspective: 700px; /* depth for the 3D "born" entrance */
 }
 .pv3-bot {
   display: flex;
@@ -7012,6 +7013,63 @@ h2 {
   align-items: center;
   gap: 2px;
   min-width: 52px;
+  position: relative;
+}
+/* A bot is born: it spins in from the side in 3D, pops to size, with a spawn flash. */
+.pv3-bot--born {
+  animation: pv3-born 0.62s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  transform-origin: center bottom;
+}
+.pv3-bot--born::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin-left: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--cc-gold, #f2c230) 0%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  animation: pv3-spawn-flash 0.7s ease-out both;
+  animation-delay: inherit;
+}
+@keyframes pv3-born {
+  0% {
+    opacity: 0;
+    transform: rotateY(-85deg) translateZ(-40px) scale(0.35);
+  }
+  60% {
+    opacity: 1;
+    transform: rotateY(12deg) translateZ(0) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: rotateY(0) translateZ(0) scale(1);
+  }
+}
+@keyframes pv3-spawn-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  45% {
+    opacity: 0.55;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv3-bot--born {
+    animation: none;
+  }
+  .pv3-bot--born::before {
+    display: none;
+  }
 }
 .pv3-bot__job {
   font-size: 10.5px;

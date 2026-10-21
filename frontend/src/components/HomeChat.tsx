@@ -236,8 +236,10 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
   const [chatMode, setChatMode] = useState<'CHAT' | 'COWORK'>(() => {
+    // Default to a clean single-AI chat (like Claude). Cowork — the specialist
+    // team for deep work — is one click away and remembered once you pick it.
     const saved = localStorage.getItem(MODE_KEY) as string | null;
-    return saved === 'CHAT' ? 'CHAT' : 'COWORK';
+    return saved === 'COWORK' ? 'COWORK' : 'CHAT';
   });
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -699,13 +701,14 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
                     <i /><i /><i />
                   </span>
                   <span>CodeConClave is thinking&hellip;</span>
-                  {row.stages && <PipelineBots stages={row.stages} />}
-                  {row.stages && <PipelineTrace stages={row.stages} />}
+                  {/* The specialist team shows only in Cowork; quick chat stays one clean AI. */}
+                  {chatMode === 'COWORK' && row.stages && <PipelineBots stages={row.stages} />}
+                  {chatMode === 'COWORK' && row.stages && <PipelineTrace stages={row.stages} />}
                 </div>
               ) : (
                 <div className={`cc-homechat__bubble cc-homechat__bubble--${row.role}`}>
-                  {row.role === 'assistant' && !row.receipt && row.stages && <PipelineBots stages={row.stages} />}
-                  {row.role === 'assistant' && !row.receipt && row.stages && <PipelineTrace stages={row.stages} />}
+                  {chatMode === 'COWORK' && row.role === 'assistant' && !row.receipt && row.stages && <PipelineBots stages={row.stages} />}
+                  {chatMode === 'COWORK' && row.role === 'assistant' && !row.receipt && row.stages && <PipelineTrace stages={row.stages} />}
                   {row.image && (
                     <figure className="cc-genimage">
                       <img src={`/api/v1/files/${row.image.fileId}/content?projectId=${encodeURIComponent(row.image.projectId)}`} alt="Generated image" loading="lazy" />
