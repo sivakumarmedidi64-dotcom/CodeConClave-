@@ -29,6 +29,7 @@ const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
       { to: '/projects', label: 'Projects', icon: 'folder' },
       { to: '/agents', label: 'Agents', icon: 'layers' },
       { to: '/work', label: 'Tasks', icon: 'bolt' },
+      { to: '/beyond', label: 'Beyond', icon: 'rocket' },
       { to: '/code-review', label: 'Code review', icon: 'eye' },
       { to: '/local', label: 'Local files', icon: 'monitor' },
       { to: '/skills', label: 'Plugins', icon: 'puzzle' },

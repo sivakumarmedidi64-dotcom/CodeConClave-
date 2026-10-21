@@ -252,14 +252,176 @@ Checked on 2026-10-21:
   - The sidebar closes with its button and reopens with Ctrl+B.
   - The Chat/Cowork switch shows the right hint.
 
+**Found during the Beyond round** (real Postgres and the live app):
+- **Fixed — Beyond measurements silently skipped real code.** Files were read through a screen
+  meant for text going *into an AI prompt*. Its HTML/script patterns flag ordinary code: `on…=`
+  matches `money =` and `response =`, and `eval(` is flagged too. So the Thermostat, Gravity and
+  Immunity left out files like `src/db.ts`. Beyond now reads files with the same owner and text
+  checks but without that screen, and the one AI path (Council opinions) shields the text itself.
+- **Fixed — on phones every page got only 240 px of a 375 px screen,** and a collapsed sidebar
+  stayed 240 px wide on desktop. Two late CSS rules from the sidebar-close round overrode the
+  phone drawer and the collapsed rail. On small phones the Early Access badge no longer pushes the
+  top bar sideways.
+- **Fixed — Immunity skipped a project it could not read without saying so.** It now names it.
+
+---
+
+## Part VI — Beyond agentic (Built and tested)
+
+An agent waits for you to ask. These systems keep working on your code when you are not chatting,
+and every number they show is measured from your real project files. They live on the **Beyond**
+page (`/beyond`, in the sidebar), except Focus Morph and Limit Guard, which are part of Home.
+
+### B1 — Code Thermostat
+Your code's health as a temperature from 0 to 100, from an open formula:
+`100 × (0.30·duplication + 0.20·size + 0.15·nesting + 0.10·TODO/FIXME + 0.25·analyzer findings)`.
+- Levels: Cool, Warm, Hot, Critical. The page shows every part of the number, the change since last
+  time, a trend line, and the hottest files with the exact reasons.
+- **Cool it down** files a Plan-first Cowork task for one hot file (Architect → Coder → Tester →
+  Reviewer). Nothing changes until you approve the plan.
+- Same files always give the same temperature. Large projects are measured on their first 500 text
+  files, and the page says so.
+
+### B2 — Gravity Map
+Files pull together through their real imports (JS/TS `import`/`require`, Python `import`/`from`).
+- **Constellations:** groups of files that belong together.
+- **Gravity wells:** files that two or more others depend on.
+- **Belongs elsewhere?:** a file that is mostly used by another folder (at least 3 users, two thirds
+  of them in one other folder).
+- **Drifting:** code files nothing imports (entry points like `index`, `main` and tests are excluded).
+
+### B3 — Council
+Four CodeConClave reviewers check one file through different lenses: **Sentry** (security),
+**Turbo** (performance), **Rhea** (simplicity) and **Tess** (correctness).
+- Their checks are fixed, open rules with line numbers, for example `eval`, SQL built by joining
+  strings, TLS checks turned off, database calls inside loops, swallowed errors and missing tests.
+- A live credential found in the file blocks the release, and its value is never shown.
+- Consensus: Ship, Ship with care, Fix first, or Do not ship.
+- **Optional AI opinions:** CodeConClave AI adds a short opinion per reviewer. It can raise a verdict
+  but never lower a fixed block. The file goes to the AI shielded (Injection Shield) and fenced. If
+  the AI is unavailable, the page says why, and the fixed checks are still complete.
+- **Vaccinate** turns a finding on a real line of code into an Immunity vaccine.
+
+### B4 — Immunity
+Once a bug is understood, make it a **vaccine**: exact text or a safe regex, optionally limited to
+some files (`src/**/*.ts`). It is searched for in every project you own, now and every Night Shift,
+and each match shows the project, file, line and the line itself.
+- Unsafe regexes are refused: back-references, look-arounds, nested repeats like `(a+)+` and
+  repeated alternations like `(a|aa)+`.
+- Up to 100 vaccines; up to 200 stored matches per vaccine. A project that cannot be read is
+  reported by name, never silently skipped.
+
+### B5 — Night Shift
+While you sleep, it does three things:
+- measures your active projects (changed in the last 7 days, up to 5)
+- has the Council review code files changed in the last 24 hours (up to 15)
+- runs every vaccine
+
+The morning brings one report and one notification. It only reads; it never changes your code.
+- Turn it on and pick the hour on the Night Shift tab. It uses the same clock as the weekly usage
+  reset (`USAGE_WEEK_RESET_OFFSET_MINUTES`, India time by default).
+- The watchdog starts it; each person gets at most one scheduled run in 20 hours. **Run now** works
+  any time.
+
+### B6 — Teleport
+Pack a whole project (its files and project memories) into one sealed `.ccteleport` file, and bring
+it back on another account or server.
+- Every file carries its SHA-256, the bundle has a manifest hash, and the server signs it (HMAC with
+  a key derived from `SESSION_SECRET`).
+- A single changed byte is refused. A bundle sealed by a different server is still accepted when
+  every file matches, but the page says its origin cannot be confirmed here.
+- Import always creates a new project, "… (teleported)". File paths are checked by the normal
+  upload rules, and memories arrive as things you told CodeConClave (provenance `teleport`).
+- Limits: 25 MB bundle, 2,000 files, 500 memories.
+
+### B7 — Focus Morph (Home)
+The Home composer reads what you are typing and adapts to it:
+- a focus colour
+- the right tools one click away:
+  - security → `/threat-model`, `/second-review`
+  - a bug → `/bugfix`, `/debug`
+  - data → a chart, `/explain-query`
+  - design → a single HTML page
+  - writing → an email draft
+  - planning → `/plan`, `/milestones`
+
+These are fixed keyword rules that run in the browser. Nothing is sent anywhere.
+
+### B8 — Limit Guard
+Like Claude, when CodeConClave AI cannot answer because a usage window is full (or there is no
+plan), a pop-up shows:
+- which limit was reached
+- the exact reset time, with a live countdown
+- how much was used
+- the next step (**View usage** or **See plans**)
+
+Before that, a quiet banner warns when the session is 80% used or the week is 90% used. All
+numbers come from the server; nothing is estimated.
+
+**Where:**
+- backend: `backend/src/modules/beyond/` (`thermostat.ts`, `gravity.ts`, `council.ts`,
+  `immunity.ts`, `nightShift.ts`, `teleport.ts`, `source.ts`, `routes.ts` at `/api/v1/beyond`),
+  the watchdog's `nightShift` sweep, and migration `0162_beyond_agentic.sql` (three tables, each
+  with row-level security)
+- screens:
+  - `frontend/src/pages/BeyondPage.tsx` and `components/beyond/*`
+  - Focus Morph: `lib/focus.ts` and `HomeChat.tsx`
+  - Limit Guard: `components/UsageLimitDialog.tsx`
+
+**Proof:**
+- 20 backend tests (all six engines, plus the AI round: shielded, can't lower a block, honest
+  outage)
+- 22 frontend tests (every panel, Vaccinate → Immunity, Teleport check-then-import, Focus Morph
+  chips, and the limit pop-up from a real stream error)
+- 42 checks on real Postgres, covering:
+  - every system on real uploaded files
+  - row-level security on the new tables
+  - the Teleport routes with raw bytes: download → verify → import, byte-identical files and
+    memories, tamper refused
+- Live in the browser:
+  - the Thermostat measures (65°, Hot)
+  - Gravity finds the well and the misplaced file
+  - the Council blocks `eval` (line 6) and SQL joining (line 3), and says the AI is unavailable
+  - Vaccinate → save → scan finds the match
+  - Night Shift runs in 0.9 s
+  - the page fits a 375 px phone
+
+### Ideas from the list that were *not* built, and why
+- **Agents trading with other companies' agents** (cryptographic intent mesh): there is no other
+  party to trade with yet, so it could only be a fake demo. Teleport's signed bundles are the honest
+  part of it.
+- **Agents that start businesses or spend money on their own** (economic incubators): payments and
+  money always need a person's yes (Part I).
+- **Several full versions built in parallel, the best one kept** (multi-timeline branching): this
+  needs isolated build runners for your code, which CodeConClave does not have yet (Part IV, items
+  2 and 7).
+- **Moving your servers around the world by itself** (bio-mimetic routing): CodeConClave does not run
+  your servers, so there is nothing real to route.
+- **Reading your Slack, meetings and calendar all the time** (atmospheric context): that would be
+  surveillance. Connectors read only when you ask.
+- **Guessing your mood from typing speed** (affective latency): it is invasive and unreliable.
+- **Using other people's idle computers** (compute harvesting): this needs their consent and a
+  security model. CodeConClave's own models need a host that you choose.
+- **Rebuilding other companies' APIs from their traffic** (dynamic API synthesis): it can break
+  their terms. Connectors use official APIs.
+- **A/B-testing interface components on your live users** (evolutionary UI): CodeConClave does not
+  host your app's users.
+- **"No syntax ever"** (universal translator) and **architecture from a story** (narrative state):
+  chat and Cowork already turn plain words into code, so claiming more would be marketing, not a
+  feature.
+- **Semantic code archaeology** (why every line exists, from its history): **Not yet**. It needs git
+  history, which the GitHub connector can provide; it is a good next step.
+
 ---
 
 ## How to check it yourself
 
 ```
-npm run db:migrate            # applies 0160 (permission rules) and 0161 (MCP servers), plus 0155–0159 if not yet applied
+npm run db:migrate            # applies 0160 (permission rules), 0161 (MCP servers), 0162 (Beyond), plus 0155–0159 if not yet applied
 cd backend  && node ../node_modules/vitest/vitest.mjs run src/modules/control src/modules/projects src/modules/execution src/modules/apikeys src/modules/skillplugins
 cd frontend && node ../node_modules/vitest/vitest.mjs run src/components/PlanApproval.test.tsx src/components/PermissionRulesCard.test.tsx src/components/HomeChat.test.tsx
+cd backend  && node ../node_modules/vitest/vitest.mjs run src/modules/beyond
+cd frontend && node ../node_modules/vitest/vitest.mjs run src/pages/BeyondPage.test.tsx src/components/UsageLimitDialog.test.tsx src/lib/focus.test.ts
 ```
 
 In the app:
@@ -270,3 +432,6 @@ In the app:
 5. Type `/second-review`, `/bugfix`, `/feature` or `/guard` once Safe Workflow is installed.
 6. **Settings → Customize → MCP servers:** connect a server, try a read-only tool, then turn on
    **Tools** in Chat.
+7. **Beyond:** pick a project, press **Measure now**, open **Gravity Map**, convene the **Council**
+   on a file, press **Vaccinate** on a finding and **Scan all projects**, then **Night Shift → Run now**.
+8. **Home:** type "checkout is failing". The composer turns to Debugging focus and offers `/bugfix`.

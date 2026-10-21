@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent, type PipelineStage } from '../lib/sse';
 import { api, csrfToken } from '../lib/api';
@@ -25,6 +25,8 @@ import { SetupWizard, isSetupCommand } from './SetupWizard';
 import { CHAT_MODE, COWORK_MODE, ModeSwitch } from './ModeSwitch';
 import { PlanApprovalCard, asPlanSummary, type PlanSummary } from './PlanApproval';
 import { ToolApprovalCard, type ToolApproval } from './ToolApprovalCard';
+import { UsageNearLimit, reportLimitError } from './UsageLimitDialog';
+import { detectFocus } from '../lib/focus';
 import { detectPaste, serializePasted, shouldChip, type PastedItem } from '../lib/paste';
 import { useIncognito } from '../lib/incognito';
 
@@ -152,6 +154,8 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
     return () => window.clearInterval(timer);
   }, []);
   const [input, setInput] = useState('');
+  // Focus Morph: the composer adapts to what you are typing (deterministic, local).
+  const focus = useMemo(() => detectFocus(input), [input]);
   const [homeProjectId, setHomeProjectId] = useState<string | undefined>();
   // Image generation on Home (Chat mode): toggle, or just ask "draw an image of…".
   const [imageMode, setImageMode] = useState(false);
@@ -322,6 +326,8 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
       }
       case 'error':
         state.receivedTerminal = true;
+        // Limit Guard: a full usage window (or no plan) opens the Claude-style pop-up.
+        reportLimitError(ev.data.code, ev.data.message, ev.data.details);
         setRows((prev) => [
           // An answer that never started leaves no empty bubble behind.
           ...prev
@@ -758,8 +764,36 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
         onChange={selectMode}
         showHint={rows.length === 0}
       />
+      <UsageNearLimit />
+      {focus && (
+        <div className={`cc-focus cc-focus--${focus.id}`} data-testid="focus-morph" aria-live="polite">
+          <span className="cc-focus__label">
+            <Icon name={focus.icon} size={13} />
+            {focus.label}
+          </span>
+          {focus.actions.map((a) => (
+            <button
+              key={a.label}
+              type="button"
+              className="cc-chipbtn"
+              onClick={() => {
+                setInput((v) => `${a.insert}${v}`);
+                requestAnimationFrame(() => {
+                  inputRef.current?.focus();
+                  autogrow();
+                });
+              }}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      )}
       {incognito && chatMode === 'CHAT' && <IncognitoBanner />}
-      <div className={`cc-home__command cc-homechat__bar cc-homechat__bar--normal${incognito && chatMode === 'CHAT' ? ' is-incognito' : ''}`}>
+      <div
+        className={`cc-home__command cc-homechat__bar cc-homechat__bar--normal${incognito && chatMode === 'CHAT' ? ' is-incognito' : ''}`}
+        data-focus={focus?.id}
+      >
         <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
           ref={inputRef}
           rows={1}

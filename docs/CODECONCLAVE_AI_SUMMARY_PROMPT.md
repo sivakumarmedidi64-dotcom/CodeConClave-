@@ -39,6 +39,15 @@ You are helping build **CodeConClave**, an AI coworker by a solo founder in Indi
   - Safe Workflow commands: `/feature`, `/bugfix`, `/second-review`, `/guard`
 
   - MCP tools (Settings → Customize → MCP servers; Chat "Tools" chip): read-only tools run, others ask (Allow once / Always allow / Deny), destructive tools always ask; approvals run exactly the approved call, once.
+  - Beyond agentic (Part VI, `/beyond`), measured from real files:
+    - Code Thermostat (open-formula temperature, "Cool it down" → Plan-first task)
+    - Gravity Map (import constellations, wells, misplaced files)
+    - Council (Sentry/Turbo/Rhea/Tess fixed rules + optional shielded AI that can't lower a block)
+    - Immunity (vaccines searched in every project)
+    - Night Shift (nightly read-only report + notification)
+    - Teleport (sealed, signed `.ccteleport` project bundles)
+    - Focus Morph (Home composer adapts to what you type)
+    - Limit Guard (Claude-style limit pop-up with the exact reset time)
 
   Not built yet: user hooks, worktree isolation, issue→PR automation, live takeover, inline completion, auto browser testing, OS sandbox, local (stdio) MCP servers.
 - Desktop built-in browser (Browser page): a sandboxed pane inside the app, own session, http(s) only; users choose built-in, system default, or an installed Chrome/Edge/Firefox/Brave.

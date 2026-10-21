@@ -603,3 +603,55 @@ describe('HomeChat — MCP tools (Article 8)', () => {
     expect(posted.mcpTools).toBeUndefined();
   });
 });
+
+describe('HomeChat — Focus Morph + Limit Guard (Part VI)', () => {
+  it('morphs to what is being typed and puts the right tool one click away', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    const box = screen.getByPlaceholderText('Ask anything…');
+    expect(screen.queryByTestId('focus-morph')).not.toBeInTheDocument();
+    await user.type(box, 'checkout is failing');
+    const focus = await screen.findByTestId('focus-morph');
+    expect(focus).toHaveTextContent('Debugging focus');
+    expect(box.closest('[data-focus]')).toHaveAttribute('data-focus', 'debug');
+    await user.click(screen.getByRole('button', { name: 'Evidence-first fix' }));
+    expect(box).toHaveValue('/bugfix checkout is failing');
+    // Slash commands are already a choice, so the chips step aside.
+    expect(screen.queryByTestId('focus-morph')).not.toBeInTheDocument();
+  });
+
+  it('opens the Limit Guard pop-up details when the stream reports a usage limit', async () => {
+    const hits: unknown[] = [];
+    const on = (e: Event) => hits.push((e as CustomEvent).detail);
+    window.addEventListener('cc:usage-limit-hit', on);
+    const resetsAt = new Date(Date.now() + 3_600_000).toISOString();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/v1/conversations/chat'))
+          return sseResponse(
+            `event: error
+data: ${JSON.stringify({ code: 'usage_limit_reached', message: 'Session limit reached', details: { window: 'session', resetsAt, used: 10, limit: 10 } })}
+
+`,
+          );
+        return jsonResponse({ data: {} });
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <HomeChat />
+      </MemoryRouter>,
+    );
+    await user.type(screen.getByPlaceholderText('Ask anything…'), 'hi');
+    await user.click(screen.getByRole('button', { name: /send/i }));
+    await waitFor(() => expect(hits).toEqual([expect.objectContaining({ code: 'usage_limit_reached', window: 'session', resetsAt, used: 10, limit: 10 })]));
+    window.removeEventListener('cc:usage-limit-hit', on);
+  });
+});

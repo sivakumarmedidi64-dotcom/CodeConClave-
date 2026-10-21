@@ -98,6 +98,7 @@ import { detectPaste, serializePasted, shouldChip, type PastedItem } from '../li
 import type { PipelineStage } from '../lib/sse';
 import { chatAsMarkdown, estimateTokens } from '../lib/chatExport';
 import { SetupWizard, isSetupCommand } from '../components/SetupWizard';
+import { reportLimitError } from '../components/UsageLimitDialog';
 import { AGENT_MODE, CHAT_MODE, COWORK_MODE, ModeSwitch } from '../components/ModeSwitch';
 
 const SLASH_COMMANDS = [
@@ -582,6 +583,7 @@ export function ChatPage() {
         setStatusLabel(ev.data.status === 'running' ? 'Agent running…' : `Agent ${ev.data.status}`);
       } else if (ev.type === 'error') {
         streamEnded = true;
+        reportLimitError(ev.data.code, ev.data.message, ev.data.details);
         setCompanion('error');
         flashStatus('Error');
         setUi((prev) => [...prev, { key: `s:${Date.now()}`, role: 'system', content: ev.data.message }]);

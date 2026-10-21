@@ -218,6 +218,30 @@ New articles:
    - SSRF guard at connect time, auth header encrypted, migration `0161`
    - not yet: stdio servers, OAuth, resources/prompts
 
+**Beyond agentic** (Constitution Part VI; page `/beyond` in the sidebar; API `/api/v1/beyond`;
+migration `0162`). Every number is measured from the user's real project files:
+- *Code Thermostat*: temperature 0–100 from an open formula
+  `100×(0.30 dup + 0.20 size + 0.15 nesting + 0.10 TODO + 0.25 findings)`, with history, the hottest
+  files and their reasons. "Cool it down" files a Plan-first Cowork task.
+- *Gravity Map*: real import links → constellations, gravity wells, misplaced files, drifting files.
+- *Council*: Sentry (security), Turbo (performance), Rhea (simplicity), Tess (correctness).
+  - fixed rules with line numbers, and a consensus (Ship / Ship with care / Fix first / Do not ship)
+  - optional AI opinions, shielded; they can raise a verdict, never lower a block
+  - "Vaccinate" turns a finding into an Immunity vaccine
+- *Immunity*: vaccines (text or safe regex, optional file glob) are searched in every project, now
+  and nightly.
+- *Night Shift*: a nightly read-only run (watchdog; user picks the hour; IST clock) that measures
+  active projects, has the Council review files changed in the last 24 h, runs the vaccines, and
+  sends a notification with the report.
+- *Teleport*: a project's files and memories in one sealed `.ccteleport` file (SHA-256 per file +
+  HMAC). Tampering is refused; import creates "… (teleported)".
+- *Focus Morph* (Home): the composer colour and one-click tools follow what is being typed.
+- *Limit Guard*: a Claude-style pop-up when a usage window is full (exact reset time and countdown),
+  and a quiet banner at 80% session / 90% week.
+- Not built, on purpose: agent-to-agent trading, autonomous spending, mood guessing, always-on
+  reading of Slack/meetings, harvesting others' computers, and similar ideas. The reasons are in
+  Part VI.
+
 Fixed during the audit:
 - Cowork from chat used a fixed team although the UI said "the Planner picks the team". The
   planner now picks it.
@@ -355,7 +379,8 @@ Every stage is a hash-linked event in `pipeline_events` (migration `0158`). If t
   waiting for the founder's review.
 - New migrations `0150`–`0160` (skill plugins, team plugins, account deletion, team control policies,
   permission modes, incognito, audit hash chain, Power Mode, pipeline v3, API credits, permission
-  rules) and `0161` (MCP servers) must be applied with `npm run db:migrate`.
+  rules), `0161` (MCP servers) and `0162` (Beyond: temperature snapshots, vaccines, Night Shift
+  reports) must be applied with `npm run db:migrate`.
 - Also fixed: the dev server no longer crashes when the Neon/Postgres pool times out connecting, and
   worker errors log real messages. The fix uses a single pool error listener and process guards that
   log while keeping `/health` honest.

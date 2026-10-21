@@ -10,6 +10,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { TOGGLE_SIDEBAR } from './lib/appEvents';
+import { UsageLimitHost } from './components/UsageLimitDialog';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { HoldBanner } from './components/EmergencyStop';
 import { GlobalShortcuts } from './components/GlobalShortcuts';
@@ -40,6 +41,7 @@ const FilesPage = lazy(() => import('./pages/FilesPage').then(({ FilesPage }) =>
 const TerminalPage = lazy(() => import('./pages/TerminalPage').then(({ TerminalPage }) => ({ default: TerminalPage })));
 const BrowserPage = lazy(() => import('./pages/BrowserPage').then(({ BrowserPage }) => ({ default: BrowserPage })));
 const McpPage = lazy(() => import('./pages/McpPage').then(({ McpPage }) => ({ default: McpPage })));
+const BeyondPage = lazy(() => import('./pages/BeyondPage').then(({ BeyondPage }) => ({ default: BeyondPage })));
 const DesktopBrowserLinks = lazy(() => import('./pages/BrowserPage').then(({ DesktopBrowserLinks }) => ({ default: DesktopBrowserLinks })));
 const WorkPage = lazy(() => import('./pages/WorkPage').then(({ WorkPage }) => ({ default: WorkPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(({ WorkspacePage }) => ({ default: WorkspacePage })));
@@ -251,6 +253,7 @@ function Shell() {
         <Topbar onMenuClick={toggleSidebar} />
         <HoldBanner />
         <GlobalShortcuts />
+        <UsageLimitHost />
         {typeof window !== 'undefined' && (window as unknown as { codeconclave?: unknown }).codeconclave ? (
           <Suspense fallback={null}>
             <DesktopBrowserLinks />
@@ -273,6 +276,7 @@ function Shell() {
             <Route path="/terminal" element={<TerminalPage />} />
             <Route path="/browser" element={<BrowserPage />} />
             <Route path="/mcp" element={<McpPage />} />
+            <Route path="/beyond" element={<BeyondPage />} />
             <Route path="/work" element={<WorkPage />} />
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/recovery" element={<RecoveryPage />} />
