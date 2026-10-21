@@ -82,10 +82,29 @@ interface VoiceRecognizer {
   lang: string;
   interimResults: boolean;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start(): void;
   stop(): void;
+}
+
+/** A plain-English reason the mic stopped, or null to stay quiet (e.g. you stopped it). */
+export function voiceErrorMessage(error: string | undefined): string | null {
+  switch (error) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'Microphone is blocked. Allow it for this site in your browser, then try the mic again.';
+    case 'no-speech':
+      return "I didn't catch anything. Tap the mic and speak again.";
+    case 'audio-capture':
+      return 'No microphone was found. Check that one is connected.';
+    case 'network':
+      return 'Voice needs a network connection and could not reach the speech service.';
+    case 'aborted':
+      return null; // you stopped it on purpose
+    default:
+      return error ? 'The microphone stopped unexpectedly. Try again.' : null;
+  }
 }
 
 type VoiceRecognizerCtor = new () => VoiceRecognizer;
@@ -435,11 +454,19 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
         if (alt) parts.push(alt.transcript);
       }
       const said = parts.join(' ').trim();
-      if (said) setInput((prev) => (prev ? `${prev} ${said}` : said));
+      if (said) {
+        setInput((prev) => (prev ? `${prev} ${said}` : said));
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+          autogrow();
+        });
+      }
     };
-    rec.onerror = () => {
+    rec.onerror = (e) => {
       voiceRef.current = null;
       setListening(false);
+      const msg = voiceErrorMessage(e?.error);
+      if (msg) pushSystem(msg);
     };
     rec.onend = () => {
       voiceRef.current = null;
@@ -451,8 +478,10 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
       setListening(true);
     } catch {
       voiceRef.current = null;
+      setListening(false);
+      pushSystem('Could not start the microphone. Make sure this site is allowed to use it.');
     }
-  }, []);
+  }, [autogrow, pushSystem]);
 
   const send = async () => {
     let content = input.trim();

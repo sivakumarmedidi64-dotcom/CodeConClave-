@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { HomeChat, parseNavCommand } from './HomeChat';
+import { HomeChat, parseNavCommand, voiceErrorMessage } from './HomeChat';
 
 const SSE_BODY =
   'event: thinking_start\ndata: {}\n\n' +
@@ -653,5 +653,17 @@ data: ${JSON.stringify({ code: 'usage_limit_reached', message: 'Session limit re
     await user.click(screen.getByRole('button', { name: /send/i }));
     await waitFor(() => expect(hits).toEqual([expect.objectContaining({ code: 'usage_limit_reached', window: 'session', resetsAt, used: 10, limit: 10 })]));
     window.removeEventListener('cc:usage-limit-hit', on);
+  });
+});
+
+describe('voiceErrorMessage', () => {
+  it('explains a blocked mic and a missing device', () => {
+    expect(voiceErrorMessage('not-allowed')).toMatch(/blocked/i);
+    expect(voiceErrorMessage('audio-capture')).toMatch(/no microphone/i);
+    expect(voiceErrorMessage('no-speech')).toMatch(/speak again/i);
+  });
+  it('stays quiet when you stopped it yourself', () => {
+    expect(voiceErrorMessage('aborted')).toBeNull();
+    expect(voiceErrorMessage(undefined)).toBeNull();
   });
 });
