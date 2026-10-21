@@ -155,7 +155,7 @@ export function setResponseSoundEnabled(value: boolean): void {
   store(value);
 }
 
-/** Load the server-held preference; falls back to local/default (ON). */
+/** Load the server-held preference; falls back to local/default (OFF, like Claude). */
 export async function loadResponseSoundEnabled(): Promise<boolean> {
   try {
     const res = await fetch('/api/v1/workspace/preferences', { credentials: 'same-origin' });
@@ -170,7 +170,7 @@ export async function loadResponseSoundEnabled(): Promise<boolean> {
   } catch {
     /* offline-safe */
   }
-  return readStored() ?? true;
+  return readStored() ?? false;
 }
 
 /** Arm the single RESPONSE_READY shot. Only a fresh user request arms it. */
@@ -186,7 +186,8 @@ export function armResponseSound(): void {
 export function playResponseReadySound(): void {
   if (!armed) return;
   armed = false;
-  if (readStored() === false) return;
+  // Quiet by default (like Claude): play only when the user turned the sound ON.
+  if (readStored() !== true) return;
   const ac = getContext();
   if (!ac) return;
   if (ac.state === 'running') {

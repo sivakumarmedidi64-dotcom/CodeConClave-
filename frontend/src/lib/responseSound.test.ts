@@ -35,6 +35,7 @@ describe('RESPONSE_READY sound', () => {
     const mod = await import('../lib/responseSound');
     const calls: string[] = [];
     mod.__setSoundProducerForTests(() => calls.push('ring'));
+    mod.setResponseSoundEnabled(true);
     mod.armResponseSound();
     mod.playResponseReadySound();
     mod.playResponseReadySound();
@@ -61,11 +62,16 @@ describe('RESPONSE_READY sound', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('defaults ON when the browser permits audio', async () => {
+  it('defaults OFF (quiet like Claude) until turned on in Settings', async () => {
     vi.resetModules();
     const mod = await import('../lib/responseSound');
     const calls: string[] = [];
     mod.__setSoundProducerForTests(() => calls.push('ring'));
+    mod.armResponseSound();
+    mod.playResponseReadySound();
+    expect(calls).toHaveLength(0);
+    // …and it rings once it is explicitly enabled.
+    mod.setResponseSoundEnabled(true);
     mod.armResponseSound();
     mod.playResponseReadySound();
     expect(calls).toHaveLength(1);

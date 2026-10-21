@@ -11,10 +11,7 @@ import { api } from '../lib/api';
 import { useEarlyAccess } from '../lib/accessMode';
 import type { Notification, SearchResult } from '../lib/types';
 import { labelFor, showBrowserNotification } from '../lib/browserNotifications';
-import { ContextIndicator } from './ContextIndicator';
 import { ThemeToggle } from './ThemeToggle';
-import { HealthChip } from './HealthChip';
-import { ConnectivityIndicator } from './ConnectivityIndicator';
 import { Icon } from './Icon';
 import { isOnline, enqueueOfflineOp } from '../lib/offline';
 import { UserAvatar } from './UserAvatar';
@@ -202,10 +199,6 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
     }
   };
 
-  const openPalette = () => {
-    window.dispatchEvent(new Event('cc:open-palette'));
-  };
-
   /* Escape closes whichever topbar popover is open. Focus stays where it is
      (the toggle buttons remain mounted, so keyboard users are not stranded). */
   useEffect(() => {
@@ -282,14 +275,8 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
             </div>
           )}
         </div>
-        <button className="cc-btn cc-btn--ghost cc-btn--sm" onClick={openPalette} aria-label="Command palette (Ctrl+K)" title="Command palette (Ctrl+K)">
-          ⌘K
-        </button>
         <ApiUsageChip />
         <EmergencyStopButton />
-        <ContextIndicator />
-        <HealthChip />
-        <ConnectivityIndicator />
         <div style={{ position: 'relative' }}>
           <button className="cc-bell" onClick={() => void openPanel()} aria-label="Notifications" aria-expanded={open}>
             <Icon name="bell" size={18} />

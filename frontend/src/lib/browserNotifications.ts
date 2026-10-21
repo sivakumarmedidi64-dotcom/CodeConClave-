@@ -71,6 +71,7 @@ export function showBrowserNotification(item: Notification, onActivate?: () => v
     const native = new window.Notification(labelFor(item.type), {
       body: item.body ?? item.title,
       tag: `codeconclave-${item.id}`,
+      silent: true, // no chime — like Claude, the banner is enough
     });
     if (onActivate) {
       native.onclick = () => {

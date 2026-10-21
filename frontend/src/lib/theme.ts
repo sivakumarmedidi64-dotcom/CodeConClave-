@@ -6,8 +6,16 @@ import { api } from './api';
 
 export type Theme = 'light' | 'dark';
 
+/** Fired on <window> whenever the theme is applied, so the header toggle keeps in sync. */
+export const THEME_CHANGED = 'cc:theme-changed';
+
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
+  try {
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED, { detail: theme }));
+  } catch {
+    /* no window (SSR/tests) — the attribute is still set */
+  }
 }
 
 export function isTheme(v: unknown): v is Theme {
