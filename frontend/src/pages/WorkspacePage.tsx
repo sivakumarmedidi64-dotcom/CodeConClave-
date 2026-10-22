@@ -27,7 +27,7 @@ const RISK_LEVELS = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
 
 const RISK_COLORS: Record<string, string> = {
   LOW: '#16a34a',
-  MEDIUM: '#f59e0b',
+  MEDIUM: '#c96442',
   HIGH: '#d97706',
   CRITICAL: '#dc2626',
 };

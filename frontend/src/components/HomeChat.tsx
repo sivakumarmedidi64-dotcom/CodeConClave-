@@ -21,7 +21,7 @@ import { CopyButton } from './CopyButton';
 import { PipelineTrace, ReceiptChip, asReceipt, type PipelineReceipt } from './PipelineReceipt';
 import { PastedChip, UserMessageContent } from './PastedChip';
 import { PipelineBots } from './PipelineBots';
-import { CapabilityGrid, MistakesNote } from './CapabilityGrid';
+import { MistakesNote } from './CapabilityGrid';
 import { SetupWizard, isSetupCommand } from './SetupWizard';
 import { CHAT_MODE, COWORK_MODE, ModeSwitch } from './ModeSwitch';
 import { PlanApprovalCard, asPlanSummary, type PlanSummary } from './PlanApproval';
@@ -844,7 +844,7 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
         className={`cc-home__command cc-homechat__bar cc-homechat__bar--normal${incognito && chatMode === 'CHAT' ? ' is-incognito' : ''}`}
         data-focus={focus?.id}
       >
-        <Icon name="spark" size={16} className="cc-homechat__icon" />        <textarea
+        <textarea
           ref={inputRef}
           rows={1}
           className="cc-homechat__input cc-homechat__input--normal"
@@ -903,6 +903,15 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
           onChange={(e) => {
             attachFiles(e.target.files);
             e.target.value = '';
+          }}
+        />
+        <IncognitoToggle
+          iconOnly
+          on={incognito && chatMode === 'CHAT'}
+          disabled={chatMode === 'COWORK'}
+          onChange={(on) => {
+            convRef.current = null;
+            setIncognito(on);
           }}
         />
         <button
@@ -967,29 +976,10 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
         </div>
       )}
       <div className="cc-homechat__context cc-hint" data-testid="homechat-context">
-        <IncognitoToggle
-          on={incognito && chatMode === 'CHAT'}
-          disabled={chatMode === 'COWORK'}
-          onChange={(on) => {
-            convRef.current = null;
-            setIncognito(on);
-          }}
-        />
         {contextLine}
         <UsageChip />
       </div>
       <MistakesNote />
-      {rows.length === 0 && (
-        <CapabilityGrid
-          onPick={(prompt) => {
-            setInput(prompt);
-            requestAnimationFrame(() => {
-              inputRef.current?.focus();
-              autogrow();
-            });
-          }}
-        />
-      )}
       {setupOpen && (
         <SetupWizard
           onClose={() => {

@@ -5,7 +5,6 @@
  * real session user and every surface below is fed by a real API call.
  */
 import { HomeChat } from '../components/HomeChat';
-import { MorningBrief } from '../components/MorningBrief';
 import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { WelcomeName } from '../components/WelcomeName';
@@ -39,7 +38,6 @@ export function HomePage() {
         <h1>{heading}</h1>
       </div>
       <HomeChat hero={false} />
-      <MorningBrief greeting={false} />
       <WelcomeName />
     </div>
   );

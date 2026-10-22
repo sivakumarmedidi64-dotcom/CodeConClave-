@@ -65,7 +65,7 @@ export function DemoPaymentActivatePage() {
     <div className="cc-panel cc-panel--pad" style={{ maxWidth: 640, margin: '0 auto', marginTop: 24 }}>
       <div
         style={{
-          background: '#f59e0b',
+          background: '#c96442',
           color: '#111',
           padding: '10px 14px',
           borderRadius: 6,

@@ -1,12 +1,23 @@
 /** Incognito chat: the ghost toggle for new chats and the banner inside one. */
 import { Icon } from './Icon';
 
-export function IncognitoToggle({ on, onChange, disabled }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
+export function IncognitoToggle({
+  on,
+  onChange,
+  disabled,
+  iconOnly,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  disabled?: boolean;
+  iconOnly?: boolean;
+}) {
   return (
     <button
       type="button"
-      className={`cc-incognito-toggle${on ? ' is-on' : ''}`}
+      className={`cc-incognito-toggle${on ? ' is-on' : ''}${iconOnly ? ' cc-incognito-toggle--icon' : ''}`}
       aria-pressed={on}
+      aria-label={on ? 'Incognito on — turn off' : 'Start an incognito chat'}
       disabled={disabled}
       onClick={() => onChange(!on)}
       title={
@@ -19,7 +30,7 @@ export function IncognitoToggle({ on, onChange, disabled }: { on: boolean; onCha
       data-testid="incognito-toggle"
     >
       <Icon name="ghost" size={16} />
-      <span>{on ? 'Incognito on' : 'Incognito'}</span>
+      {!iconOnly && <span>{on ? 'Incognito on' : 'Incognito'}</span>}
     </button>
   );
 }

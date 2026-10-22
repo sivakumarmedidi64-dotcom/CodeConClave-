@@ -21,7 +21,7 @@ export interface ChartSpec {
   unit?: string;
 }
 
-const PALETTE = ['#f2c230', '#10b8a6', '#1e88ff', '#ff2e9a', '#ff6b0f', '#9b5cff', '#3fb27f', '#ffa20a'];
+const PALETTE = ['#c96442', '#10b8a6', '#1e88ff', '#ff2e9a', '#ff6b0f', '#9b5cff', '#3fb27f', '#ffa20a'];
 
 export function parseChart(src: string): ChartSpec | null {
   try {

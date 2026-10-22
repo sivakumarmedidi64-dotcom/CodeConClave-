@@ -26,7 +26,7 @@ import { useEarlyAccess } from '../lib/accessMode';
 
 const STATE_COLORS: Record<string, string> = {
   CONNECTED: '#16a34a',
-  DEGRADED: '#f59e0b',
+  DEGRADED: '#c96442',
   FAILED: '#dc2626',
   DISCONNECTED: '#64748b',
   REAUTH_REQUIRED: '#d97706',
@@ -45,7 +45,7 @@ const INTEGRATION_STYLES: Record<string, { label: string; color: string; bg: str
 
 const HEALTH_COLORS: Record<string, string> = {
   HEALTHY: '#16a34a',
-  DEGRADED: '#f59e0b',
+  DEGRADED: '#c96442',
   REAUTH_REQUIRED: '#d97706',
   UNAVAILABLE: '#dc2626',
   NOT_CONNECTED: '#64748b',

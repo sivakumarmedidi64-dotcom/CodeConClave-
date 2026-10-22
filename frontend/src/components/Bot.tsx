@@ -34,7 +34,7 @@ export const BOT_PERSONAS: Record<string, BotPersona> = {
   PERFORMANCE: { name: 'Turbo', role: 'Performance', shape: 'blob', color: '#ff6b0f' },
   RESEARCH: { name: 'Scout', role: 'Research', shape: 'cloud', color: '#ffa20a' },
   DOCS: { name: 'Doc', role: 'Docs', shape: 'drop', color: '#9a6a3e' },
-  REVIEWER: { name: 'Rhea', role: 'Reviewer', shape: 'blob', color: '#f2c230' },
+  REVIEWER: { name: 'Rhea', role: 'Reviewer', shape: 'blob', color: '#c96442' },
   VERIFY: { name: 'Vera', role: 'Verifier', shape: 'circle', color: '#f3f1ea' },
 };
 
@@ -48,7 +48,7 @@ export function personaFor(kind: string): BotPersona {
       name: kind.charAt(0).toUpperCase() + kind.slice(1).toLowerCase(),
       role: kind.toLowerCase(),
       shape: 'circle',
-      color: '#f2c230',
+      color: '#c96442',
     }
   );
 }
@@ -76,7 +76,7 @@ const EYES: Record<BotShape, { x: number; y: number }> = {
   drop: { x: 50, y: 52 },
 };
 
-const RIBBONS = ['#7ad97a', '#c36be0', '#f2c230', '#4cc7d9', '#ef7aa8'];
+const RIBBONS = ['#7ad97a', '#c36be0', '#c96442', '#4cc7d9', '#ef7aa8'];
 
 function Face({ shape, state }: { shape: BotShape; state: BotState }) {
   const e = EYES[shape];
