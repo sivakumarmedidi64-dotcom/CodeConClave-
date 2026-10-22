@@ -1,12 +1,7 @@
 /**
- * CodeConClave — Sidebar tests (AI-OS IA).
- * The primary navigation is a compact set (Home, Projects, Agents,
- * Tasks, Beyond, Plugins, Connectors, Settings — Chat and Activity were removed: Home is the
- * composer and history lives under the briefing); Approval Center navigation
- * is intentionally absent (approvals still arrive via notifications).
- * Secondary surfaces live under the collapsible "More" group and only render
- * once expanded. Removed destinations (Memory, DNA, Reports) keep working as
- * routes — they are just no longer listed.
+ * CodeConClave — Sidebar tests. Minimal, Claude-like navigation: a Search, a
+ * "New chat", a short primary list (Projects, Agents, Beyond, Customize), and
+ * everything else under the collapsible "More". No chat list on the rail.
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -14,55 +9,24 @@ import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TEST_USER } from '../testutils';
 
-const PRIMARY = [
-  'Home',
-  'Projects',
-  'Agents',
-  'Tasks',
-  'Beyond',
-  'Plugins',
-  'Connectors',
-  'Settings',
-];
-
-const SECONDARY = [
-  'Coworker',
-  'Email',
-  'Code Map',
-  'Files',
-  'Terminal',
-  'Automation',
-  'Repo Workspace',
-  'Coworkers',
-  'Teams',
-  'Control',
-  'Remote',
-  'Ideas',
-  'Data',
-  'Recovery',
-  'Trash',
-];
-
-function visibleLabels(): string[] {
-  return screen
-    .getAllByRole('link')
-    .concat(screen.getAllByRole('button').filter((b) => b.className.includes('cc-sidebar__more-toggle')))
-    .map((l) => l.textContent?.replace(/[^\p{L}\p{N} /-]/gu, '').trim())
-    .filter(Boolean) as string[];
-}
+const PRIMARY = ['Projects', 'Agents', 'Beyond', 'Customize'];
+const SECONDARY_SAMPLE = ['Tasks', 'Code review', 'Teams', 'Terminal', 'Trash'];
 
 describe('Sidebar', () => {
-  it('renders the primary destinations in order', () => {
+  it('shows Search, New chat and the short primary list', () => {
     render(
       <MemoryRouter>
         <Sidebar user={TEST_USER} />
       </MemoryRouter>,
     );
-    const filtered = visibleLabels().filter((l) => PRIMARY.includes(l));
-    expect(filtered).toEqual(PRIMARY);
+    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /New chat/ })).toBeInTheDocument();
+    for (const label of PRIMARY) {
+      expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
+    }
   });
 
-  it('keeps secondary surfaces tucked under the collapsed More group', () => {
+  it('keeps secondary surfaces under a collapsed "More" until it is expanded', () => {
     render(
       <MemoryRouter>
         <Sidebar user={TEST_USER} />
@@ -70,13 +34,20 @@ describe('Sidebar', () => {
     );
     const toggle = screen.getByRole('button', { name: /^More/ });
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    // With smooth expansion, secondary items remain in DOM but hidden via CSS; the test previously
-    // assumed they are not queryable as links. Accept either hidden or visible and only assert
-    // after expansion for discoverability of all destinations.
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    const all = visibleLabels().filter((l) => [...PRIMARY, ...SECONDARY].includes(l));
-    expect(all).toEqual([...PRIMARY, ...SECONDARY]);
+    for (const label of SECONDARY_SAMPLE) {
+      expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('does not list past chats on the rail (Home is the one chat)', () => {
+    render(
+      <MemoryRouter>
+        <Sidebar user={TEST_USER} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText('Recents')).not.toBeInTheDocument();
   });
 
   it('marks the navigation landmark for assistive tech', () => {

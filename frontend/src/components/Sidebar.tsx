@@ -1,18 +1,16 @@
 /**
- * CodeConClave — unified navigation (AI-OS IA).
- * Primary destinations lead the navigation: Chat, Projects, Agents, Tasks,
- * Activity, Approvals, Connectors, Settings. Everything else lives under the
- * collapsible "More" group; admin routes are appended for operators. Labels
- * are short OS-style names, no marketing or feature-catalog language.
+ * CodeConClave — navigation, kept minimal like Claude: a search, a prominent
+ * "New" chat, a short primary list, and everything else tucked under "More".
+ * No chat list clutters the rail — Home is the one chat; past chats live on
+ * the Chats page (reachable from More). Labels are short OS-style names.
  */
-import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation, useSearchParams } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { Icon, type IconName } from './Icon';
 import { BrandLogo } from './BrandLogo';
-import { api } from '../lib/api';
-import { CONVERSATIONS_CHANGED, TOGGLE_SIDEBAR } from '../lib/appEvents';
+import { NEW_CHAT, TOGGLE_SIDEBAR } from '../lib/appEvents';
 import { UserAvatar } from './UserAvatar';
-import type { Conversation, User } from '../lib/types';
+import type { User } from '../lib/types';
 import { useEarlyAccess } from '../lib/accessMode';
 
 interface NavItem {
@@ -21,29 +19,26 @@ interface NavItem {
   icon: IconName;
 }
 
-const PRIMARY_SECTIONS: { label: string; items: NavItem[] }[] = [
-  {
-    label: 'Workspace',
-    items: [
-      { to: '/home', label: 'Home', icon: 'home' },
-      { to: '/projects', label: 'Projects', icon: 'folder' },
-      { to: '/agents', label: 'Agents', icon: 'layers' },
-      { to: '/work', label: 'Tasks', icon: 'bolt' },
-      { to: '/beyond', label: 'Beyond', icon: 'rocket' },
-      { to: '/code-review', label: 'Code review', icon: 'eye' },
-      { to: '/local', label: 'Local files', icon: 'monitor' },
-      { to: '/skills', label: 'Plugins', icon: 'puzzle' },
-      { to: '/plugins', label: 'Connectors', icon: 'plug' },
-      { to: '/settings', label: 'Settings', icon: 'settings' },
-    ],
-  },
+/** The few things most people use — kept short on purpose. */
+const PRIMARY_ITEMS: NavItem[] = [
+  { to: '/projects', label: 'Projects', icon: 'folder' },
+  { to: '/agents', label: 'Agents', icon: 'layers' },
+  { to: '/beyond', label: 'Beyond', icon: 'rocket' },
+  { to: '/settings', label: 'Customize', icon: 'sliders' },
 ];
 
+/** Everything else, one click away under "More". */
 const MORE_ITEMS: NavItem[] = [
+  { to: '/work', label: 'Tasks', icon: 'bolt' },
+  { to: '/code-review', label: 'Code review', icon: 'eye' },
+  { to: '/skills', label: 'Plugins', icon: 'puzzle' },
+  { to: '/plugins', label: 'Connectors', icon: 'plug' },
+  { to: '/chats', label: 'Chats', icon: 'chat' },
   { to: '/coworker', label: 'Coworker', icon: 'sparkle' },
   { to: '/coworker#email', label: 'Email', icon: 'mail' },
   { to: '/coworker#scan', label: 'Code Map', icon: 'search' },
   { to: '/files', label: 'Files', icon: 'file' },
+  { to: '/local', label: 'Local files', icon: 'monitor' },
   { to: '/terminal', label: 'Terminal', icon: 'terminal' },
   { to: '/browser', label: 'Browser', icon: 'compass' },
   { to: '/automation', label: 'Automation', icon: 'cog' },
@@ -82,38 +77,6 @@ function planLabel(user: User): string {
   }
 }
 
-const RECENTS_LIMIT = 8;
-
-/** Most recent non-archived conversations; refreshed when the route changes. */
-function useRecentConversations(): Conversation[] {
-  const location = useLocation();
-  const [recents, setRecents] = useState<Conversation[]>([]);
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const bump = () => setTick((t) => t + 1);
-    window.addEventListener(CONVERSATIONS_CHANGED, bump);
-    return () => window.removeEventListener(CONVERSATIONS_CHANGED, bump);
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    api<{ conversations: Conversation[] }>('/api/v1/conversations')
-      .then((res) => {
-        if (!alive || !Array.isArray(res?.conversations)) return;
-        const sorted = [...res.conversations]
-          .filter((c) => !c.archived && !c.deletedAt)
-          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-        setRecents(sorted.slice(0, RECENTS_LIMIT));
-      })
-      .catch(() => {
-        if (alive) setRecents([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [location.pathname, tick]);
-  return recents;
-}
-
 function NavRow({ item }: { item: NavItem }) {
   return (
     <NavLink
@@ -135,42 +98,46 @@ export function Sidebar({ user }: { user: User }) {
   // Early access: the account pill reports the access stage, never a plan tier.
   const earlyAccess = useEarlyAccess();
   const [moreOpen, setMoreOpen] = useState(false);
-  const recents = useRecentConversations();
-  const location = useLocation();
-  const [params] = useSearchParams();
-  const activeConv = location.pathname === '/chat' ? params.get('c') : null;
-
+  const navigate = useNavigate();
   const name = user.displayName ?? user.email ?? 'Account';
+
+  const startNewChat = () => {
+    navigate('/home');
+    // Let Home mount if we navigated, then wipe the board for a fresh chat.
+    requestAnimationFrame(() => window.dispatchEvent(new Event(NEW_CHAT)));
+  };
 
   return (
     <aside className="cc-sidebar">
-      <NavLink className="cc-sidebar__brand" to="/home" title="Home — command CodeConClave">
-        <BrandLogo variant="mark" height={22} />
-        <span style={{ fontWeight: 700 }}>CodeConClave</span>
-      </NavLink>
-      <button
-        type="button"
-        className="cc-sidebar__close"
-        aria-label="Close sidebar"
-        title="Close sidebar (Ctrl+B)"
-        onClick={() => window.dispatchEvent(new Event(TOGGLE_SIDEBAR))}
-      >
-        <Icon name="panel-left" size={16} />
+      <div className="cc-sidebar__top">
+        <NavLink className="cc-sidebar__brand" to="/home" title="Home — CodeConClave">
+          <BrandLogo variant="mark" height={20} />
+          <span style={{ fontWeight: 650 }}>CodeConClave</span>
+        </NavLink>
+        <button
+          type="button"
+          className="cc-icon-btn cc-sidebar__collapse"
+          aria-label="Close sidebar"
+          title="Close sidebar (Ctrl+B)"
+          onClick={() => window.dispatchEvent(new Event(TOGGLE_SIDEBAR))}
+        >
+          <Icon name="panel-left" size={17} />
+        </button>
+      </div>
+
+      <button type="button" className="cc-sidebar__search" onClick={() => window.dispatchEvent(new Event('cc:open-palette'))}>
+        <Icon name="search" size={15} />
+        <span>Search</span>
       </button>
-      <Link to="/chat?new=1" className="cc-sidebar__new" title="Start a new conversation">
-        <span className="cc-sidebar__new-icon" aria-hidden="true">
-          <Icon name="plus" size={14} />
-        </span>
+
+      <button type="button" className="cc-sidebar__new" onClick={startNewChat} title="Start a new chat">
+        <Icon name="plus" size={16} />
         <span className="cc-sidebar__label">New chat</span>
-      </Link>
+      </button>
+
       <nav className="cc-sidebar__nav" aria-label="Workspace navigation">
-        {PRIMARY_SECTIONS.map((section) => (
-          <div key={section.label}>
-            <div className="cc-sidebar__section">{section.label}</div>
-            {section.items.map((item) => (
-              <NavRow key={item.to} item={item} />
-            ))}
-          </div>
+        {PRIMARY_ITEMS.map((item) => (
+          <NavRow key={item.to} item={item} />
         ))}
 
         <button
@@ -180,33 +147,15 @@ export function Sidebar({ user }: { user: User }) {
           aria-expanded={moreOpen}
           aria-label={moreOpen ? 'More navigation, expanded' : 'More navigation, collapsed'}
         >
+          <Icon name="dots" size={16} />
           <span className="cc-sidebar__label">More</span>
-          <Icon name={moreOpen ? 'close' : 'plus'} size={12} />
+          <Icon name={moreOpen ? 'chevronUp' : 'chevronDown'} size={13} />
         </button>
         <div className={`cc-sidebar__more-list${moreOpen ? ' cc-sidebar__more-list--open' : ''}`}>
           {MORE_ITEMS.map((item) => (
             <NavRow key={item.to} item={item} />
           ))}
         </div>
-
-        {recents.length > 0 && (
-          <div className="cc-sidebar__recents" aria-label="Recent conversations">
-            <div className="cc-sidebar__section">Recents</div>
-            {recents.map((c) => (
-              <Link
-                key={c.id}
-                to={`/chat?c=${encodeURIComponent(c.id)}`}
-                className={`cc-sidebar__recent${activeConv === c.id ? ' active' : ''}`}
-                title={c.title}
-              >
-                <span className="cc-sidebar__label">{c.title || 'Untitled conversation'}</span>
-              </Link>
-            ))}
-            <Link to="/chats" className="cc-sidebar__recent cc-sidebar__recent--all">
-              <span className="cc-sidebar__label">All chats →</span>
-            </Link>
-          </div>
-        )}
 
         {isAdmin && (
           <div>
@@ -217,10 +166,9 @@ export function Sidebar({ user }: { user: User }) {
           </div>
         )}
       </nav>
-      <div className="cc-sidebar__foot">
-        <span title={name}>
-          <UserAvatar name={name} size={26} />
-        </span>
+
+      <NavLink to="/settings" className="cc-sidebar__foot" title={name}>
+        <UserAvatar name={name} size={26} />
         <span className="cc-sidebar__label" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
           {name}
         </span>
@@ -230,7 +178,7 @@ export function Sidebar({ user }: { user: User }) {
         >
           {earlyAccess ? 'Early Access' : planLabel(user)}
         </span>
-      </div>
+      </NavLink>
     </aside>
   );
 }

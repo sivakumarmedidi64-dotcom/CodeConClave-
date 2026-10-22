@@ -89,7 +89,8 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'chevronUp'
-  | 'chevronDown';
+  | 'chevronDown'
+  | 'dots';
 
 const PATHS: Record<IconName, ReactNode> = {
   home: (
@@ -214,6 +215,13 @@ const PATHS: Record<IconName, ReactNode> = {
   dot: (
     <>
       <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  dots: (
+    <>
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
     </>
   ),
   ghost: (

@@ -3,3 +3,6 @@ export const CONVERSATIONS_CHANGED = 'cc:conversations-changed';
 
 /** Window event: open/close the sidebar (Ctrl/Cmd+B, the sidebar's own button). */
 export const TOGGLE_SIDEBAR = 'cc:toggle-sidebar';
+
+/** Window event: start a fresh chat on Home (the sidebar "New" button). */
+export const NEW_CHAT = 'cc:new-chat';

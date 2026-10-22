@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { streamChat, type ChatStreamEvent, type PipelineStage } from '../lib/sse';
+import { NEW_CHAT } from '../lib/appEvents';
 import { api, csrfToken } from '../lib/api';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { newClientId } from '../lib/continuity';
@@ -254,6 +255,23 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   useEffect(() => {
     if (new URLSearchParams(location.search).get('setup') === '1') setSetupOpen(true);
   }, [location.search]);
+
+  // Sidebar "New": wipe the board and start a fresh chat (abort any live stream).
+  useEffect(() => {
+    const onNew = () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      convRef.current = null;
+      setRows([]);
+      setInput('');
+      setPasted([]);
+      setAttachments([]);
+      setStreaming(false);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    };
+    window.addEventListener(NEW_CHAT, onNew);
+    return () => window.removeEventListener(NEW_CHAT, onNew);
+  }, []);
   const [listening, setListening] = useState(false);
   const [voiceSupported] = useState(() => voiceRecognizerCtor() !== null);
   const navigate = useNavigate();

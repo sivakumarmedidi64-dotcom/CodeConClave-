@@ -7965,3 +7965,118 @@ h2 {
 @media (max-width: 420px) {
   .cc-topbar .cc-plan-pill { display: none; }
 }
+
+/* ── Minimal, Claude-like sidebar ───────────────────────────────── */
+.cc-sidebar__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--cc-topbar-h);
+  padding: 0 6px 0 14px;
+  flex: none;
+}
+.cc-sidebar__top .cc-sidebar__brand {
+  height: auto;
+  border-bottom: 0;
+  padding: 0;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.cc-sidebar__top .cc-sidebar__brand span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-sidebar__collapse {
+  color: var(--cc-text-muted);
+  flex: none;
+}
+
+.cc-sidebar__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 10px 8px;
+  padding: 8px 11px;
+  width: calc(100% - 20px);
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  background: var(--cc-input);
+  color: var(--cc-text-muted);
+  font-size: 13.5px;
+  cursor: text;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.cc-sidebar__search:hover {
+  border-color: var(--cc-border-strong);
+  color: var(--cc-text);
+}
+
+/* New chat — simple row, no loud gold bubble. */
+.cc-sidebar__new {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 10px 6px;
+  padding: 9px 11px;
+  width: calc(100% - 20px);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--cc-text);
+  font-weight: 550;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.cc-sidebar__new:hover {
+  background: var(--cc-accent-soft);
+}
+.cc-sidebar__new .cc-sidebar__icon {
+  color: var(--cc-text);
+}
+
+.cc-sidebar__more-toggle {
+  justify-content: flex-start;
+  gap: 10px;
+}
+.cc-sidebar__more-toggle .cc-sidebar__label {
+  flex: 1;
+}
+
+/* Account lives at the very bottom and opens Settings, like Claude. */
+.cc-sidebar__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin: 0;
+  border-top: 1px solid var(--cc-border);
+  color: var(--cc-text);
+  text-decoration: none;
+  flex: none;
+}
+.cc-sidebar__foot:hover {
+  background: var(--cc-accent-soft);
+  text-decoration: none;
+}
+
+/* Collapsed rail (desktop): icons only, no labels or search text. */
+.cc-shell--collapsed .cc-sidebar__top .cc-sidebar__brand span,
+.cc-shell--collapsed .cc-sidebar__search span,
+.cc-shell--collapsed .cc-sidebar__new .cc-sidebar__label {
+  display: none;
+}
+.cc-shell--collapsed .cc-sidebar__search,
+.cc-shell--collapsed .cc-sidebar__new {
+  justify-content: center;
+  width: auto;
+  margin: 4px 8px 6px;
+  padding: 8px 0;
+}
+.cc-shell--collapsed .cc-sidebar__foot {
+  justify-content: center;
+}
