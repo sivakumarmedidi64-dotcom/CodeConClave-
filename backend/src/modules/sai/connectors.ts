@@ -159,6 +159,112 @@ const CONNECTORS: Record<string, Connector> = {
     const r = (await safeGet(url)) as { title?: string; extract?: string; content_urls?: { desktop?: { page?: string } } };
     return { summary: r.extract ?? `No Wikipedia summary for "${query}".`, data: { title: r.title, extract: r.extract }, sourceUrl: r.content_urls?.desktop?.page ?? url };
   },
+
+  // ---- Research & science ----
+  openalex: async (query) => {
+    const url = `https://api.openalex.org/works?search=${q(query)}&per_page=5`;
+    const r = (await safeGet(url)) as { results: { title: string; publication_year: number; cited_by_count: number }[] };
+    return { summary: `${r.results.length} papers on "${query}". Top: ${r.results[0]?.title ?? 'none'} (${r.results[0]?.publication_year ?? '?'}, ${r.results[0]?.cited_by_count ?? 0} citations).`, data: r.results.map((p) => ({ title: p.title, year: p.publication_year, citations: p.cited_by_count })), sourceUrl: url };
+  },
+  crossref: async (query) => {
+    const url = `https://api.crossref.org/works?query=${q(query)}&rows=5`;
+    const r = (await safeGet(url)) as { message: { items: { title?: string[]; DOI: string }[] } };
+    return { summary: `${r.message.items.length} publications on "${query}".`, data: r.message.items.map((i) => ({ title: i.title?.[0], doi: i.DOI })), sourceUrl: url };
+  },
+  arxiv: async (query) => {
+    const url = `http://export.arxiv.org/api/query?search_query=all:${q(query)}&max_results=5`;
+    const xml = (await safeGet(url, 'text')) as string;
+    const titles = [...xml.matchAll(/<entry>[\s\S]*?<title>([\s\S]*?)<\/title>/g)].map((m) => (m[1] ?? '').replace(/\s+/g, ' ').trim());
+    return { summary: `${titles.length} arXiv preprints on "${query}". Latest: ${titles[0] ?? 'none'}.`, data: titles, sourceUrl: `https://arxiv.org/list/${q(query)}/recent` };
+  },
+  'clinicaltrials-gov': async (query) => {
+    const url = `https://clinicaltrials.gov/api/v2/studies?query.term=${q(query)}&pageSize=5`;
+    const r = (await safeGet(url)) as { studies: { protocolSection?: { identificationModule?: { briefTitle?: string }; statusModule?: { overallStatus?: string } } }[] };
+    return { summary: `${r.studies.length} clinical trials on "${query}".`, data: r.studies.map((s) => ({ title: s.protocolSection?.identificationModule?.briefTitle, status: s.protocolSection?.statusModule?.overallStatus })), sourceUrl: url };
+  },
+  pubchem: async (query) => {
+    const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${q(query)}/property/MolecularFormula,MolecularWeight/JSON`;
+    const r = (await safeGet(url)) as { PropertyTable?: { Properties: { MolecularFormula: string; MolecularWeight: string }[] } };
+    const p = r.PropertyTable?.Properties?.[0];
+    return { summary: p ? `${query}: formula ${p.MolecularFormula}, weight ${p.MolecularWeight}.` : `No compound "${query}".`, data: p ?? null, sourceUrl: url };
+  },
+
+  // ---- Health & environment ----
+  openfda: async (query) => {
+    const url = `https://api.fda.gov/drug/label.json?search=${q(query)}&limit=3`;
+    const r = (await safeGet(url)) as { results?: { openfda?: { brand_name?: string[] }; warnings?: string[] }[] };
+    const items = r.results ?? [];
+    return { summary: items.length ? `${items.length} FDA drug labels matching "${query}": ${items.map((i) => i.openfda?.brand_name?.[0]).filter(Boolean).join(', ')}.` : `No FDA data for "${query}".`, data: items.map((i) => ({ brand: i.openfda?.brand_name?.[0], warning: i.warnings?.[0]?.slice(0, 200) })), sourceUrl: url };
+  },
+  gbif: async (query) => {
+    const url = `https://api.gbif.org/v1/species/search?q=${q(query)}&limit=5`;
+    const r = (await safeGet(url)) as { results: { scientificName: string; kingdom?: string }[] };
+    return { summary: `${r.results.length} species matching "${query}". Top: ${r.results[0]?.scientificName ?? 'none'}.`, data: r.results.map((s) => ({ name: s.scientificName, kingdom: s.kingdom })), sourceUrl: url };
+  },
+  'who-global-health-observatory': async (query) => {
+    const url = `https://ghoapi.azureedge.net/api/Indicator?$filter=contains(IndicatorName,'${q(query || 'mortality')}')`;
+    const r = (await safeGet(url)) as { value: { IndicatorCode: string; IndicatorName: string }[] };
+    return { summary: `${r.value.length} WHO health indicators matching "${query || 'mortality'}".`, data: r.value.slice(0, 8).map((i) => ({ code: i.IndicatorCode, name: i.IndicatorName })), sourceUrl: 'https://www.who.int/data/gho' };
+  },
+
+  // ---- Dev & security ----
+  'cve-nvd': async (query) => {
+    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${q(query || 'openssl')}&resultsPerPage=3`;
+    const r = (await safeGet(url)) as { vulnerabilities?: { cve: { id: string; descriptions: { lang: string; value: string }[] } }[] };
+    const v = r.vulnerabilities ?? [];
+    return { summary: v.length ? `${v.length} CVEs matching "${query}": ${v.map((x) => x.cve.id).join(', ')}.` : `No CVEs for "${query}".`, data: v.map((x) => ({ id: x.cve.id, description: x.cve.descriptions.find((d) => d.lang === 'en')?.value?.slice(0, 200) })), sourceUrl: url };
+  },
+  'cisa-kev': async (query) => {
+    const r = (await safeGet('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json')) as { vulnerabilities: { cveID: string; vendorProject: string; product: string; vulnerabilityName: string }[] };
+    const ql = query.trim().toLowerCase();
+    const hits = (ql ? r.vulnerabilities.filter((v) => `${v.cveID} ${v.vendorProject} ${v.product} ${v.vulnerabilityName}`.toLowerCase().includes(ql)) : r.vulnerabilities).slice(0, 10);
+    return { summary: `${hits.length} actively-exploited vulnerabilities${ql ? ` matching "${query}"` : ''} (of ${r.vulnerabilities.length} total in CISA's catalog).`, data: hits.map((v) => ({ cve: v.cveID, vendor: v.vendorProject, product: v.product, name: v.vulnerabilityName })), sourceUrl: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog' };
+  },
+  'endoflife-date': async (query) => {
+    const prod = (query.trim() || 'nodejs').toLowerCase().replace(/\s+/g, '');
+    const url = `https://endoflife.date/api/${q(prod)}.json`;
+    const r = (await safeGet(url)) as { cycle: string; eol: string | boolean }[];
+    return { summary: `${prod}: ${r.slice(0, 4).map((c) => `${c.cycle} (EOL ${c.eol === false ? 'still supported' : c.eol})`).join(', ')}.`, data: r.slice(0, 8), sourceUrl: `https://endoflife.date/${prod}` };
+  },
+  github: async (query) => {
+    const url = `https://api.github.com/search/repositories?q=${q(query || 'ai')}&per_page=5`;
+    const r = (await safeGet(url)) as { items: { full_name: string; stargazers_count: number; description?: string }[] };
+    return { summary: `Top GitHub repos for "${query}": ${r.items.slice(0, 3).map((i) => `${i.full_name} (★${i.stargazers_count})`).join(', ')}.`, data: r.items.map((i) => ({ repo: i.full_name, stars: i.stargazers_count, description: i.description })), sourceUrl: url };
+  },
+  'stack-overflow': async (query) => {
+    const url = `https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=votes&q=${q(query)}&site=stackoverflow&pagesize=5`;
+    const r = (await safeGet(url)) as { items: { title: string; score: number; is_answered: boolean; link: string }[] };
+    return { summary: `${r.items.length} Stack Overflow Q&A on "${query}".`, data: r.items.map((i) => ({ title: i.title, score: i.score, answered: i.is_answered, link: i.link })), sourceUrl: url };
+  },
+  'rdap-whois': async (query) => {
+    const url = `https://rdap.org/domain/${q(query)}`;
+    const r = (await safeGet(url)) as { ldhName?: string; events?: { eventAction: string; eventDate: string }[] };
+    const reg = r.events?.find((e) => e.eventAction === 'registration')?.eventDate;
+    const exp = r.events?.find((e) => e.eventAction === 'expiration')?.eventDate;
+    return { summary: `${r.ldhName ?? query}: registered ${reg ?? '?'}, expires ${exp ?? '?'}.`, data: { domain: r.ldhName, registration: reg, expiration: exp }, sourceUrl: url };
+  },
+
+  // ---- Business & knowledge ----
+  gleif: async (query) => {
+    const url = `https://api.gleif.org/api/v1/lei-records?filter[entity.legalName]=${q(query)}&page[size]=5`;
+    const r = (await safeGet(url)) as { data: { attributes: { lei: string; entity: { legalName: { name: string }; legalAddress?: { country: string } } } }[] };
+    return { summary: `${r.data.length} legal entities matching "${query}".`, data: r.data.map((d) => ({ lei: d.attributes.lei, name: d.attributes.entity.legalName.name, country: d.attributes.entity.legalAddress?.country })), sourceUrl: url };
+  },
+  'open-library': async (query) => {
+    const url = `https://openlibrary.org/search.json?q=${q(query)}&limit=5`;
+    const r = (await safeGet(url)) as { docs: { title: string; author_name?: string[]; first_publish_year?: number }[] };
+    return { summary: `${r.docs.length} books matching "${query}". Top: ${r.docs[0]?.title ?? 'none'} by ${r.docs[0]?.author_name?.[0] ?? '?'}.`, data: r.docs.map((d) => ({ title: d.title, author: d.author_name?.[0], year: d.first_publish_year })), sourceUrl: url };
+  },
+  'project-gutenberg': async (query) => {
+    const url = `https://gutendex.com/books?search=${q(query)}`;
+    const r = (await safeGet(url)) as { results: { title: string; authors: { name: string }[] }[] };
+    return { summary: `${r.results.length} free books matching "${query}".`, data: r.results.slice(0, 5).map((b) => ({ title: b.title, author: b.authors[0]?.name })), sourceUrl: url };
+  },
+  musicbrainz: async (query) => {
+    const url = `https://musicbrainz.org/ws/2/artist?query=${q(query)}&fmt=json&limit=5`;
+    const r = (await safeGet(url)) as { artists: { name: string; country?: string; disambiguation?: string }[] };
+    return { summary: `${r.artists.length} artists matching "${query}". Top: ${r.artists[0]?.name ?? 'none'}.`, data: r.artists.map((a) => ({ name: a.name, country: a.country, note: a.disambiguation })), sourceUrl: url };
+  },
 };
 
 /** IDs of sources Agent Sai can actually pull right now. */
