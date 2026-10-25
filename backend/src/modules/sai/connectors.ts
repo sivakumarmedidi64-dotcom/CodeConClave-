@@ -265,6 +265,116 @@ const CONNECTORS: Record<string, Connector> = {
     const r = (await safeGet(url)) as { artists: { name: string; country?: string; disambiguation?: string }[] };
     return { summary: `${r.artists.length} artists matching "${query}". Top: ${r.artists[0]?.name ?? 'none'}.`, data: r.artists.map((a) => ({ name: a.name, country: a.country, note: a.disambiguation })), sourceUrl: url };
   },
+
+  // ---- Package ecosystems ----
+  gitlab: async (query) => {
+    const url = `https://gitlab.com/api/v4/projects?search=${q(query || 'ai')}&per_page=5&order_by=star_count&sort=desc`;
+    const r = (await safeGet(url)) as { path_with_namespace: string; star_count: number; description?: string }[];
+    return { summary: `Top GitLab projects for "${query}": ${r.slice(0, 3).map((p) => `${p.path_with_namespace} (★${p.star_count})`).join(', ')}.`, data: r.map((p) => ({ project: p.path_with_namespace, stars: p.star_count, description: p.description })), sourceUrl: url };
+  },
+  'docker-hub': async (query) => {
+    const url = `https://hub.docker.com/v2/search/repositories/?query=${q(query || 'nginx')}&page_size=5`;
+    const r = (await safeGet(url)) as { results: { repo_name: string; star_count: number; pull_count?: number }[] };
+    return { summary: `Docker images for "${query}": ${r.results.slice(0, 3).map((i) => `${i.repo_name} (★${i.star_count})`).join(', ')}.`, data: r.results.map((i) => ({ image: i.repo_name, stars: i.star_count })), sourceUrl: url };
+  },
+  'maven-central': async (query) => {
+    const url = `https://search.maven.org/solrsearch/select?q=${q(query || 'guava')}&rows=5&wt=json`;
+    const r = (await safeGet(url)) as { response: { docs: { id: string; latestVersion?: string }[] } };
+    return { summary: `${r.response.docs.length} Maven artifacts matching "${query}".`, data: r.response.docs.map((d) => ({ artifact: d.id, latest: d.latestVersion })), sourceUrl: url };
+  },
+  'crates-io': async (query) => {
+    const url = `https://crates.io/api/v1/crates?q=${q(query || 'serde')}&per_page=5`;
+    const r = (await safeGet(url)) as { crates: { name: string; downloads: number; description?: string }[] };
+    return { summary: `Rust crates for "${query}": ${r.crates.slice(0, 3).map((c) => `${c.name} (${c.downloads.toLocaleString()} dl)`).join(', ')}.`, data: r.crates.map((c) => ({ name: c.name, downloads: c.downloads, description: c.description })), sourceUrl: url };
+  },
+  'rubygems-nuget-go-proxy': async (query) => {
+    const url = `https://rubygems.org/api/v1/search.json?query=${q(query || 'rails')}`;
+    const r = (await safeGet(url)) as { name: string; downloads: number; info?: string }[];
+    return { summary: `${r.length} Ruby gems matching "${query}". Top: ${r[0]?.name ?? 'none'} (${(r[0]?.downloads ?? 0).toLocaleString()} downloads).`, data: r.slice(0, 5).map((g) => ({ name: g.name, downloads: g.downloads })), sourceUrl: url };
+  },
+  repology: async (query) => {
+    const url = `https://repology.org/api/v1/project/${q((query || 'curl').toLowerCase())}`;
+    const r = (await safeGet(url)) as { repo: string; version: string; status: string }[];
+    const versions = [...new Set(r.map((p) => p.version))].slice(0, 6);
+    return { summary: `"${query}" is packaged in ${new Set(r.map((p) => p.repo)).size} repositories. Versions: ${versions.join(', ')}.`, data: r.slice(0, 15).map((p) => ({ repo: p.repo, version: p.version, status: p.status })), sourceUrl: `https://repology.org/project/${q((query || 'curl').toLowerCase())}/versions` };
+  },
+  'openssf-scorecard': async (query) => {
+    const repo = query.includes('/') ? query.trim() : `nodejs/${query.trim() || 'node'}`;
+    const url = `https://api.securityscorecards.dev/projects/github.com/${repo}`;
+    const r = (await safeGet(url)) as { score: number; checks: { name: string; score: number }[] };
+    return { summary: `${repo} OpenSSF security score: ${r.score}/10.`, data: { score: r.score, checks: r.checks?.slice(0, 8).map((c) => ({ check: c.name, score: c.score })) }, sourceUrl: url };
+  },
+  defillama: async (query) => {
+    const slug = (query.trim() || 'uniswap').toLowerCase().replace(/\s+/g, '-');
+    const r = (await safeGet(`https://api.llama.fi/tvl/${q(slug)}`, 'text')) as string;
+    const tvl = Number(r);
+    return { summary: Number.isFinite(tvl) ? `${slug}: $${Math.round(tvl).toLocaleString()} total value locked (TVL).` : `No DeFi protocol "${slug}".`, data: { protocol: slug, tvl }, sourceUrl: `https://defillama.com/protocol/${slug}` };
+  },
+  'sec-edgar': async (query) => {
+    const url = `https://efts.sec.gov/LATEST/search-index?q=${q(query || 'Apple')}`;
+    const r = (await safeGet(url)) as { hits?: { hits: { _source: { display_names?: string[] } }[] } };
+    const hits = r.hits?.hits ?? [];
+    return { summary: `${hits.length} SEC filings matching "${query}".`, data: hits.slice(0, 5).map((h) => ({ entity: h._source.display_names?.[0] })), sourceUrl: `https://www.sec.gov/cgi-bin/srqsb?text=${q(query)}` };
+  },
+
+  // ---- Research (more) ----
+  pubmed: async (query) => {
+    const s = (await safeGet(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${q(query)}&retmode=json&retmax=5`)) as { esearchresult?: { idlist?: string[] } };
+    const ids = s.esearchresult?.idlist ?? [];
+    if (!ids.length) return { summary: `No PubMed papers for "${query}".`, data: [], sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/?term=${q(query)}` };
+    const sum = (await safeGet(`https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`)) as { result: Record<string, { title?: string; pubdate?: string }> };
+    const papers = ids.map((id) => ({ title: sum.result[id]?.title, date: sum.result[id]?.pubdate }));
+    return { summary: `${papers.length} PubMed papers on "${query}". Latest: ${papers[0]?.title ?? ''}`, data: papers, sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/?term=${q(query)}` };
+  },
+  'europe-pmc': async (query) => {
+    const url = `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=${q(query)}&format=json&pageSize=5`;
+    const r = (await safeGet(url)) as { resultList?: { result: { title: string; pubYear?: string; authorString?: string }[] } };
+    const res = r.resultList?.result ?? [];
+    return { summary: `${res.length} biomedical papers on "${query}".`, data: res.map((p) => ({ title: p.title, year: p.pubYear })), sourceUrl: url };
+  },
+  'zenodo-dryad': async (query) => {
+    const url = `https://zenodo.org/api/records?q=${q(query)}&size=5`;
+    const r = (await safeGet(url)) as { hits?: { hits: { metadata?: { title?: string; publication_date?: string } }[] } };
+    const hits = r.hits?.hits ?? [];
+    return { summary: `${hits.length} research datasets matching "${query}".`, data: hits.map((h) => ({ title: h.metadata?.title, date: h.metadata?.publication_date })), sourceUrl: url };
+  },
+
+  // ---- Nature, culture, movement ----
+  'ebird-inaturalist': async (query) => {
+    const url = `https://api.inaturalist.org/v1/taxa?q=${q(query)}&per_page=5`;
+    const r = (await safeGet(url)) as { results: { name: string; preferred_common_name?: string; observations_count?: number }[] };
+    return { summary: `${r.results.length} species matching "${query}". Top: ${r.results[0]?.preferred_common_name ?? r.results[0]?.name ?? 'none'}.`, data: r.results.map((s) => ({ name: s.name, common: s.preferred_common_name, observations: s.observations_count })), sourceUrl: url };
+  },
+  'opensky-network': async () => {
+    // Flights currently over India (bbox), keyless.
+    const url = 'https://opensky-network.org/api/states/all?lamin=6&lomin=68&lamax=37&lomax=97';
+    const r = (await safeGet(url)) as { states: (string | number | null)[][] | null };
+    const states = r.states ?? [];
+    const callsigns = states.map((s) => String(s[1] ?? '').trim()).filter(Boolean).slice(0, 8);
+    return { summary: `${states.length} aircraft currently tracked over India. Sample: ${callsigns.join(', ')}.`, data: { count: states.length, sample: callsigns }, sourceUrl: 'https://opensky-network.org' };
+  },
+  'internet-archive-wayback-cdx': async (query) => {
+    const url = `http://web.archive.org/cdx/search/cdx?url=${q(query)}&output=json&limit=6`;
+    const r = (await safeGet(url)) as string[][];
+    const rows = r.slice(1);
+    return { summary: `${rows.length} archived snapshots of "${query}" in the Wayback Machine.`, data: rows.map((row) => ({ timestamp: row[1], status: row[4], url: `http://web.archive.org/web/${row[1]}/${row[2]}` })), sourceUrl: `https://web.archive.org/web/*/${query}` };
+  },
+  'wikipedia-pageviews': async (query) => {
+    const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, '');
+    const end = new Date(Date.now() - 2 * 86_400_000);
+    const start = new Date(end.getTime() - 7 * 86_400_000);
+    const article = query.trim().replace(/\s+/g, '_') || 'India';
+    const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/all-agents/${q(article)}/daily/${fmt(start)}/${fmt(end)}`;
+    const r = (await safeGet(url)) as { items?: { views: number }[] };
+    const total = (r.items ?? []).reduce((a, b) => a + b.views, 0);
+    return { summary: `"${article}" was viewed ${total.toLocaleString()} times on Wikipedia in the last week.`, data: r.items ?? [], sourceUrl: `https://en.wikipedia.org/wiki/${q(article)}` };
+  },
+  'unhcr-data': async () => {
+    const url = 'https://api.unhcr.org/population/v1/population/?limit=5&yearFrom=2023&yearTo=2023';
+    const r = (await safeGet(url)) as { items?: { coo_name?: string; coa_name?: string; refugees?: string }[] };
+    const items = r.items ?? [];
+    return { summary: `${items.length} refugee-population records (2023). e.g. ${items[0]?.coo_name ?? '?'} → ${items[0]?.coa_name ?? '?'}: ${items[0]?.refugees ?? '?'} refugees.`, data: items, sourceUrl: 'https://www.unhcr.org/refugee-statistics' };
+  },
 };
 
 /** IDs of sources Agent Sai can actually pull right now. */
