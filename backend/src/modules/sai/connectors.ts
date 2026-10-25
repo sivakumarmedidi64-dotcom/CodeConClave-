@@ -20,6 +20,10 @@ export interface SaiEvidence {
   data: unknown;
   sourceUrl: string;
   fetchedAt: string;
+  /** True when served from Agent Sai's warm cache (instant). */
+  cached: boolean;
+  /** How old the data is, in seconds (0 for a fresh pull). */
+  ageSeconds: number;
 }
 
 const TIMEOUT_MS = 12_000;
@@ -478,12 +482,79 @@ export function liveSourceIds(): string[] {
   return Object.keys(CONNECTORS);
 }
 
-/** Run one connector for real. Throws an honest Error on failure (never fakes data). */
-export async function runConnector(sourceId: string, query: string): Promise<SaiEvidence> {
+// ---- Agent Sai's warm cache (speed) -------------------------------------
+// Instant repeat answers: the 2nd person asking the same thing gets it from
+// memory, no re-fetch. Honest — every cached answer still carries its real
+// fetch time and age, and the UI shows when it was last refreshed.
+interface CacheEntry {
+  evidence: SaiEvidence;
+  storedAt: number;
+  expires: number;
+}
+const CACHE = new Map<string, CacheEntry>();
+const CACHE_MAX = 3000;
+
+/** Freshness window per source (how long a cached answer stays "good"). */
+function ttlMsFor(sourceId: string, category: string): number {
+  const MIN = 60_000;
+  const byId: Record<string, number> = {
+    'opensky-network': 2 * MIN,
+    coingecko: 5 * MIN,
+    'usgs-earthquakes': 10 * MIN,
+    aqicn: 20 * MIN,
+    'data-gov-in': 60 * MIN,
+    agmarknet: 60 * MIN,
+  };
+  if (byId[sourceId]) return byId[sourceId]!;
+  const byCat: Record<string, number> = {
+    'Web & Knowledge': 15 * MIN,
+    'Dev & Security': 60 * MIN,
+    'Finance & Business': 10 * MIN,
+    'India Public Data': 30 * MIN,
+    'Science & Research': 360 * MIN,
+    'Health & Medicine': 360 * MIN,
+    'Earth & Environment': 30 * MIN,
+    'Disasters & Humanitarian': 10 * MIN,
+    'Culture & Media': 720 * MIN,
+    'Daily Life & Mobility': 30 * MIN,
+    Sports: 10 * MIN,
+  };
+  return byCat[category] ?? 30 * MIN;
+}
+
+export function saiCacheStats(): { entries: number } {
+  return { entries: CACHE.size };
+}
+
+/**
+ * Run one connector. Served from the warm cache when fresh (instant), else a
+ * real fetch that refills the cache. `force` always fetches fresh (used by the
+ * 24/7 refresh). Throws an honest Error on failure — never fakes data.
+ */
+export async function runConnector(sourceId: string, query: string, force = false): Promise<SaiEvidence> {
   const src = sourceById(sourceId);
   const conn = CONNECTORS[sourceId];
   if (!src) throw new Error(`Unknown source "${sourceId}"`);
   if (!conn) throw new Error(`Agent Sai Srinivasa Athreya has catalogued "${src.n}" but it is not live yet.`);
+
+  const key = `${sourceId}\n${query}`;
+  const now = Date.now();
+  if (!force) {
+    const hit = CACHE.get(key);
+    if (hit && now < hit.expires) {
+      return { ...hit.evidence, cached: true, ageSeconds: Math.round((now - hit.storedAt) / 1000) };
+    }
+  }
+
   const { summary, data, sourceUrl } = await conn(query);
-  return { sourceId, source: src.n, query, summary, data, sourceUrl, fetchedAt: new Date().toISOString() };
+  const evidence: SaiEvidence = { sourceId, source: src.n, query, summary, data, sourceUrl, fetchedAt: new Date(now).toISOString(), cached: false, ageSeconds: 0 };
+  if (CACHE.size >= CACHE_MAX) {
+    // Simple eviction: drop the oldest-stored entry.
+    let oldestKey: string | null = null;
+    let oldest = Infinity;
+    for (const [k, v] of CACHE) if (v.storedAt < oldest) ((oldest = v.storedAt), (oldestKey = k));
+    if (oldestKey) CACHE.delete(oldestKey);
+  }
+  CACHE.set(key, { evidence, storedAt: now, expires: now + ttlMsFor(sourceId, src.category) });
+  return evidence;
 }

@@ -23,6 +23,7 @@ interface Catalog {
   total: number;
   liveCount: number;
   categories: number;
+  cached: number;
   sources: SaiSource[];
 }
 interface Evidence {
@@ -33,6 +34,8 @@ interface Evidence {
   data: unknown;
   sourceUrl: string;
   fetchedAt: string;
+  cached: boolean;
+  ageSeconds: number;
 }
 
 const PLACEHOLDERS: Record<string, string> = {
@@ -105,6 +108,7 @@ export function SaiPage() {
           <span><strong>{cat.total}</strong> sources</span>
           <span className="sai-live"><strong>{cat.liveCount}</strong> live now</span>
           <span><strong>{cat.categories}</strong> categories</span>
+          <span title="Answers Agent Sai keeps warm for instant replies"><strong>{cat.cached}</strong> warm in cache ⚡</span>
           <span className="cc-muted">{cat.total - cat.liveCount} more coming online</span>
         </div>
       </header>
@@ -142,7 +146,8 @@ export function SaiPage() {
             <p className="sai-evidence__summary">{evidence.summary}</p>
             <p className="cc-hint">
               <Icon name="shield-check" size={13} /> {evidence.source} ·{' '}
-              <a href={evidence.sourceUrl} target="_blank" rel="noopener noreferrer">source</a> · fetched {new Date(evidence.fetchedAt).toLocaleTimeString()}
+              <a href={evidence.sourceUrl} target="_blank" rel="noopener noreferrer">source</a> ·{' '}
+              {evidence.cached ? `⚡ instant from cache (${evidence.ageSeconds}s old)` : `fresh pull at ${new Date(evidence.fetchedAt).toLocaleTimeString()}`}
             </p>
             <details>
               <summary>Raw data</summary>

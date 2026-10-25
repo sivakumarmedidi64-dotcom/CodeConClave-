@@ -93,6 +93,8 @@ export async function sweepOnce(): Promise<Record<string, number>> {
   await sweep('incognito', out, () => purgeIdleIncognito(env.INCOGNITO_RETENTION_HOURS));
   // Night Shift: nightly measure-and-report for users who turned it on (never edits code).
   await sweep('nightShift', out, async () => (await import('../modules/beyond/nightShift.js')).sweepNightShift());
+  // Agent Sai Srinivasa Athreya: keep popular data warm (self-paced, rate-limit friendly).
+  await sweep('saiRefresh', out, async () => (await import('../modules/sai/refresh.js')).refreshSai());
   // Deterministic TTL cleanup for the durable state that replaces the Redis
   // store. Every one of these predicates is indexed on expires_at, bounded, and
   // idempotent, so running them from several instances concurrently is safe and

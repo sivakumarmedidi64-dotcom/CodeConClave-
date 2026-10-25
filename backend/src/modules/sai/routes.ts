@@ -10,7 +10,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
 import { SAI_AGENT_NAME, SAI_SOURCES, sourcesByCategory } from './sources.js';
-import { liveSourceIds, runConnector } from './connectors.js';
+import { liveSourceIds, runConnector, saiCacheStats } from './connectors.js';
 
 export const saiRoutes = (): Router => {
   const router = Router();
@@ -27,6 +27,7 @@ export const saiRoutes = (): Router => {
           total: SAI_SOURCES.length,
           liveCount: live.size,
           categories: Object.keys(byCat).length,
+          cached: saiCacheStats().entries,
           sources: SAI_SOURCES.map((s) => ({ ...s, live: live.has(s.id) })),
         }),
       );
