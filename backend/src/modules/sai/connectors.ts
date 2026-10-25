@@ -64,8 +64,48 @@ async function safePost(url: string, payload: unknown): Promise<unknown> {
   }
 }
 
+/** Read a required API key from the environment (honest error if missing). */
+function keyEnv(name: string): string {
+  const v = process.env[name]?.trim();
+  if (!v) throw new Error(`This source needs its key (${name}) set in the server environment — add it in Render → Environment.`);
+  return v;
+}
+
+/** safeGet with extra request headers (token / bearer / basic auth sources). */
+async function safeGetH(url: string, headers: Record<string, string>): Promise<unknown> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': 'CodeConClave-AgentSai/1.0', Accept: 'application/json', ...headers } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_BYTES) throw new Error('response too large');
+    return JSON.parse(buf.toString('utf8'));
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+const aqiLabel = (a: number): string => (a <= 50 ? 'Good' : a <= 100 ? 'Moderate' : a <= 150 ? 'Unhealthy for sensitive groups' : a <= 200 ? 'Unhealthy' : a <= 300 ? 'Very unhealthy' : 'Hazardous');
+
 const q = (s: string) => encodeURIComponent(s.trim());
 type Connector = (query: string) => Promise<{ summary: string; data: unknown; sourceUrl: string }>;
+
+/** Agmarknet daily mandi prices via data.gov.in (shared by data-gov-in + agmarknet). 🇮🇳 */
+async function dataGovAgmarknet(query: string): Promise<{ summary: string; data: unknown; sourceUrl: string }> {
+  const k = keyEnv('DATA_GOV_IN_API_KEY');
+  const RES = '9ef84268-d588-465a-a308-a864a43d0070'; // "Current Daily Price of Various Commodities from Mandi"
+  const filter = query.trim() ? `&filters[commodity]=${q(query.trim())}` : '';
+  const url = `https://api.data.gov.in/resource/${RES}?api-key=${k}&format=json&limit=10${filter}`;
+  const r = (await safeGet(url)) as { records?: { commodity: string; market: string; state: string; modal_price: string; arrival_date?: string }[] };
+  const recs = r.records ?? [];
+  const f = recs[0];
+  return {
+    summary: f ? `${recs.length} mandi prices${query ? ` for ${query}` : ''}. e.g. ${f.commodity} at ${f.market}, ${f.state}: ₹${f.modal_price}/quintal (${f.arrival_date ?? 'recent'}).` : `No mandi prices${query ? ` for "${query}"` : ''} right now (try a commodity like Tomato, Onion, Potato).`,
+    data: recs.map((x) => ({ commodity: x.commodity, market: x.market, state: x.state, modalPrice: x.modal_price, date: x.arrival_date })),
+    sourceUrl: 'https://agmarknet.gov.in',
+  };
+}
 
 const CONNECTORS: Record<string, Connector> = {
   // ---- Earth & disasters ----
@@ -374,6 +414,62 @@ const CONNECTORS: Record<string, Connector> = {
     const r = (await safeGet(url)) as { items?: { coo_name?: string; coa_name?: string; refugees?: string }[] };
     const items = r.items ?? [];
     return { summary: `${items.length} refugee-population records (2023). e.g. ${items[0]?.coo_name ?? '?'} → ${items[0]?.coa_name ?? '?'}: ${items[0]?.refugees ?? '?'} refugees.`, data: items, sourceUrl: 'https://www.unhcr.org/refugee-statistics' };
+  },
+
+  // ---- Keyed sources (keys read from env; add them in Render → Environment) ----
+  'data-gov-in': dataGovAgmarknet,
+  agmarknet: dataGovAgmarknet,
+  'fred-alfred': async (query) => {
+    const k = keyEnv('FRED_API_KEY');
+    const url = `https://api.stlouisfed.org/fred/series/search?search_text=${q(query || 'GDP')}&api_key=${k}&file_type=json&limit=5`;
+    const r = (await safeGet(url)) as { seriess?: { id: string; title: string; units?: string; frequency?: string }[] };
+    const s = r.seriess ?? [];
+    return { summary: `${s.length} FRED economic series matching "${query}". Top: ${s[0]?.title ?? 'none'} (${s[0]?.id ?? ''}).`, data: s.map((x) => ({ id: x.id, title: x.title, units: x.units, frequency: x.frequency })), sourceUrl: 'https://fred.stlouisfed.org' };
+  },
+  aqicn: async (query) => {
+    const k = keyEnv('AQICN_API_TOKEN');
+    const city = query.trim() || 'hyderabad';
+    const r = (await safeGet(`https://api.waqi.info/feed/${q(city)}/?token=${k}`)) as { status: string; data?: { aqi: number; city?: { name: string }; dominentpol?: string; iaqi?: Record<string, { v: number }> } | string };
+    if (r.status !== 'ok' || !r.data || typeof r.data === 'string' || typeof r.data.aqi !== 'number') {
+      throw new Error(typeof r.data === 'string' ? `AQICN: ${r.data} (check your AQICN_API_TOKEN).` : `No air-quality data for "${city}".`);
+    }
+    return { summary: `${r.data.city?.name ?? city}: AQI ${r.data.aqi} — ${aqiLabel(r.data.aqi)}. Main pollutant: ${r.data.dominentpol ?? '?'}.`, data: { aqi: r.data.aqi, city: r.data.city?.name, dominant: r.data.dominentpol, pm25: r.data.iaqi?.pm25?.v, pm10: r.data.iaqi?.pm10?.v }, sourceUrl: `https://aqicn.org/city/${encodeURIComponent(city)}` };
+  },
+  nasa: async () => {
+    const k = keyEnv('NASA_API_KEY');
+    const today = new Date().toISOString().slice(0, 10);
+    const r = (await safeGet(`https://api.nasa.gov/neo/rest/v1/feed?start_date=${today}&end_date=${today}&api_key=${k}`)) as {
+      element_count: number;
+      near_earth_objects: Record<string, { name: string; is_potentially_hazardous_asteroid: boolean; estimated_diameter: { meters: { estimated_diameter_max: number } } }[]>;
+    };
+    const list = r.near_earth_objects[today] ?? [];
+    const hazardous = list.filter((a) => a.is_potentially_hazardous_asteroid).length;
+    return { summary: `${r.element_count} near-Earth asteroids pass today; ${hazardous} flagged potentially hazardous.`, data: list.slice(0, 6).map((a) => ({ name: a.name, hazardous: a.is_potentially_hazardous_asteroid, diameterMeters: Math.round(a.estimated_diameter.meters.estimated_diameter_max) })), sourceUrl: 'https://api.nasa.gov' };
+  },
+  noaa: async () => {
+    const k = keyEnv('NOAA_API_TOKEN');
+    const r = (await safeGetH('https://www.ncei.noaa.gov/cdo-web/api/v2/datasets?limit=10', { token: k })) as { results?: { id: string; name: string }[] };
+    const d = r.results ?? [];
+    return { summary: `NOAA token valid — ${d.length} climate datasets available: ${d.slice(0, 5).map((x) => x.id).join(', ')}.`, data: d.map((x) => ({ id: x.id, name: x.name })), sourceUrl: 'https://www.ncdc.noaa.gov/cdo-web/' };
+  },
+  'news-apis': async (query) => {
+    const k = keyEnv('NEWS_API_KEY');
+    const r = (await safeGet(`https://newsapi.org/v2/everything?q=${q(query || 'technology')}&sortBy=publishedAt&pageSize=5&language=en&apiKey=${k}`)) as { status: string; message?: string; articles?: { title: string; source: { name: string }; url: string }[] };
+    if (r.status !== 'ok') throw new Error(r.message || 'News API error (its free plan blocks server use — GDELT is the free alternative, already live).');
+    const a = r.articles ?? [];
+    return { summary: `${a.length} recent news articles on "${query}".`, data: a.map((x) => ({ title: x.title, source: x.source.name, url: x.url })), sourceUrl: 'https://newsapi.org' };
+  },
+  'hugging-face-hub': async (query) => {
+    const tok = process.env.HF_TOKEN?.trim();
+    const url = `https://huggingface.co/api/models?search=${q(query || 'llama')}&limit=5&sort=downloads&direction=-1`;
+    const r = (await safeGetH(url, tok ? { authorization: `Bearer ${tok}` } : {})) as { id: string; downloads?: number; likes?: number }[];
+    return { summary: `Top Hugging Face models for "${query}": ${r.slice(0, 3).map((m) => m.id).join(', ')}.`, data: r.map((m) => ({ model: m.id, downloads: m.downloads, likes: m.likes })), sourceUrl: url };
+  },
+  kaggle: async (query) => {
+    const auth = Buffer.from(`${keyEnv('KAGGLE_USERNAME')}:${keyEnv('KAGGLE_KEY')}`).toString('base64');
+    const url = `https://www.kaggle.com/api/v1/datasets/list?search=${q(query || 'india')}`;
+    const r = (await safeGetH(url, { authorization: `Basic ${auth}` })) as { ref: string; title: string; totalBytes?: number; downloadCount?: number }[];
+    return { summary: `${r.length} Kaggle datasets for "${query}". Top: ${r[0]?.title ?? 'none'}.`, data: r.slice(0, 5).map((d) => ({ ref: d.ref, title: d.title, downloads: d.downloadCount })), sourceUrl: url };
   },
 };
 
