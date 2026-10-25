@@ -24,6 +24,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { to: '/projects', label: 'Projects', icon: 'folder' },
   { to: '/agents', label: 'Agents', icon: 'layers' },
   { to: '/beyond', label: 'Beyond', icon: 'rocket' },
+  { to: '/sai', label: 'Agent Sai', icon: 'search' },
   { to: '/settings', label: 'Customize', icon: 'sliders' },
 ];
 

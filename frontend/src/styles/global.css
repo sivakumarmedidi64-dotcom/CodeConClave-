@@ -8094,3 +8094,26 @@ h2 {
 .cc-shell--collapsed .cc-sidebar__foot {
   justify-content: center;
 }
+
+/* ── Agent Sai Srinivasa Athreya ─────────────────────────────────── */
+.sai-page { max-width: 1000px; }
+.sai-hero h1 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+.sai-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 14px; }
+.sai-stats strong { font-size: 18px; }
+.sai-live strong { color: var(--cc-success); }
+.sai-try { margin: 18px 0; padding: 16px; border: 1px solid var(--cc-border); border-radius: var(--cc-radius-lg, 14px); background: var(--cc-surface); }
+.sai-try h2, .sai-catalog h2 { font-size: 16px; margin: 0 0 10px; }
+.sai-evidence { margin-top: 12px; padding: 12px 14px; border-radius: var(--cc-radius); background: var(--cc-surface-2); }
+.sai-evidence__summary { margin: 0 0 6px; font-size: 15px; font-weight: 500; }
+.sai-evidence a { color: var(--cc-accent); }
+.sai-raw { max-height: 320px; overflow: auto; font-size: 12px; background: var(--cc-bg); padding: 10px; border-radius: 8px; border: 1px solid var(--cc-border); white-space: pre-wrap; word-break: break-word; }
+.sai-catalog { margin-top: 20px; }
+.sai-cat { margin-bottom: 14px; }
+.sai-src { display: block; padding: 4px 0; }
+.sai-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; margin-right: 8px; padding: 1px 7px; }
+.sai-badge--live { color: var(--cc-on-accent); background: var(--cc-success); }
+.sai-badge--cat { color: var(--cc-text-muted); background: var(--cc-surface-2); border: 1px solid var(--cc-border); }
+.sai-meta { white-space: normal; }
+@media (max-width: 640px) {
+  .sai-try .bx-row > * { flex: 1 1 100%; }
+}

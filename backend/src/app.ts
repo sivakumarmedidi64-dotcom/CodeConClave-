@@ -49,6 +49,7 @@ import { auditRoutes } from './modules/audit/routes.js';
 import { pipelineRoutes } from './engines/pipeline/routes.js';
 import { mcpRoutes } from './modules/mcp/routes.js';
 import { beyondRoutes } from './modules/beyond/routes.js';
+import { saiRoutes } from './modules/sai/routes.js';
 import { ideasRoutes } from './modules/ideas/routes.js';
 import { brainstormingRoutes } from './modules/brainstorming/routes.js';
 import { historyRoutes } from './modules/history/routes.js';
@@ -338,6 +339,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
   app.use('/api/v1/pipeline', paid, pipelineRoutes());
   app.use('/api/v1/mcp', paid, mcpRoutes());
   app.use('/api/v1/beyond', paid, beyondRoutes());
+  app.use('/api/v1/sai', paid, saiRoutes());
   app.use('/api/v1/ideas', paid, ideasRoutes());
   app.use('/api/v1/brainstorming', paid, brainstormingRoutes());
   app.use('/api/v1/history', paid, historyRoutes());
@@ -394,7 +396,7 @@ app.get('/health', asyncRoute(async (_req: Request, res: Response) => {
     '/api/v1/developer-productivity', '/api/v1/production-intelligence',
     '/api/v1/deployment-wizard', '/api/v1/control', '/api/v1/agent', '/api/v1/terminal',
     '/api/v1/remote', '/api/v1/reviews', '/api/v1/codeworkspace', '/api/v1/superpowers',
-    '/api/v1/apikeys', '/api/v1/pipeline', '/api/v1/mcp', '/api/v1/beyond',
+    '/api/v1/apikeys', '/api/v1/pipeline', '/api/v1/mcp', '/api/v1/beyond', '/api/v1/sai',
   ]);
 
   // Built-in SPA host (OPT-IN): serves frontend/dist when it exists in the

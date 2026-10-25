@@ -9,7 +9,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { TEST_USER } from '../testutils';
 
-const PRIMARY = ['Projects', 'Agents', 'Beyond', 'Customize'];
+const PRIMARY = ['Projects', 'Agents', 'Beyond', 'Agent Sai', 'Customize'];
 const SECONDARY_SAMPLE = ['Tasks', 'Code review', 'Teams', 'Terminal', 'Trash'];
 
 describe('Sidebar', () => {

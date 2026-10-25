@@ -42,6 +42,7 @@ const TerminalPage = lazy(() => import('./pages/TerminalPage').then(({ TerminalP
 const BrowserPage = lazy(() => import('./pages/BrowserPage').then(({ BrowserPage }) => ({ default: BrowserPage })));
 const McpPage = lazy(() => import('./pages/McpPage').then(({ McpPage }) => ({ default: McpPage })));
 const BeyondPage = lazy(() => import('./pages/BeyondPage').then(({ BeyondPage }) => ({ default: BeyondPage })));
+const SaiPage = lazy(() => import('./pages/SaiPage').then(({ SaiPage }) => ({ default: SaiPage })));
 const DesktopBrowserLinks = lazy(() => import('./pages/BrowserPage').then(({ DesktopBrowserLinks }) => ({ default: DesktopBrowserLinks })));
 const WorkPage = lazy(() => import('./pages/WorkPage').then(({ WorkPage }) => ({ default: WorkPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(({ WorkspacePage }) => ({ default: WorkspacePage })));
@@ -277,6 +278,7 @@ function Shell() {
             <Route path="/browser" element={<BrowserPage />} />
             <Route path="/mcp" element={<McpPage />} />
             <Route path="/beyond" element={<BeyondPage />} />
+            <Route path="/sai" element={<SaiPage />} />
             <Route path="/work" element={<WorkPage />} />
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/recovery" element={<RecoveryPage />} />

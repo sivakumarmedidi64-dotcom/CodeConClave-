@@ -1,0 +1,173 @@
+/**
+ * Agent Sai Srinivasa Athreya - the master catalog of every data source he hunts.
+ * 140 sources (from the founder's deduplicated master list). A source is
+ * only reported "live" when its CONNECTOR truly returns data (connectors.ts);
+ * otherwise its status is "catalogued" - Agent Sai knows it exists but isn't
+ * pulling it yet. No source is ever faked as live.
+ */
+export type Priority = 'P1' | 'P2' | 'P3';
+
+export interface SaiSource {
+  id: string;
+  /** Display name. */
+  n: string;
+  category: string;
+  covers: string;
+  /** Honest access reality from the master list. */
+  access: string;
+  priority: Priority;
+  /** Usable with no API key / no paid tier / no scraping. */
+  keyless: boolean;
+}
+
+export const SAI_AGENT_NAME = 'Agent Sai Srinivasa Athreya';
+
+export const SAI_SOURCES: SaiSource[] = [
+  { id: 'web-search', n: 'Web search', category: 'Web & Knowledge', covers: 'Live info retrieval', access: 'API or scraper mix', priority: 'P1', keyless: false },
+  { id: 'wikipedia-wikidata', n: 'Wikipedia + Wikidata', category: 'Web & Knowledge', covers: 'Knowledge base, structured facts', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'wikipedia-pageviews', n: 'Wikipedia Pageviews', category: 'Web & Knowledge', covers: 'Attention trends', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'news-apis', n: 'News APIs', category: 'Web & Knowledge', covers: 'Current events', access: 'Key needed', priority: 'P1', keyless: false },
+  { id: 'google-trends', n: 'Google Trends', category: 'Web & Knowledge', covers: 'Search interest over time', access: 'No official API (pytrends)', priority: 'P2', keyless: false },
+  { id: 'gdelt', n: 'GDELT', category: 'Web & Knowledge', covers: 'Global news events since 1982', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'common-crawl', n: 'Common Crawl', category: 'Web & Knowledge', covers: 'Petabytes of web text', access: 'Free bulk download', priority: 'P3', keyless: true },
+  { id: 'internet-archive-wayback-cdx', n: 'Internet Archive + Wayback CDX', category: 'Web & Knowledge', covers: 'Web history, site change tracking', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'stack-exchange-data-dump', n: 'Stack Exchange Data Dump', category: 'Web & Knowledge', covers: 'Full Q&A archive', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'reddit-api', n: 'Reddit API', category: 'Web & Knowledge', covers: 'Niche community opinions', access: 'Free tier, rate limits', priority: 'P2', keyless: true },
+  { id: 'youtube-data-api', n: 'YouTube Data API', category: 'Web & Knowledge', covers: 'Video metadata, captions', access: 'Key + quotas', priority: 'P2', keyless: false },
+  { id: 'hacker-news-api', n: 'Hacker News API', category: 'Web & Knowledge', covers: 'Tech discussion, launches', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'github', n: 'GitHub', category: 'Dev & Security', covers: 'Repos, issues, PRs', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'gitlab', n: 'GitLab', category: 'Dev & Security', covers: 'Repos, CI pipelines', access: 'Free, auth for private', priority: 'P2', keyless: true },
+  { id: 'stack-overflow', n: 'Stack Overflow', category: 'Dev & Security', covers: 'Developer Q&A', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'npm-pypi-stats', n: 'npm / PyPI stats', category: 'Dev & Security', covers: 'Package downloads, health', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'libraries-io', n: 'Libraries.io', category: 'Dev & Security', covers: 'Package health, all ecosystems', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'deps-dev', n: 'deps.dev', category: 'Dev & Security', covers: 'Dependency graphs, transitive risk', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'osv-dev', n: 'OSV.dev', category: 'Dev & Security', covers: 'Vuln advisories by version', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'openssf-scorecard', n: 'OpenSSF Scorecard', category: 'Dev & Security', covers: 'Repo security posture', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'repology', n: 'Repology', category: 'Dev & Security', covers: 'Versions across OS distros', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'endoflife-date', n: 'endoflife.date', category: 'Dev & Security', covers: 'EOL software versions', access: 'Free API', priority: 'P2', keyless: true },
+  { id: 'docker-hub', n: 'Docker Hub', category: 'Dev & Security', covers: 'Image tags, popularity', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'maven-central', n: 'Maven Central', category: 'Dev & Security', covers: 'JVM packages', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'crates-io', n: 'crates.io', category: 'Dev & Security', covers: 'Rust packages', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'rubygems-nuget-go-proxy', n: 'RubyGems / NuGet / Go Proxy', category: 'Dev & Security', covers: 'Other package ecosystems', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'cve-nvd', n: 'CVE / NVD', category: 'Dev & Security', covers: 'Vulnerabilities + CVSS', access: 'Free, key for NVD', priority: 'P1', keyless: false },
+  { id: 'cisa-kev', n: 'CISA KEV', category: 'Dev & Security', covers: 'Exploited-in-the-wild CVEs', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'haveibeenpwned', n: 'HaveIBeenPwned', category: 'Dev & Security', covers: 'Breached credentials', access: 'Free, rate-limited', priority: 'P2', keyless: true },
+  { id: 'crt-sh', n: 'crt.sh', category: 'Dev & Security', covers: 'Every TLS certificate issued', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'rdap-whois', n: 'RDAP / WHOIS', category: 'Dev & Security', covers: 'Domain ownership', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'shodan', n: 'Shodan', category: 'Dev & Security', covers: 'Exposed devices, servers', access: 'Mostly paid', priority: 'P3', keyless: false },
+  { id: 'hugging-face-hub', n: 'Hugging Face Hub', category: 'Dev & Security', covers: 'Models, datasets, Spaces', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'kaggle', n: 'Kaggle', category: 'Dev & Security', covers: 'Ready-made datasets', access: 'Key needed', priority: 'P2', keyless: false },
+  { id: 'stock-forex-apis', n: 'Stock / forex APIs', category: 'Finance & Business', covers: 'Markets, quotes', access: 'Mixed free/paid', priority: 'P1', keyless: false },
+  { id: 'coingecko', n: 'CoinGecko', category: 'Finance & Business', covers: 'Crypto markets', access: 'Free tier', priority: 'P2', keyless: true },
+  { id: 'defillama', n: 'DeFiLlama', category: 'Finance & Business', covers: 'DeFi protocol data', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'sec-edgar', n: 'SEC EDGAR', category: 'Finance & Business', covers: 'US company filings, insider trades', access: 'Free, no key', priority: 'P1', keyless: false },
+  { id: 'sebi-filings', n: 'SEBI filings', category: 'Finance & Business', covers: 'Indian corporate disclosures', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'rbi-dbie', n: 'RBI DBIE', category: 'Finance & Business', covers: 'Rates, money supply, banking', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'mospi', n: 'MoSPI', category: 'Finance & Business', covers: 'CPI, GDP, employment surveys', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'fred-alfred', n: 'FRED / ALFRED', category: 'Finance & Business', covers: 'US + global macro series', access: 'Free key', priority: 'P1', keyless: false },
+  { id: 'imf-data', n: 'IMF Data', category: 'Finance & Business', covers: 'Macro by country', access: 'Free SDMX', priority: 'P2', keyless: true },
+  { id: 'un-comtrade', n: 'UN Comtrade', category: 'Finance & Business', covers: 'Country-to-country trade flows', access: 'Free key, quotas', priority: 'P2', keyless: false },
+  { id: 'undata', n: 'UNdata', category: 'Finance & Business', covers: 'UN statistics hub', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'oecd-data', n: 'OECD Data', category: 'Finance & Business', covers: 'Policy, labour indicators', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'ecb-data-portal', n: 'ECB Data Portal', category: 'Finance & Business', covers: 'Euro rates, monetary stats', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'us-eia', n: 'US EIA', category: 'Finance & Business', covers: 'Energy production, prices', access: 'Free key', priority: 'P3', keyless: false },
+  { id: 'world-bank-api', n: 'World Bank API', category: 'Finance & Business', covers: 'Development indicators', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'usaspending-gov', n: 'USAspending.gov', category: 'Finance & Business', covers: 'US federal contracts', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'open-contracting', n: 'Open Contracting', category: 'Finance & Business', covers: 'Procurement datasets', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'gem-tenders', n: 'GeM tenders', category: 'Finance & Business', covers: 'Indian govt purchases', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'mca-registry', n: 'MCA registry', category: 'Finance & Business', covers: 'Indian companies, directors', access: 'Paid APIs / scraping', priority: 'P2', keyless: false },
+  { id: 'opencorporates', n: 'OpenCorporates', category: 'Finance & Business', covers: 'Global company records', access: 'Limited free, paid tiers', priority: 'P2', keyless: false },
+  { id: 'gleif', n: 'GLEIF', category: 'Finance & Business', covers: 'Legal entity IDs worldwide', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'uk-companies-house', n: 'UK Companies House', category: 'Finance & Business', covers: 'UK company filings', access: 'Free key', priority: 'P3', keyless: false },
+  { id: 'opensanctions', n: 'OpenSanctions', category: 'Finance & Business', covers: 'Sanctions, PEP, crime lists', access: 'Free key, commercial licence', priority: 'P2', keyless: false },
+  { id: 'google-patents', n: 'Google Patents', category: 'Finance & Business', covers: 'Inventions, prior art', access: 'Free search', priority: 'P2', keyless: true },
+  { id: 'npci-upi-reports', n: 'NPCI UPI reports', category: 'Finance & Business', covers: 'Digital payments trends', access: 'Reports only, no granular API', priority: 'P3', keyless: true },
+  { id: 'e-nam', n: 'e-NAM', category: 'Finance & Business', covers: 'National agri market prices', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'agmarknet', n: 'Agmarknet', category: 'Finance & Business', covers: 'Daily mandi crop prices', access: 'Free, scraping', priority: 'P1', keyless: false },
+  { id: 'data-gov-in', n: 'data.gov.in', category: 'India Public Data', covers: 'India open data hub', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'census-of-india', n: 'Census of India', category: 'India Public Data', covers: 'Demographics by district', access: 'Free, microdata restricted', priority: 'P2', keyless: false },
+  { id: 'udise', n: 'UDISE+', category: 'India Public Data', covers: 'School education records', access: 'Restricted access', priority: 'P3', keyless: false },
+  { id: 'election-commission-of-india', n: 'Election Commission of India', category: 'India Public Data', covers: 'Results, turnout', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'imd-mausam-gov-in', n: 'IMD (mausam.gov.in)', category: 'India Public Data', covers: 'Weather, monsoon, cyclones', access: 'Free, rate limits', priority: 'P1', keyless: true },
+  { id: 'grid-india-posoco', n: 'Grid-India (POSOCO)', category: 'India Public Data', covers: 'Real-time power demand', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'india-wris', n: 'India-WRIS', category: 'India Public Data', covers: 'Rivers, reservoirs, groundwater', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'vahan-sarathi', n: 'VAHAN / Sarathi', category: 'India Public Data', covers: 'Vehicle registrations', access: 'Restricted / paid', priority: 'P3', keyless: false },
+  { id: 'ppac-omcs', n: 'PPAC / OMCs', category: 'India Public Data', covers: 'Daily fuel prices', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'lok-sabha-library-prs', n: 'Lok Sabha library + PRS', category: 'India Public Data', covers: 'Bills, debates, questions', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'ecourts', n: 'eCourts', category: 'India Public Data', covers: 'Court judgments', access: 'Free, scraping', priority: 'P2', keyless: false },
+  { id: 'itat-nclt-rulings', n: 'ITAT / NCLT rulings', category: 'India Public Data', covers: 'Tax + corporate rulings', access: 'Free, scraping', priority: 'P3', keyless: false },
+  { id: 'ngo-darpan', n: 'NGO Darpan', category: 'India Public Data', covers: 'Official NGO registry', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'india-post-pincode', n: 'India Post Pincode', category: 'India Public Data', covers: 'All pincodes, post offices', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'fssai-foscos', n: 'FSSAI FoSCoS', category: 'India Public Data', covers: 'Food license registry', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'fci', n: 'FCI', category: 'India Public Data', covers: 'Grain stocks, procurement', access: 'Reports, scraping', priority: 'P3', keyless: false },
+  { id: 'pm-fasal-bima', n: 'PM Fasal Bima', category: 'India Public Data', covers: 'Crop insurance claims', access: 'Reports only', priority: 'P3', keyless: true },
+  { id: 'railways-ntes', n: 'Railways NTES', category: 'India Public Data', covers: 'Live train status', access: 'No official API, scraping', priority: 'P2', keyless: false },
+  { id: 'isro-bhuvan-mosdac', n: 'ISRO Bhuvan / MOSDAC', category: 'India Public Data', covers: 'Indian satellite products', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'drdo-isro-publications', n: 'DRDO / ISRO publications', category: 'India Public Data', covers: 'Space + defence research', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'rti-portals', n: 'RTI portals', category: 'India Public Data', covers: 'Govt transparency records', access: 'No API', priority: 'P3', keyless: false },
+  { id: 'icrisat-vdsa', n: 'ICRISAT VDSA', category: 'India Public Data', covers: '50 yrs district-level agri data', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'openalex', n: 'OpenAlex', category: 'Science & Research', covers: '250M+ papers, citations', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'crossref', n: 'Crossref', category: 'Science & Research', covers: 'DOIs, publication metadata', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'arxiv', n: 'arXiv', category: 'Science & Research', covers: 'CS/physics/maths preprints', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'semantic-scholar', n: 'Semantic Scholar', category: 'Science & Research', covers: 'Citation graph, TLDRs', access: 'Free key', priority: 'P2', keyless: false },
+  { id: 'pubmed', n: 'PubMed', category: 'Science & Research', covers: 'Biomedical literature', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'europe-pmc', n: 'Europe PMC', category: 'Science & Research', covers: 'Biomedical + some full text', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'clinicaltrials-gov', n: 'ClinicalTrials.gov', category: 'Science & Research', covers: 'Drug trial status, results', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'pubchem', n: 'PubChem', category: 'Science & Research', covers: 'Chemicals, structures, assays', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'zenodo-dryad', n: 'Zenodo / Dryad', category: 'Science & Research', covers: 'Research datasets', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'openfda', n: 'openFDA', category: 'Health & Medicine', covers: 'Recalls, adverse events, labels', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'who-global-health-observatory', n: 'WHO Global Health Observatory', category: 'Health & Medicine', covers: 'Health indicators', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'cdc-open-data', n: 'CDC Open Data', category: 'Health & Medicine', covers: 'Epidemiology, surveillance', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'open-food-facts', n: 'Open Food Facts', category: 'Health & Medicine', covers: 'Nutrition by barcode', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'usda-fooddata-central', n: 'USDA FoodData Central', category: 'Health & Medicine', covers: 'Food composition', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'noaa', n: 'NOAA', category: 'Earth & Environment', covers: 'Weather, climate records', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'copernicus-data-space', n: 'Copernicus Data Space', category: 'Earth & Environment', covers: 'EU satellite imagery', access: 'Free registration', priority: 'P2', keyless: false },
+  { id: 'nasa-firms', n: 'NASA FIRMS', category: 'Earth & Environment', covers: 'Live fires, thermal anomalies', access: 'Free key', priority: 'P2', keyless: false },
+  { id: 'viirs-nightlights', n: 'VIIRS nightlights', category: 'Earth & Environment', covers: 'Economic activity from space', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'usgs-earthquakes', n: 'USGS Earthquakes', category: 'Earth & Environment', covers: 'Real-time quakes', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'usgs-water-data', n: 'USGS Water Data', category: 'Earth & Environment', covers: 'River levels, flow, quality', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'era5-copernicus-climate', n: 'ERA5 / Copernicus Climate', category: 'Earth & Environment', covers: '80 yrs climate history', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'global-forest-watch', n: 'Global Forest Watch', category: 'Earth & Environment', covers: 'Deforestation, land change', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'global-fishing-watch', n: 'Global Fishing Watch', category: 'Earth & Environment', covers: 'Vessel activity', access: 'Non-commercial only', priority: 'P3', keyless: true },
+  { id: 'gbif', n: 'GBIF', category: 'Earth & Environment', covers: 'Species occurrences', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'ebird-inaturalist', n: 'eBird + iNaturalist', category: 'Earth & Environment', covers: 'Citizen species observations', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'iucn-red-list', n: 'IUCN Red List', category: 'Earth & Environment', covers: 'Species threat status', access: 'Free key', priority: 'P3', keyless: false },
+  { id: 'worldpop', n: 'WorldPop', category: 'Earth & Environment', covers: '1km population grids', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'global-solar-atlas', n: 'Global Solar Atlas', category: 'Earth & Environment', covers: 'Solar irradiance potential', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'electricity-maps', n: 'Electricity Maps', category: 'Earth & Environment', covers: 'Grid carbon intensity', access: 'Free tier', priority: 'P3', keyless: true },
+  { id: 'osm-overpass-api', n: 'OSM Overpass API', category: 'Earth & Environment', covers: 'Raw map queries', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'google-maps-places', n: 'Google Maps / Places', category: 'Earth & Environment', covers: 'Places, routing', access: 'Paid key', priority: 'P1', keyless: false },
+  { id: 'reliefweb', n: 'ReliefWeb', category: 'Disasters & Humanitarian', covers: 'Humanitarian reports', access: 'Free API', priority: 'P2', keyless: true },
+  { id: 'gdacs', n: 'GDACS', category: 'Disasters & Humanitarian', covers: 'Disaster alerts', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'unhcr-data', n: 'UNHCR data', category: 'Disasters & Humanitarian', covers: 'Refugee flows', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'openaq', n: 'OpenAQ', category: 'Disasters & Humanitarian', covers: 'Air quality stations', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'purpleair', n: 'PurpleAir', category: 'Disasters & Humanitarian', covers: 'Crowd air sensors', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'opensky-network', n: 'OpenSky Network', category: 'Disasters & Humanitarian', covers: 'Flight tracking', access: 'Free tier, limits', priority: 'P2', keyless: true },
+  { id: 'ads-b-ais-commercial', n: 'ADS-B / AIS commercial', category: 'Disasters & Humanitarian', covers: 'Full flight + ship tracking', access: 'Paid', priority: 'P2', keyless: false },
+  { id: 'open-library', n: 'Open Library', category: 'Culture & Media', covers: 'Books, ISBNs', access: 'Free API', priority: 'P1', keyless: true },
+  { id: 'project-gutenberg', n: 'Project Gutenberg', category: 'Culture & Media', covers: '70k+ full-text books', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'google-books', n: 'Google Books', category: 'Culture & Media', covers: 'Book metadata', access: 'Key + quotas', priority: 'P3', keyless: false },
+  { id: 'library-of-congress', n: 'Library of Congress', category: 'Culture & Media', covers: 'Historic collections', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'europeana', n: 'Europeana', category: 'Culture & Media', covers: 'EU cultural heritage', access: 'Free key', priority: 'P3', keyless: false },
+  { id: 'met-smithsonian-open-access', n: 'Met + Smithsonian Open Access', category: 'Culture & Media', covers: 'Art images, metadata', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'imdb-datasets', n: 'IMDb datasets', category: 'Culture & Media', covers: 'Films, ratings', access: 'Free TSVs', priority: 'P2', keyless: true },
+  { id: 'tmdb', n: 'TMDB', category: 'Culture & Media', covers: 'Movies, cast', access: 'Free key', priority: 'P2', keyless: false },
+  { id: 'musicbrainz', n: 'MusicBrainz', category: 'Culture & Media', covers: 'Open music metadata', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'openverse', n: 'Openverse', category: 'Culture & Media', covers: '700M+ CC images, audio', access: 'Free', priority: 'P2', keyless: true },
+  { id: 'mozilla-common-voice', n: 'Mozilla Common Voice', category: 'Culture & Media', covers: 'Speech corpus', access: 'Free download', priority: 'P3', keyless: true },
+  { id: 'opus', n: 'OPUS', category: 'Culture & Media', covers: 'Parallel text corpora', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'gtfs-feeds-transitland', n: 'GTFS feeds + Transitland', category: 'Daily Life & Mobility', covers: 'Transit schedules, routes', access: 'Free, Transitland key', priority: 'P2', keyless: false },
+  { id: 'openchargemap', n: 'OpenChargeMap', category: 'Daily Life & Mobility', covers: 'EV charging stations', access: 'Free key', priority: 'P3', keyless: false },
+  { id: 'eventbrite-ticketmaster', n: 'Eventbrite / Ticketmaster', category: 'Daily Life & Mobility', covers: 'Local events', access: 'Key needed', priority: 'P3', keyless: false },
+  { id: 'cricsheet', n: 'Cricsheet', category: 'Sports', covers: 'Ball-by-ball cricket data', access: 'Free', priority: 'P1', keyless: true },
+  { id: 'statsbomb-open-data', n: 'StatsBomb Open Data', category: 'Sports', covers: 'Football event data', access: 'Free', priority: 'P3', keyless: true },
+  { id: 'api-football-espn', n: 'API-Football / ESPN', category: 'Sports', covers: 'Live scores, fixtures', access: 'Free + paid tiers', priority: 'P3', keyless: false },
+  { id: 'olympedia', n: 'Olympedia', category: 'Sports', covers: 'Olympic results since 1896', access: 'Free', priority: 'P3', keyless: true },
+];
+
+export const sourceById = (id: string): SaiSource | undefined => SAI_SOURCES.find((s) => s.id === id);
+export const sourcesByCategory = (): Record<string, SaiSource[]> =>
+  SAI_SOURCES.reduce<Record<string, SaiSource[]>>((acc, s) => {
+    (acc[s.category] ||= []).push(s);
+    return acc;
+  }, {});
