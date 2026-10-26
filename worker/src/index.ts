@@ -41,9 +41,26 @@ const WARM: Array<[string, string]> = [
 let idx = 0;
 const BATCH = 4;
 
+let schemaReady = false;
+/** Ensure the shared case-file table exists (mirrors migration 0163; safe no-op if already there). */
+async function ensureSchema(sql: ReturnType<typeof neon>): Promise<void> {
+  if (schemaReady) return;
+  await sql`CREATE TABLE IF NOT EXISTS sai_cache (
+    cache_key   text PRIMARY KEY,
+    source_id   text NOT NULL,
+    query       text NOT NULL DEFAULT '',
+    evidence    jsonb NOT NULL,
+    region      text NOT NULL DEFAULT 'global',
+    stored_at   timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL
+  )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sai_cache_expires ON sai_cache (expires_at)`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_sai_cache_source ON sai_cache (source_id, stored_at DESC)`;
+  schemaReady = true;
+}
+
 /** Wire the connectors' shared case file (L2) to Neon over HTTP; collect writes. */
-function wireNeon(databaseUrl: string): Array<Promise<unknown>> {
-  const sql = neon(databaseUrl);
+function wireNeon(sql: ReturnType<typeof neon>): Array<Promise<unknown>> {
   const writes: Array<Promise<unknown>> = [];
   setSaiCaseFile({
     read: async (key: string) => {
@@ -82,7 +99,9 @@ export default {
     // Make the Worker's vars/secrets visible to the connectors' keyEnv().
     for (const k of Object.keys(env)) if (typeof env[k] === 'string') process.env[k] = env[k] as string;
     if (!env.DATABASE_URL) return; // nothing to share until the secret is set
-    const writes = wireNeon(env.DATABASE_URL);
+    const sql = neon(env.DATABASE_URL);
+    await ensureSchema(sql);
+    const writes = wireNeon(sql);
     const batch: Array<[string, string]> = [];
     for (let i = 0; i < BATCH; i++) batch.push(WARM[(idx + i) % WARM.length]!);
     idx = (idx + BATCH) % WARM.length;
@@ -96,8 +115,35 @@ export default {
     ctx.waitUntil(Promise.allSettled(writes));
   },
 
-  // Health check (for you + an uptime pinger). Never exposes secrets.
-  async fetch(_req: Request, env: Env): Promise<Response> {
+  // Health check + an on-demand warm trigger. Never exposes secrets.
+  async fetch(req: Request, env: Env): Promise<Response> {
+    const url = new URL(req.url);
+
+    // /warm — run one warming batch now and prove the shared-case-file round-trip.
+    if (url.pathname === '/warm' && env.DATABASE_URL) {
+      for (const k of Object.keys(env)) if (typeof env[k] === 'string') process.env[k] = env[k] as string;
+      const sql = neon(env.DATABASE_URL);
+      await ensureSchema(sql);
+      const writes = wireNeon(sql);
+      const warmed: string[] = [];
+      for (const [id, query] of WARM.slice(0, 4)) {
+        try {
+          await runConnector(id, query, true);
+          warmed.push(query ? `${id} (${query})` : id);
+        } catch {
+          /* honest skip */
+        }
+      }
+      await Promise.allSettled(writes);
+      let caseFileByRegion: unknown = null;
+      try {
+        caseFileByRegion = await sql`SELECT region, count(*)::int AS n FROM sai_cache GROUP BY region ORDER BY n DESC`;
+      } catch (e) {
+        caseFileByRegion = `read failed: ${String(e).slice(0, 120)}`;
+      }
+      return new Response(JSON.stringify({ ok: true, warmed, caseFileByRegion }, null, 2), { headers: { 'content-type': 'application/json' } });
+    }
+
     const body = {
       ok: true,
       agent: 'Agent Sai Srinivasa Athreya',
