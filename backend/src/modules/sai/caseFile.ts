@@ -16,6 +16,7 @@
 import { pool } from '../../shared/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../shared/logger.js';
+import { setSaiCaseFile } from './connectors.js';
 import type { SaiEvidence } from './connectors.js';
 
 /** Which detective this process is. Set per deployment, e.g. SAI_REGION=india. */
@@ -119,3 +120,13 @@ export async function sweepCaseFile(): Promise<number> {
     return 0;
   }
 }
+
+// Wire the Postgres-backed shared case file into the connectors (L2). Importing
+// this module (server, watchdog, detective) is enough to turn sharing on; a
+// Cloudflare Worker instead wires a Neon-serverless one and never loads this file.
+setSaiCaseFile({
+  read: readCaseFile,
+  write: (key, sourceId, query, evidence, storedAtMs, expiresMs) => {
+    void writeCaseFile(key, sourceId, query, evidence, storedAtMs, expiresMs);
+  },
+});

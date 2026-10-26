@@ -15,6 +15,7 @@
 import { logger } from '../../shared/logger.js';
 import { env } from '../../config/env.js';
 import { runConnector } from './connectors.js';
+import './caseFile.js'; // side-effect: wires the Postgres shared case file (L2) for the server/watchdog/detective
 
 type Target = [sourceId: string, query: string, minIntervalMs: number];
 

@@ -11,7 +11,6 @@
  * with a timeout and a response-size cap. Retrieved text is untrusted DATA.
  */
 import { sourceById } from './sources.js';
-import { readCaseFile, writeCaseFile } from './caseFile.js';
 
 export interface SaiEvidence {
   sourceId: string;
@@ -25,6 +24,22 @@ export interface SaiEvidence {
   cached: boolean;
   /** How old the data is, in seconds (0 for a fresh pull). */
   ageSeconds: number;
+}
+
+/**
+ * The shared case file (L2) is INJECTED, so this module has no database
+ * dependency at all. The backend wires a Postgres-backed one; a Cloudflare
+ * Worker wires a Neon-serverless one; tests/edge can run with none (L1 only).
+ * This is what lets the exact same connectors run on the server AND at the edge.
+ */
+export interface SaiCaseFile {
+  read: (key: string) => Promise<{ evidence: SaiEvidence; storedAt: number; expires: number } | null>;
+  write: (key: string, sourceId: string, query: string, evidence: SaiEvidence, storedAtMs: number, expiresMs: number) => void;
+}
+let caseFile: SaiCaseFile | null = null;
+/** Wire the shared case file (L2). Pass null to disable it (L1 memory only). */
+export function setSaiCaseFile(hooks: SaiCaseFile | null): void {
+  caseFile = hooks;
 }
 
 const TIMEOUT_MS = 12_000;
@@ -943,7 +958,7 @@ export async function runConnector(sourceId: string, query: string, force = fals
       return { ...hit.evidence, cached: true, ageSeconds: Math.round((now - hit.storedAt) / 1000) };
     }
     // L2: the shared case file — maybe another region already caught it.
-    const shared = await readCaseFile(key);
+    const shared = caseFile ? await caseFile.read(key) : null;
     if (shared) {
       rememberL1(key, shared.evidence, shared.storedAt, shared.expires);
       return { ...shared.evidence, cached: true, ageSeconds: Math.round((now - shared.storedAt) / 1000) };
@@ -955,7 +970,7 @@ export async function runConnector(sourceId: string, query: string, force = fals
   const expires = now + ttlMsFor(sourceId, src.category);
   rememberL1(key, evidence, now, expires);
   // Share the catch with every other region (fire-and-forget, never blocks).
-  void writeCaseFile(key, sourceId, query, evidence, now, expires);
+  caseFile?.write(key, sourceId, query, evidence, now, expires);
   return evidence;
 }
 
