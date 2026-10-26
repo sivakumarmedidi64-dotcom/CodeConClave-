@@ -1,8 +1,8 @@
 /**
- * CodeConClave — navigation, kept minimal like Claude: a search, a prominent
- * "New" chat, a short primary list, and everything else tucked under "More".
- * No chat list clutters the rail — Home is the one chat; past chats live on
- * the Chats page (reachable from More). Labels are short OS-style names.
+ * CodeConClave — navigation, kept minimal, and SEPARATED BY PLAN.
+ * Each plan sees only its own features: Free = just chat; Solo = personal power
+ * tools; Team = Solo + the shared workspace; API = keys + live usage. Nothing is
+ * shown to a plan that can't use it. Agent Sai is backend-only and never listed.
  */
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
@@ -13,37 +13,45 @@ import { UserAvatar } from './UserAvatar';
 import type { User } from '../lib/types';
 import { useEarlyAccess } from '../lib/accessMode';
 
+/** The plans a user can be on (customer-facing buckets, not internal ids). */
+type PlanKey = 'free' | 'solo' | 'team' | 'api' | 'enterprise';
+
 interface NavItem {
   to: string;
   label: string;
   icon: IconName;
+  /** Which plans see this item. Omitted = every paid plan (not free). */
+  plans?: PlanKey[];
 }
 
-/** The few things most people use — kept short on purpose. */
+const PAID: PlanKey[] = ['solo', 'team', 'api', 'enterprise'];
+const SOLO_UP: PlanKey[] = ['solo', 'team', 'enterprise']; // personal power tools
+const ALL: PlanKey[] = ['free', 'solo', 'team', 'api', 'enterprise'];
+
+/** The few things most people use. */
 const PRIMARY_ITEMS: NavItem[] = [
-  { to: '/projects', label: 'Projects', icon: 'folder' },
-  { to: '/agents', label: 'Agents', icon: 'layers' },
-  { to: '/beyond', label: 'Beyond', icon: 'rocket' },
-  { to: '/sai', label: 'Agent Sai', icon: 'search' },
-  { to: '/settings', label: 'Customize', icon: 'sliders' },
+  { to: '/projects', label: 'Projects', icon: 'folder', plans: SOLO_UP },
+  { to: '/agents', label: 'Agents', icon: 'layers', plans: SOLO_UP },
+  { to: '/beyond', label: 'Beyond', icon: 'rocket', plans: SOLO_UP },
+  { to: '/settings', label: 'Customize', icon: 'sliders', plans: ALL },
 ];
 
 /** Everything else, one click away under "More". */
 const MORE_ITEMS: NavItem[] = [
-  { to: '/work', label: 'Tasks', icon: 'bolt' },
-  { to: '/code-review', label: 'Code review', icon: 'eye' },
-  { to: '/files', label: 'Files', icon: 'file' },
-  { to: '/local', label: 'Local files', icon: 'monitor' },
-  { to: '/terminal', label: 'Terminal', icon: 'terminal' },
-  { to: '/browser', label: 'Browser', icon: 'compass' },
-  { to: '/automation', label: 'Automation', icon: 'cog' },
-  { to: '/teams', label: 'Teams', icon: 'users' },
-  { to: '/control', label: 'Control', icon: 'sliders' },
-  { to: '/remote', label: 'Remote', icon: 'radio' },
-  { to: '/ideas', label: 'Ideas', icon: 'bulb' },
-  { to: '/data', label: 'Data', icon: 'database' },
-  { to: '/recovery', label: 'Recovery', icon: 'refresh' },
-  { to: '/trash', label: 'Trash', icon: 'trash' },
+  { to: '/work', label: 'Tasks', icon: 'bolt', plans: SOLO_UP },
+  { to: '/code-review', label: 'Code review', icon: 'eye', plans: SOLO_UP },
+  { to: '/files', label: 'Files', icon: 'file', plans: SOLO_UP },
+  { to: '/local', label: 'Local files', icon: 'monitor', plans: SOLO_UP },
+  { to: '/terminal', label: 'Terminal', icon: 'terminal', plans: SOLO_UP },
+  { to: '/browser', label: 'Browser', icon: 'compass', plans: SOLO_UP },
+  { to: '/automation', label: 'Automation', icon: 'cog', plans: SOLO_UP },
+  { to: '/teams', label: 'Teams', icon: 'users', plans: ['team', 'enterprise'] },
+  { to: '/control', label: 'Control', icon: 'sliders', plans: SOLO_UP },
+  { to: '/remote', label: 'Remote', icon: 'radio', plans: SOLO_UP },
+  { to: '/ideas', label: 'Ideas', icon: 'bulb', plans: SOLO_UP },
+  { to: '/data', label: 'Data', icon: 'database', plans: ['api', 'team', 'enterprise'] },
+  { to: '/recovery', label: 'Recovery', icon: 'refresh', plans: SOLO_UP },
+  { to: '/trash', label: 'Trash', icon: 'trash', plans: ALL },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
@@ -51,6 +59,23 @@ const ADMIN_ITEMS: NavItem[] = [
   { to: '/admin/users', label: 'Users', icon: 'user' },
   { to: '/admin/ai-usage', label: 'AI Usage', icon: 'sparkle' },
 ];
+
+/** The plan bucket this user belongs to. */
+function planKey(user: User): PlanKey {
+  switch (user.planId) {
+    case 'pro':
+      return 'solo';
+    case 'team':
+      return 'team';
+    case 'api':
+      return 'api';
+    case 'enterprise':
+      return 'enterprise';
+    default:
+      // Claude-style free tier: chat with a token limit, no paid features.
+      return 'free';
+  }
+}
 
 /** Friendly plan pill label (customer names, not internal ids). */
 function planLabel(user: User): string {
@@ -64,9 +89,13 @@ function planLabel(user: User): string {
     case 'enterprise':
       return 'Enterprise';
     default:
-      // There is no free tier: an unpaid account has no plan yet.
-      return 'No plan';
+      return 'Free';
   }
+}
+
+/** Keep only the items this plan is allowed to see. */
+function forPlan(items: NavItem[], plan: PlanKey): NavItem[] {
+  return items.filter((it) => (it.plans ?? PAID).includes(plan));
 }
 
 function NavRow({ item }: { item: NavItem }) {
@@ -92,6 +121,10 @@ export function Sidebar({ user }: { user: User }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const navigate = useNavigate();
   const name = user.displayName ?? user.email ?? 'Account';
+
+  const plan = planKey(user);
+  const primary = forPlan(PRIMARY_ITEMS, plan);
+  const more = forPlan(MORE_ITEMS, plan);
 
   const startNewChat = () => {
     navigate('/home');
@@ -128,26 +161,30 @@ export function Sidebar({ user }: { user: User }) {
       </button>
 
       <nav className="cc-sidebar__nav" aria-label="Workspace navigation">
-        {PRIMARY_ITEMS.map((item) => (
+        {primary.map((item) => (
           <NavRow key={item.to} item={item} />
         ))}
 
-        <button
-          type="button"
-          className="cc-sidebar__more-toggle"
-          onClick={() => setMoreOpen((o) => !o)}
-          aria-expanded={moreOpen}
-          aria-label={moreOpen ? 'More navigation, expanded' : 'More navigation, collapsed'}
-        >
-          <Icon name="dots" size={16} />
-          <span className="cc-sidebar__label">More</span>
-          <Icon name={moreOpen ? 'chevronUp' : 'chevronDown'} size={13} />
-        </button>
-        <div className={`cc-sidebar__more-list${moreOpen ? ' cc-sidebar__more-list--open' : ''}`}>
-          {MORE_ITEMS.map((item) => (
-            <NavRow key={item.to} item={item} />
-          ))}
-        </div>
+        {more.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="cc-sidebar__more-toggle"
+              onClick={() => setMoreOpen((o) => !o)}
+              aria-expanded={moreOpen}
+              aria-label={moreOpen ? 'More navigation, expanded' : 'More navigation, collapsed'}
+            >
+              <Icon name="dots" size={16} />
+              <span className="cc-sidebar__label">More</span>
+              <Icon name={moreOpen ? 'chevronUp' : 'chevronDown'} size={13} />
+            </button>
+            <div className={`cc-sidebar__more-list${moreOpen ? ' cc-sidebar__more-list--open' : ''}`}>
+              {more.map((item) => (
+                <NavRow key={item.to} item={item} />
+              ))}
+            </div>
+          </>
+        )}
 
         {isAdmin && (
           <div>
