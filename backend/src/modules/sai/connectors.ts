@@ -656,6 +656,195 @@ const CONNECTORS: Record<string, Connector> = {
     const props = (r.drugGroup?.conceptGroup ?? []).flatMap((g) => g.conceptProperties ?? []);
     return { summary: props.length ? `${props.length} drug entries for "${query || 'aspirin'}". e.g. ${props.slice(0, 3).map((p) => p.name).join(', ')}.` : `No drug "${query}".`, data: props.slice(0, 8).map((p) => ({ name: p.name, rxcui: p.rxcui })), sourceUrl: 'https://rxnav.nlm.nih.gov' };
   },
+
+  // ---- Batch 3: articles, books, India, images, voice, more 📰📚🖼️🔊 ----
+  // Articles & knowledge
+  'dev-to': async (query) => {
+    const url = `https://dev.to/api/articles?per_page=5${query.trim() ? `&tag=${q(query.trim().toLowerCase())}` : ''}`;
+    const r = (await safeGet(url)) as { title: string; url: string; user?: { name: string }; positive_reactions_count?: number }[];
+    return { summary: `${r.length} DEV articles${query ? ` tagged "${query}"` : ''}. Top: ${r[0]?.title ?? 'none'}.`, data: r.map((a) => ({ title: a.title, by: a.user?.name, reactions: a.positive_reactions_count, url: a.url })), sourceUrl: 'https://dev.to' };
+  },
+  lobsters: async () => {
+    const r = (await safeGet('https://lobste.rs/hottest.json')) as { title: string; url: string; score: number; comment_count: number }[];
+    return { summary: `Hottest on Lobsters: ${r.slice(0, 3).map((s) => s.title).join(' | ')}`, data: r.slice(0, 6).map((s) => ({ title: s.title, score: s.score, comments: s.comment_count, url: s.url })), sourceUrl: 'https://lobste.rs' };
+  },
+  'wikipedia-on-this-day': async () => {
+    const d = new Date();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const r = (await safeGet(`https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${mm}/${dd}`)) as { events?: { text: string; year: number }[] };
+    const evs = (r.events ?? []).slice(0, 6);
+    return { summary: `On this day (${mm}/${dd}): ${evs.slice(0, 2).map((e) => `${e.year} — ${e.text}`).join(' · ')}`, data: evs.map((e) => ({ year: e.year, text: e.text })), sourceUrl: 'https://en.wikipedia.org' };
+  },
+  'spaceflight-news': async (query) => {
+    const url = `https://api.spaceflightnewsapi.net/v4/articles/?limit=5${query.trim() ? `&search=${q(query.trim())}` : ''}`;
+    const r = (await safeGet(url)) as { results: { title: string; news_site: string; url: string }[] };
+    return { summary: `${r.results.length} space-news articles${query ? ` on "${query}"` : ''}. Top: ${r.results[0]?.title ?? 'none'}.`, data: r.results.map((a) => ({ title: a.title, site: a.news_site, url: a.url })), sourceUrl: 'https://spaceflightnewsapi.net' };
+  },
+  'wikidata-search': async (query) => {
+    const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${q(query || 'India')}&language=en&format=json&limit=5&origin=*`;
+    const r = (await safeGet(url)) as { search: { label: string; description?: string; id: string }[] };
+    return { summary: `${r.search.length} Wikidata entities for "${query}". Top: ${r.search[0]?.label ?? 'none'} — ${r.search[0]?.description ?? ''}.`, data: r.search.map((s) => ({ id: s.id, label: s.label, description: s.description })), sourceUrl: 'https://www.wikidata.org' };
+  },
+
+  // Books (incl. Indian)
+  'internet-archive-books': async (query) => {
+    const url = `https://archive.org/advancedsearch.php?q=${q(query || 'India')}+AND+mediatype:texts&fl[]=title&fl[]=creator&fl[]=year&rows=5&output=json`;
+    const r = (await safeGet(url)) as { response?: { docs: { title?: string; creator?: string; year?: string }[] } };
+    const docs = r.response?.docs ?? [];
+    return { summary: `${docs.length} archived texts/books for "${query}". Top: ${docs[0]?.title ?? 'none'}.`, data: docs.map((d) => ({ title: d.title, creator: d.creator, year: d.year })), sourceUrl: 'https://archive.org' };
+  },
+
+  // India datasets
+  'ifsc-razorpay': async (query) => {
+    const code = (query.trim() || 'SBIN0000001').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const r = (await safeGet(`https://ifsc.razorpay.com/${q(code)}`)) as { BANK?: string; BRANCH?: string; CITY?: string; STATE?: string; ADDRESS?: string };
+    return { summary: r.BANK ? `${code}: ${r.BANK}, ${r.BRANCH} branch, ${r.CITY}, ${r.STATE}.` : `No Indian bank branch for IFSC "${code}".`, data: r, sourceUrl: 'https://razorpay.com/ifsc' };
+  },
+  universities: async (query) => {
+    const hasCountry = !query.trim();
+    const url = `http://universities.hipolabs.com/search?${hasCountry ? 'country=India' : `name=${q(query.trim())}`}`;
+    const r = (await safeGet(url)) as { name: string; country: string; web_pages: string[] }[];
+    return { summary: `${r.length} universities${hasCountry ? ' in India' : ` matching "${query}"`}. e.g. ${r.slice(0, 3).map((u) => u.name).join(', ')}.`, data: r.slice(0, 8).map((u) => ({ name: u.name, country: u.country, web: u.web_pages?.[0] })), sourceUrl: 'https://github.com/Hipo/university-domains-list' };
+  },
+  themealdb: async (query) => {
+    const url = `https://www.themealdb.com/api/json/v1/1/search.php?s=${q(query || 'biryani')}`;
+    const r = (await safeGet(url)) as { meals: { strMeal: string; strArea?: string; strCategory?: string }[] | null };
+    const meals = r.meals ?? [];
+    return { summary: meals.length ? `${meals.length} recipes for "${query}". Top: ${meals[0]?.strMeal} (${meals[0]?.strArea} ${meals[0]?.strCategory}).` : `No recipe "${query}".`, data: meals.slice(0, 5).map((m) => ({ meal: m.strMeal, area: m.strArea, category: m.strCategory })), sourceUrl: 'https://www.themealdb.com' };
+  },
+
+  // Images 🖼️
+  'nasa-images': async (query) => {
+    const url = `https://images-api.nasa.gov/search?q=${q(query || 'earth')}&media_type=image`;
+    const r = (await safeGet(url)) as { collection?: { items: { data: { title: string }[]; links?: { href: string }[] }[] } };
+    const items = r.collection?.items ?? [];
+    return { summary: `${items.length} NASA images for "${query}". Top: ${items[0]?.data[0]?.title ?? 'none'}.`, data: items.slice(0, 5).map((i) => ({ title: i.data[0]?.title, image: i.links?.[0]?.href })), sourceUrl: 'https://images.nasa.gov' };
+  },
+  'wikimedia-commons': async (query) => {
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&list=search&srsearch=${q(query || 'India')}&srnamespace=6&srlimit=6&format=json&origin=*`;
+    const r = (await safeGet(url)) as { query?: { search: { title: string }[] } };
+    const hits = r.query?.search ?? [];
+    return { summary: `${hits.length} Wikimedia Commons media files for "${query}".`, data: hits.map((h) => ({ title: h.title, page: `https://commons.wikimedia.org/wiki/${encodeURIComponent(h.title)}` })), sourceUrl: 'https://commons.wikimedia.org' };
+  },
+  'dog-images': async (query) => {
+    const breed = query.trim().toLowerCase().replace(/[^a-z]/g, '');
+    const url = breed ? `https://dog.ceo/api/breed/${q(breed)}/images/random` : 'https://dog.ceo/api/breeds/image/random';
+    const r = (await safeGet(url)) as { message: string; status: string };
+    return { summary: r.status === 'success' ? `A random ${breed || 'dog'} image.` : `No images for breed "${breed}".`, data: { image: r.message }, sourceUrl: 'https://dog.ceo' };
+  },
+
+  // Voice & audio 🔊
+  'itunes-search': async (query) => {
+    const url = `https://itunes.apple.com/search?term=${q(query || 'lo-fi')}&limit=5`;
+    const r = (await safeGet(url)) as { results: { trackName?: string; artistName?: string; previewUrl?: string; kind?: string }[] };
+    return { summary: `${r.results.length} audio tracks for "${query}". Top: ${r.results[0]?.trackName ?? 'none'} by ${r.results[0]?.artistName ?? '?'}.`, data: r.results.map((t) => ({ track: t.trackName, artist: t.artistName, preview: t.previewUrl, kind: t.kind })), sourceUrl: 'https://music.apple.com' };
+  },
+  'radio-browser': async (query) => {
+    const url = `https://de1.api.radio-browser.info/json/stations/search?name=${q(query || 'radio')}&limit=5&hidebroken=true`;
+    const r = (await safeGet(url)) as { name: string; country: string; url_resolved: string; tags: string }[];
+    return { summary: `${r.length} live radio stations for "${query}". Top: ${r[0]?.name ?? 'none'} (${r[0]?.country ?? ''}).`, data: r.map((s) => ({ name: s.name, country: s.country, stream: s.url_resolved, tags: s.tags })), sourceUrl: 'https://www.radio-browser.info' };
+  },
+  librivox: async (query) => {
+    const url = `https://librivox.org/api/feed/audiobooks?title=${q('^' + (query.trim() || 'India'))}&format=json&limit=5`;
+    const r = (await safeGet(url)) as { books?: { title: string; authors?: { first_name: string; last_name: string }[]; url_librivox?: string }[] };
+    const books = r.books ?? [];
+    return { summary: `${books.length} free audiobooks for "${query}". Top: ${books[0]?.title ?? 'none'}.`, data: books.map((b) => ({ title: b.title, author: b.authors?.[0] ? `${b.authors[0].first_name} ${b.authors[0].last_name}` : '?', url: b.url_librivox })), sourceUrl: 'https://librivox.org' };
+  },
+  // Weather extras & facts
+  'open-meteo-marine': async (query) => {
+    const g = await geocodeCity(query || 'Chennai');
+    const r = (await safeGet(`https://marine-api.open-meteo.com/v1/marine?latitude=${g.lat}&longitude=${g.lon}&current=wave_height,wave_period`)) as { current?: { wave_height?: number; wave_period?: number } };
+    const c = r.current;
+    return { summary: c?.wave_height != null ? `${g.name}: wave height ${c.wave_height} m, period ${c.wave_period ?? '?'} s.` : `No marine/wave data near "${query}" (try a coastal city).`, data: { place: g.name, ...c }, sourceUrl: 'https://open-meteo.com/en/docs/marine-weather-api' };
+  },
+  'open-meteo-flood': async (query) => {
+    const g = await geocodeCity(query || 'Patna');
+    const r = (await safeGet(`https://flood-api.open-meteo.com/v1/flood?latitude=${g.lat}&longitude=${g.lon}&daily=river_discharge&forecast_days=1`)) as { daily?: { river_discharge?: (number | null)[] } };
+    const d = r.daily?.river_discharge?.[0];
+    return { summary: d != null ? `${g.name}: river discharge ${d} m³/s today.` : `No river/flood data near "${query}".`, data: { place: g.name, riverDischarge: d }, sourceUrl: 'https://open-meteo.com/en/docs/flood-api' };
+  },
+  'country-info': async (query) => {
+    const r = (await safeGet('https://api.first.org/data/v1/countries?limit=400')) as { data: Record<string, { country: string; region?: string }> };
+    const ql = (query.trim() || 'India').toLowerCase();
+    const hits = Object.entries(r.data).filter(([code, v]) => v.country.toLowerCase().includes(ql) || code.toLowerCase() === ql).slice(0, 5);
+    return { summary: hits.length ? `${hits.length} countries matching "${query}": ${hits.map(([c, v]) => `${v.country} (${c}, ${v.region})`).join(', ')}.` : `No country "${query}".`, data: hits.map(([code, v]) => ({ code, country: v.country, region: v.region })), sourceUrl: 'https://api.first.org' };
+  },
+  'name-predict': async (query) => {
+    const name = query.trim() || 'Raj';
+    const [g, a, n] = (await Promise.all([
+      safeGet(`https://api.genderize.io?name=${q(name)}`),
+      safeGet(`https://api.agify.io?name=${q(name)}`),
+      safeGet(`https://api.nationalize.io?name=${q(name)}`),
+    ])) as [{ gender?: string; probability?: number }, { age?: number }, { country?: { country_id: string; probability: number }[] }];
+    const topCountry = n.country?.[0]?.country_id;
+    return { summary: `"${name}" → likely ${g.gender ?? '?'}, around age ${a.age ?? '?'}, most likely from ${topCountry ?? '?'}.`, data: { gender: g.gender, age: a.age, topCountry }, sourceUrl: 'https://genderize.io' };
+  },
+  zenquotes: async () => {
+    const r = (await safeGet('https://zenquotes.io/api/random')) as { q: string; a: string }[];
+    const quote = r[0];
+    return { summary: quote ? `"${quote.q}" — ${quote.a}` : 'No quote right now.', data: quote ?? null, sourceUrl: 'https://zenquotes.io' };
+  },
+  'disease-sh': async (query) => {
+    const country = query.trim() || 'India';
+    const r = (await safeGet(`https://disease.sh/v3/covid-19/countries/${q(country)}`)) as { country?: string; cases?: number; deaths?: number; recovered?: number; population?: number };
+    return { summary: r.country ? `${r.country}: ${r.cases?.toLocaleString()} total COVID cases, ${r.deaths?.toLocaleString()} deaths.` : `No health data for "${country}".`, data: r, sourceUrl: 'https://disease.sh' };
+  },
+  'iss-location': async () => {
+    const r = (await safeGet('http://api.open-notify.org/iss-now.json')) as { iss_position?: { latitude: string; longitude: string }; timestamp?: number };
+    const p = r.iss_position;
+    return { summary: p ? `The ISS is right now over latitude ${p.latitude}, longitude ${p.longitude}.` : 'No ISS position.', data: p ?? null, sourceUrl: 'https://open-notify.org' };
+  },
+  kitsu: async (query) => {
+    const r = (await safeGetH(`https://kitsu.io/api/edge/anime?filter[text]=${q(query || 'naruto')}&page[limit]=5`, { Accept: 'application/vnd.api+json' })) as { data: { attributes: { canonicalTitle: string; averageRating?: string; startDate?: string } }[] };
+    return { summary: `${r.data.length} anime for "${query}". Top: ${r.data[0]?.attributes.canonicalTitle ?? 'none'} (rating ${r.data[0]?.attributes.averageRating ?? 'n/a'}).`, data: r.data.map((a) => ({ title: a.attributes.canonicalTitle, rating: a.attributes.averageRating, start: a.attributes.startDate })), sourceUrl: 'https://kitsu.io' };
+  },
+  'cat-facts': async () => {
+    const r = (await safeGet('https://catfact.ninja/fact')) as { fact: string };
+    return { summary: r.fact, data: r, sourceUrl: 'https://catfact.ninja' };
+  },
+  'advice-slip': async () => {
+    const r = (await safeGet('https://api.adviceslip.com/advice')) as { slip?: { advice: string } };
+    return { summary: r.slip?.advice ?? 'No advice right now.', data: r.slip ?? null, sourceUrl: 'https://api.adviceslip.com' };
+  },
+
+  // ---- Batch 3b: a few more reliable keyless ----
+  'wikipedia-featured': async () => {
+    const d = new Date(Date.now() - 86_400_000);
+    const url = `https://en.wikipedia.org/api/rest_v1/feed/featured/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
+    const r = (await safeGet(url)) as { tfa?: { normalizedtitle?: string }; mostread?: { articles: { normalizedtitle: string; views: number }[] } };
+    const most = r.mostread?.articles ?? [];
+    return { summary: `Wikipedia today — featured: ${r.tfa?.normalizedtitle ?? '?'}. Most read: ${most.slice(0, 3).map((a) => a.normalizedtitle).join(', ')}.`, data: { featured: r.tfa?.normalizedtitle, mostRead: most.slice(0, 8).map((a) => ({ title: a.normalizedtitle, views: a.views })) }, sourceUrl: 'https://en.wikipedia.org' };
+  },
+  thecocktaildb: async (query) => {
+    const r = (await safeGet(`https://www.thecocktaildb.com/api/json/v1/1/search.php?s=${q(query || 'margarita')}`)) as { drinks: { strDrink: string; strCategory?: string; strAlcoholic?: string }[] | null };
+    const drinks = r.drinks ?? [];
+    return { summary: drinks.length ? `${drinks.length} drinks for "${query}". Top: ${drinks[0]?.strDrink} (${drinks[0]?.strAlcoholic}).` : `No drink "${query}".`, data: drinks.slice(0, 5).map((d) => ({ drink: d.strDrink, category: d.strCategory, alcoholic: d.strAlcoholic })), sourceUrl: 'https://www.thecocktaildb.com' };
+  },
+  pokeapi: async (query) => {
+    const name = (query.trim() || 'pikachu').toLowerCase().replace(/[^a-z0-9-]/g, '');
+    const r = (await safeGet(`https://pokeapi.co/api/v2/pokemon/${q(name)}`)) as { name: string; height: number; weight: number; types: { type: { name: string } }[] };
+    return { summary: `${r.name}: type ${r.types.map((t) => t.type.name).join('/')}, height ${r.height / 10} m, weight ${r.weight / 10} kg.`, data: { name: r.name, types: r.types.map((t) => t.type.name), height: r.height, weight: r.weight }, sourceUrl: `https://pokeapi.co` };
+  },
+  'people-in-space': async () => {
+    const r = (await safeGet('http://api.open-notify.org/astros.json')) as { number: number; people: { name: string; craft: string }[] };
+    return { summary: `${r.number} people are in space right now: ${r.people.map((p) => `${p.name} (${p.craft})`).join(', ')}.`, data: r.people, sourceUrl: 'https://open-notify.org' };
+  },
+  'us-weather-alerts': async (query) => {
+    const area = (query.trim() || 'CA').toUpperCase().slice(0, 2);
+    const r = (await safeGet(`https://api.weather.gov/alerts/active?area=${q(area)}`)) as { features: { properties: { event: string; headline?: string } }[] };
+    return { summary: `${r.features.length} active US weather alerts for ${area}. e.g. ${r.features[0]?.properties.event ?? 'none'}.`, data: r.features.slice(0, 6).map((f) => ({ event: f.properties.event, headline: f.properties.headline })), sourceUrl: 'https://www.weather.gov' };
+  },
+  fruityvice: async (query) => {
+    const name = (query.trim() || 'banana').toLowerCase().replace(/[^a-z]/g, '');
+    const r = (await safeGet(`https://www.fruityvice.com/api/fruit/${q(name)}`)) as { name?: string; family?: string; nutritions?: { calories: number; sugar: number; carbohydrates: number } };
+    return { summary: r.name ? `${r.name} (${r.family}): ${r.nutritions?.calories} kcal, ${r.nutritions?.sugar}g sugar per 100g.` : `No fruit "${name}".`, data: r, sourceUrl: 'https://www.fruityvice.com' };
+  },
+  'carbon-intensity': async () => {
+    const r = (await safeGet('https://api.carbonintensity.org.uk/intensity')) as { data: { intensity: { actual?: number; forecast?: number; index: string } }[] };
+    const i = r.data[0]?.intensity;
+    return { summary: i ? `UK grid carbon intensity: ${i.actual ?? i.forecast} gCO₂/kWh — "${i.index}".` : 'No carbon data.', data: i ?? null, sourceUrl: 'https://carbonintensity.org.uk' };
+  },
 };
 
 /** IDs of sources Agent Sai can actually pull right now. */
