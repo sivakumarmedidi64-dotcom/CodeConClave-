@@ -11,6 +11,7 @@
  * with a timeout and a response-size cap. Retrieved text is untrusted DATA.
  */
 import { sourceById } from './sources.js';
+import { readCaseFile, writeCaseFile } from './caseFile.js';
 
 export interface SaiEvidence {
   sourceId: string;
@@ -527,9 +528,15 @@ export function saiCacheStats(): { entries: number } {
 }
 
 /**
- * Run one connector. Served from the warm cache when fresh (instant), else a
- * real fetch that refills the cache. `force` always fetches fresh (used by the
- * 24/7 refresh). Throws an honest Error on failure — never fakes data.
+ * Run one connector. Two layers of warm cache before any real fetch:
+ *   L1 — this process's in-memory cache (instant, per-server).
+ *   L2 — the SHARED case file (the sai_cache table): what any OTHER regional
+ *        detective already caught. So a pull by US Sai is instantly reusable by
+ *        India Sai without re-hitting the public API.
+ * A miss on both does a real fetch and writes through to L1 + the shared file.
+ * `force` always fetches fresh (used by the 24/7 refresh). Throws an honest
+ * Error on failure — never fakes data. The shared file is best-effort: if the
+ * database is down it is skipped quietly and the answer still comes back real.
  */
 export async function runConnector(sourceId: string, query: string, force = false): Promise<SaiEvidence> {
   const src = sourceById(sourceId);
@@ -540,21 +547,35 @@ export async function runConnector(sourceId: string, query: string, force = fals
   const key = `${sourceId}\n${query}`;
   const now = Date.now();
   if (!force) {
+    // L1: this server's own memory.
     const hit = CACHE.get(key);
     if (hit && now < hit.expires) {
       return { ...hit.evidence, cached: true, ageSeconds: Math.round((now - hit.storedAt) / 1000) };
+    }
+    // L2: the shared case file — maybe another region already caught it.
+    const shared = await readCaseFile(key);
+    if (shared) {
+      rememberL1(key, shared.evidence, shared.storedAt, shared.expires);
+      return { ...shared.evidence, cached: true, ageSeconds: Math.round((now - shared.storedAt) / 1000) };
     }
   }
 
   const { summary, data, sourceUrl } = await conn(query);
   const evidence: SaiEvidence = { sourceId, source: src.n, query, summary, data, sourceUrl, fetchedAt: new Date(now).toISOString(), cached: false, ageSeconds: 0 };
-  if (CACHE.size >= CACHE_MAX) {
-    // Simple eviction: drop the oldest-stored entry.
+  const expires = now + ttlMsFor(sourceId, src.category);
+  rememberL1(key, evidence, now, expires);
+  // Share the catch with every other region (fire-and-forget, never blocks).
+  void writeCaseFile(key, sourceId, query, evidence, now, expires);
+  return evidence;
+}
+
+/** Store one entry in the in-memory L1 cache, evicting the oldest if full. */
+function rememberL1(key: string, evidence: SaiEvidence, storedAt: number, expires: number): void {
+  if (CACHE.size >= CACHE_MAX && !CACHE.has(key)) {
     let oldestKey: string | null = null;
     let oldest = Infinity;
     for (const [k, v] of CACHE) if (v.storedAt < oldest) ((oldest = v.storedAt), (oldestKey = k));
     if (oldestKey) CACHE.delete(oldestKey);
   }
-  CACHE.set(key, { evidence, storedAt: now, expires: now + ttlMsFor(sourceId, src.category) });
-  return evidence;
+  CACHE.set(key, { evidence, storedAt, expires });
 }

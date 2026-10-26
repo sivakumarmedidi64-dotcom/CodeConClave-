@@ -11,6 +11,7 @@ import { asyncRoute } from '../../middleware/security.js';
 import { AppError } from '../../shared/errors.js';
 import { SAI_AGENT_NAME, SAI_SOURCES, sourcesByCategory } from './sources.js';
 import { liveSourceIds, runConnector, saiCacheStats } from './connectors.js';
+import { caseFileCount, SAI_REGION } from './caseFile.js';
 
 export const saiRoutes = (): Router => {
   const router = Router();
@@ -27,7 +28,9 @@ export const saiRoutes = (): Router => {
           total: SAI_SOURCES.length,
           liveCount: live.size,
           categories: Object.keys(byCat).length,
-          cached: saiCacheStats().entries,
+          cached: saiCacheStats().entries, // this server's own warm memory (L1)
+          shared: await caseFileCount(), // answers in the shared case file (L2, all regions)
+          region: SAI_REGION, // which detective answered
           sources: SAI_SOURCES.map((s) => ({ ...s, live: live.has(s.id) })),
         }),
       );

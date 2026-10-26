@@ -24,8 +24,19 @@ interface Catalog {
   liveCount: number;
   categories: number;
   cached: number;
+  shared: number;
+  region: string;
   sources: SaiSource[];
 }
+
+/** Friendly label for which regional detective answered. */
+const REGION_LABEL: Record<string, string> = {
+  global: '🌐 Global',
+  india: '🇮🇳 India',
+  us: '🇺🇸 US',
+  singapore: '🇸🇬 Singapore',
+  australia: '🇦🇺 Australia',
+};
 interface Evidence {
   sourceId: string;
   source: string;
@@ -108,7 +119,9 @@ export function SaiPage() {
           <span><strong>{cat.total}</strong> sources</span>
           <span className="sai-live"><strong>{cat.liveCount}</strong> live now</span>
           <span><strong>{cat.categories}</strong> categories</span>
-          <span title="Answers Agent Sai keeps warm for instant replies"><strong>{cat.cached}</strong> warm in cache ⚡</span>
+          <span title="Answers this detective keeps warm in its own memory for instant replies"><strong>{cat.cached}</strong> warm here ⚡</span>
+          <span title="Answers in the shared case file — caught by any regional detective, reusable by all"><strong>{cat.shared}</strong> in shared case file 🗂️</span>
+          <span title="Which regional detective is answering you">{REGION_LABEL[cat.region] ?? cat.region} detective</span>
           <span className="cc-muted">{cat.total - cat.liveCount} more coming online</span>
         </div>
       </header>

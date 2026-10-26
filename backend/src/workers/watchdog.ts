@@ -95,6 +95,8 @@ export async function sweepOnce(): Promise<Record<string, number>> {
   await sweep('nightShift', out, async () => (await import('../modules/beyond/nightShift.js')).sweepNightShift());
   // Agent Sai Srinivasa Athreya: keep popular data warm (self-paced, rate-limit friendly).
   await sweep('saiRefresh', out, async () => (await import('../modules/sai/refresh.js')).refreshSai());
+  // Agent Sai: drop expired rows from the shared case file (indexed, idempotent).
+  await sweep('saiCaseFileSwept', out, async () => (await import('../modules/sai/caseFile.js')).sweepCaseFile());
   // Deterministic TTL cleanup for the durable state that replaces the Redis
   // store. Every one of these predicates is indexed on expires_at, bounded, and
   // idempotent, so running them from several instances concurrently is safe and

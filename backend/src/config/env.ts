@@ -19,6 +19,9 @@ const envSchema = z.object({
   APP_URL: z.string().default('http://localhost:5173'),
   API_URL: z.string().default('http://localhost:4000'),
   APP_NAME: z.string().default('CodeConClave'),
+  // Which Agent Sai detective this deployment is (shared-case-file tag), e.g.
+  // india / us / singapore / australia. One brain, many regional eyes.
+  SAI_REGION: z.string().default('global'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   SESSION_SECRET: z.string().min(16).default('dev_only_session_secret_do_not_use_in_prod'),
   JWT_SECRET: z.string().min(16).default('dev_only_jwt_secret_do_not_use_in_prod'),
