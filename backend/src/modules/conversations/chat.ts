@@ -12,6 +12,7 @@ import { pool } from '../../shared/db.js';
 import { AppError } from '../../shared/errors.js';
 import { insertMessage, updateMessageStatus, getConversation, toMessageJson, listMessages, findMessageByClientId } from '../conversations/service.js';
 import { completeWithFallback, generateImageCompletion, type GatewayContext, type RouteOptions } from '../ai/gateway.js';
+import { saiEvidenceForMessage, saiEvidenceBlock } from '../sai/bridge.js';
 import { planRoute } from '../ai/router.js';
 import { getModel, configuredProviders } from '../ai/registry.js';
 import type { ChatChunk, ChatContentPart } from '../ai/providers.js';
@@ -203,6 +204,18 @@ async function buildMessages(
   // CLAUDE.md / GEMINI.md / .clinerules / .cursorrules) — Article 2.
   const { loadProjectInstructions, projectInstructionsBlock } = await import('../projects/instructions.js');
   const projectBlock = projectInstructionsBlock(await loadProjectInstructions(userId, projectId));
+  // Agent Sai: ground the answer in real, live data (answer WITH PROOF) when the
+  // question needs it (weather, prices, a package, earthquakes, a satellite…).
+  // Skipped in incognito; best-effort — a miss or a down source never blocks chat.
+  let saiBlock = '';
+  if (!opts.incognito && decisionQuery) {
+    try {
+      const ev = await saiEvidenceForMessage(decisionQuery);
+      if (ev) saiBlock = saiEvidenceBlock(ev);
+    } catch {
+      /* no proof is better than fake proof */
+    }
+  }
   const turns = history.map((h) => ({ role: h.role as 'user' | 'assistant', content: h.content }));
   const current = turns[turns.length - 1];
   if (current && current.role === 'user') {
@@ -210,7 +223,7 @@ async function buildMessages(
     if (expansion) turns[turns.length - 1] = { role: 'user', content: expansion.expanded };
   }
   const built: { role: 'user' | 'assistant' | 'system'; content: string | ChatContentPart[] }[] = [
-    { role: 'system', content: `${system}${memoryBlock}${dnaBlock}${decisionBlock}${skillBlock}${projectBlock}${personalBlock}${effortInstructions(opts.effort)}${toneInstructions(opts.tone)}${untrustedGuard(turns)}` },
+    { role: 'system', content: `${system}${memoryBlock}${dnaBlock}${decisionBlock}${skillBlock}${projectBlock}${personalBlock}${saiBlock}${effortInstructions(opts.effort)}${toneInstructions(opts.tone)}${untrustedGuard(turns)}` },
     ...turns,
   ];
   // Multimodal INPUT (MULTIMODAL_MODEL capability): the LAST user message is
