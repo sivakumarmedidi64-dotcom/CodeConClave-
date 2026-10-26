@@ -112,6 +112,15 @@ async function dataGovAgmarknet(query: string): Promise<{ summary: string; data:
   };
 }
 
+/** Turn a city name into coordinates (keyless, via Open-Meteo geocoding). */
+async function geocodeCity(name: string): Promise<{ name: string; lat: number; lon: number }> {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${q(name.trim() || 'Hyderabad')}&count=1`;
+  const r = (await safeGet(url)) as { results?: { name: string; latitude: number; longitude: number; country?: string }[] };
+  const g = r.results?.[0];
+  if (!g) throw new Error(`Could not find a place called "${name}".`);
+  return { name: g.country ? `${g.name}, ${g.country}` : g.name, lat: g.latitude, lon: g.longitude };
+}
+
 const CONNECTORS: Record<string, Connector> = {
   // ---- Earth & disasters ----
   'usgs-earthquakes': async (query) => {
@@ -475,6 +484,177 @@ const CONNECTORS: Record<string, Connector> = {
     const url = `https://www.kaggle.com/api/v1/datasets/list?search=${q(query || 'india')}`;
     const r = (await safeGetH(url, { authorization: `Basic ${auth}` })) as { ref: string; title: string; totalBytes?: number; downloadCount?: number }[];
     return { summary: `${r.length} Kaggle datasets for "${query}". Top: ${r[0]?.title ?? 'none'}.`, data: r.slice(0, 5).map((d) => ({ ref: d.ref, title: d.title, downloads: d.downloadCount })), sourceUrl: url };
+  },
+
+  // ---- Weather & air (KEYLESS — no token, unlike AQICN) 🌦️ ----
+  'open-meteo': async (query) => {
+    const g = await geocodeCity(query || 'Hyderabad');
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${g.lat}&longitude=${g.lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m`;
+    const r = (await safeGet(url)) as { current?: { temperature_2m: number; relative_humidity_2m: number; wind_speed_10m: number } };
+    const c = r.current;
+    return { summary: c ? `${g.name}: ${c.temperature_2m}°C, humidity ${c.relative_humidity_2m}%, wind ${c.wind_speed_10m} km/h.` : `No weather for "${query}".`, data: { place: g.name, ...c }, sourceUrl: 'https://open-meteo.com' };
+  },
+  'open-meteo-air-quality': async (query) => {
+    const g = await geocodeCity(query || 'Delhi');
+    const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${g.lat}&longitude=${g.lon}&current=pm2_5,pm10,us_aqi`;
+    const r = (await safeGet(url)) as { current?: { pm2_5: number; pm10: number; us_aqi: number } };
+    const c = r.current;
+    return { summary: c ? `${g.name}: US AQI ${c.us_aqi} — ${aqiLabel(c.us_aqi)}. PM2.5 ${c.pm2_5}, PM10 ${c.pm10}.` : `No air-quality for "${query}".`, data: { place: g.name, ...c }, sourceUrl: 'https://open-meteo.com/en/docs/air-quality-api' };
+  },
+
+  // ---- Space & satellite eyes 🛰️ ----
+  'nasa-eonet': async (query) => {
+    const r = (await safeGet('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=20')) as { events: { title: string; categories: { title: string }[] }[] };
+    const ql = query.trim().toLowerCase();
+    const evs = (ql ? r.events.filter((e) => `${e.title} ${e.categories.map((c) => c.title).join(' ')}`.toLowerCase().includes(ql) ) : r.events).slice(0, 10);
+    return { summary: `${evs.length} live natural events seen from space${ql ? ` matching "${query}"` : ''} (wildfires, storms, volcanoes…). e.g. ${evs[0]?.title ?? 'none'}.`, data: evs.map((e) => ({ title: e.title, type: e.categories[0]?.title })), sourceUrl: 'https://eonet.gsfc.nasa.gov' };
+  },
+  'launch-library': async () => {
+    const r = (await safeGet('https://ll.thespacedevs.com/2.2.0/launch/upcoming/?limit=5&mode=list')) as { results: { name: string; net: string; launch_service_provider?: { name: string } }[] };
+    return { summary: `${r.results.length} upcoming rocket launches. Next: ${r.results[0]?.name ?? 'none'} (${r.results[0]?.net?.slice(0, 10) ?? '?'}).`, data: r.results.map((l) => ({ name: l.name, date: l.net, provider: l.launch_service_provider?.name })), sourceUrl: 'https://thespacedevs.com' };
+  },
+  'sunrise-sunset': async (query) => {
+    const g = await geocodeCity(query || 'Hyderabad');
+    const r = (await safeGet(`https://api.sunrise-sunset.org/json?lat=${g.lat}&lng=${g.lon}&formatted=0`)) as { status: string; results?: { sunrise: string; sunset: string; day_length: number } };
+    const s = r.results;
+    return { summary: s ? `${g.name}: sunrise ${s.sunrise} UTC, sunset ${s.sunset} UTC.` : `No sun times for "${query}".`, data: { place: g.name, ...s }, sourceUrl: 'https://sunrise-sunset.org' };
+  },
+
+  // ---- Geography, places & time 🌍 ----
+  zippopotam: async (query) => {
+    const parts = query.trim().split(/\s+/).filter(Boolean);
+    const cc = parts.length >= 2 && parts[0]!.length === 2 ? parts[0]!.toLowerCase() : 'in';
+    const code = parts.length >= 2 && parts[0]!.length === 2 ? parts[1]! : parts[0] || '500001';
+    const url = `https://api.zippopotam.us/${q(cc)}/${q(code)}`;
+    const r = (await safeGet(url)) as { 'post code'?: string; country?: string; places?: { 'place name': string; state: string }[] };
+    const p = r.places?.[0];
+    return { summary: p ? `${r['post code']} (${r.country}): ${p['place name']}, ${p.state}.` : `No postal code "${query}".`, data: r.places ?? null, sourceUrl: url };
+  },
+  'ip-geolocation': async (query) => {
+    const ip = query.trim() || '8.8.8.8';
+    const r = (await safeGet(`http://ip-api.com/json/${q(ip)}`)) as { status: string; country?: string; city?: string; isp?: string; query?: string };
+    return { summary: r.status === 'success' ? `${r.query}: ${r.city}, ${r.country} (ISP: ${r.isp}).` : `Could not locate "${ip}".`, data: r, sourceUrl: 'https://ip-api.com' };
+  },
+  'osm-nominatim': async (query) => {
+    const url = `https://nominatim.openstreetmap.org/search?q=${q(query || 'Hyderabad')}&format=json&limit=3`;
+    const r = (await safeGet(url)) as { display_name: string; lat: string; lon: string; type: string }[];
+    return { summary: r.length ? `${r.length} places for "${query}". Top: ${r[0]?.display_name}.` : `No place "${query}".`, data: r.map((p) => ({ name: p.display_name, lat: p.lat, lon: p.lon, type: p.type })), sourceUrl: 'https://www.openstreetmap.org' };
+  },
+  'world-time': async (query) => {
+    const tz = query.trim() || 'Asia/Kolkata';
+    const r = (await safeGet(`https://timeapi.io/api/Time/current/zone?timeZone=${q(tz)}`)) as { dateTime?: string; timeZone?: string; dayOfWeek?: string };
+    return { summary: r.dateTime ? `${r.timeZone}: ${r.dateTime.slice(0, 19).replace('T', ' ')} (${r.dayOfWeek}).` : `No timezone "${tz}" (try Asia/Kolkata).`, data: r, sourceUrl: 'https://timeapi.io' };
+  },
+  'nager-holidays': async (query) => {
+    const parts = query.trim().split(/\s+/).filter(Boolean);
+    const cc = (parts[0] || 'US').toUpperCase().slice(0, 2);
+    const year = /^\d{4}$/.test(parts[1] ?? '') ? parts[1]! : String(new Date().getFullYear());
+    const url = `https://date.nager.at/api/v3/PublicHolidays/${year}/${q(cc)}`;
+    const r = (await safeGet(url)) as { date: string; localName: string; name: string }[];
+    return { summary: `${r.length} public holidays in ${cc} for ${year}. e.g. ${r.slice(0, 3).map((h) => `${h.name} (${h.date})`).join(', ')}.`, data: r.map((h) => ({ date: h.date, name: h.name, localName: h.localName })), sourceUrl: 'https://date.nager.at' };
+  },
+
+  // ---- Money & exchange rates 💱 ----
+  frankfurter: async (query) => {
+    const parts = query.trim().toUpperCase().split(/\s+/).filter(Boolean);
+    const base = parts[0] || 'USD';
+    const symbols = parts.slice(1).join(',') || 'INR,EUR,GBP';
+    const r = (await safeGet(`https://api.frankfurter.app/latest?from=${q(base)}&to=${q(symbols)}`)) as { base: string; date: string; rates: Record<string, number> };
+    return { summary: `1 ${r.base} = ${Object.entries(r.rates).map(([k, v]) => `${v} ${k}`).join(', ')} (${r.date}).`, data: r, sourceUrl: 'https://www.frankfurter.app' };
+  },
+  'blockchain-info': async () => {
+    const r = (await safeGet('https://blockchain.info/ticker')) as Record<string, { last: number }>;
+    return { summary: `Bitcoin: $${r.USD?.last?.toLocaleString() ?? '?'} (USD), ₹${r.INR?.last?.toLocaleString() ?? '?'} (INR).`, data: { usd: r.USD?.last, inr: r.INR?.last, eur: r.EUR?.last, gbp: r.GBP?.last }, sourceUrl: 'https://www.blockchain.com/explorer' };
+  },
+  'us-treasury': async () => {
+    const url = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?sort=-record_date&page[size]=1';
+    const r = (await safeGet(url)) as { data: { record_date: string; tot_pub_debt_out_amt: string }[] };
+    const d = r.data[0];
+    return { summary: d ? `US national debt: $${Number(d.tot_pub_debt_out_amt).toLocaleString()} (as of ${d.record_date}).` : 'No treasury data.', data: d ?? null, sourceUrl: 'https://fiscaldata.treasury.gov' };
+  },
+
+  // ---- Words & language 📖 ----
+  'free-dictionary': async (query) => {
+    const word = query.trim() || 'serendipity';
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${q(word)}`;
+    const r = (await safeGet(url)) as { word: string; meanings: { partOfSpeech: string; definitions: { definition: string }[] }[] }[];
+    const m = r[0]?.meanings?.[0];
+    return { summary: m ? `${r[0]!.word} (${m.partOfSpeech}): ${m.definitions[0]?.definition}` : `No definition for "${word}".`, data: r[0]?.meanings?.map((x) => ({ part: x.partOfSpeech, definition: x.definitions[0]?.definition })) ?? null, sourceUrl: url };
+  },
+  datamuse: async (query) => {
+    const r = (await safeGet(`https://api.datamuse.com/words?ml=${q(query || 'ocean')}&max=10`)) as { word: string }[];
+    return { summary: `Words related to "${query || 'ocean'}": ${r.slice(0, 8).map((w) => w.word).join(', ')}.`, data: r.map((w) => w.word), sourceUrl: 'https://www.datamuse.com/api/' };
+  },
+
+  // ---- Culture, media & fun 🎨 ----
+  'art-institute-chicago': async (query) => {
+    const url = `https://api.artic.edu/api/v1/artworks/search?q=${q(query || 'Monet')}&limit=5&fields=title,artist_title,date_display`;
+    const r = (await safeGetH(url, { 'AIC-User-Agent': 'CodeConClave AgentSai (founder@codeconclave.app)' })) as { data: { title: string; artist_title?: string; date_display?: string }[] };
+    return { summary: `${r.data.length} artworks matching "${query}". Top: ${r.data[0]?.title ?? 'none'} by ${r.data[0]?.artist_title ?? '?'}.`, data: r.data.map((a) => ({ title: a.title, artist: a.artist_title, date: a.date_display })), sourceUrl: 'https://www.artic.edu' };
+  },
+  tvmaze: async (query) => {
+    const r = (await safeGet(`https://api.tvmaze.com/search/shows?q=${q(query || 'breaking bad')}`)) as { show: { name: string; premiered?: string; rating?: { average?: number }; genres?: string[] } }[];
+    const s = r[0]?.show;
+    return { summary: s ? `${s.name} (${s.premiered?.slice(0, 4) ?? '?'}) — rating ${s.rating?.average ?? 'n/a'}, ${s.genres?.join('/') ?? ''}.` : `No TV show "${query}".`, data: r.slice(0, 5).map((x) => ({ name: x.show.name, year: x.show.premiered?.slice(0, 4), rating: x.show.rating?.average })), sourceUrl: 'https://www.tvmaze.com' };
+  },
+  poetrydb: async (query) => {
+    const r = (await safeGet(`https://poetrydb.org/author/${q(query || 'Shakespeare')}/title`)) as { title: string }[] | { status: number };
+    const list = Array.isArray(r) ? r : [];
+    return { summary: list.length ? `${list.length} poems by "${query || 'Shakespeare'}". e.g. ${list.slice(0, 3).map((p) => p.title).join(', ')}.` : `No poems for author "${query}".`, data: list.slice(0, 10).map((p) => p.title), sourceUrl: 'https://poetrydb.org' };
+  },
+  quran: async (query) => {
+    const ref = query.trim() || '1:1';
+    const r = (await safeGet(`https://api.alquran.cloud/v1/ayah/${q(ref)}/en.asad`)) as { status: string; data?: { text: string; surah?: { englishName: string } } };
+    const d = r.data;
+    return { summary: d ? `Quran ${ref} (${d.surah?.englishName ?? ''}): "${d.text}"` : `No verse "${ref}" (try like 2:255).`, data: d ?? null, sourceUrl: 'https://alquran.cloud' };
+  },
+  'trivia-opentdb': async () => {
+    const decode = (s: string) => s.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+    const r = (await safeGet('https://opentdb.com/api.php?amount=5&type=multiple')) as { results: { category: string; question: string; correct_answer: string }[] };
+    return { summary: `${r.results.length} trivia questions. e.g. ${decode(r.results[0]?.question ?? '')}`, data: r.results.map((x) => ({ category: x.category, question: decode(x.question), answer: decode(x.correct_answer) })), sourceUrl: 'https://opentdb.com' };
+  },
+  xkcd: async () => {
+    const r = (await safeGet('https://xkcd.com/info.0.json')) as { num: number; title: string; alt?: string; img?: string };
+    return { summary: `Latest xkcd #${r.num}: "${r.title}".`, data: { num: r.num, title: r.title, alt: r.alt, img: r.img }, sourceUrl: `https://xkcd.com/${r.num}/` };
+  },
+
+  // ---- More package ecosystems 📦 ----
+  packagist: async (query) => {
+    const r = (await safeGet(`https://packagist.org/search.json?q=${q(query || 'laravel')}&per_page=5`)) as { results: { name: string; downloads?: number; description?: string }[] };
+    return { summary: `${r.results.length} PHP/Composer packages for "${query}". Top: ${r.results[0]?.name ?? 'none'}.`, data: r.results.map((p) => ({ name: p.name, downloads: p.downloads, description: p.description })), sourceUrl: 'https://packagist.org' };
+  },
+  'pub-dev': async (query) => {
+    const r = (await safeGet(`https://pub.dev/api/search?q=${q(query || 'http')}`)) as { packages?: { package: string }[] };
+    const pkgs = (r.packages ?? []).slice(0, 8).map((p) => p.package);
+    return { summary: `${pkgs.length} Dart/Flutter packages for "${query || 'http'}": ${pkgs.slice(0, 5).join(', ')}.`, data: pkgs, sourceUrl: 'https://pub.dev' };
+  },
+  pypi: async (query) => {
+    const pkg = (query.trim() || 'requests').toLowerCase();
+    const url = `https://pypi.org/pypi/${q(pkg)}/json`;
+    const r = (await safeGet(url)) as { info?: { name: string; version: string; summary?: string; author?: string } };
+    const i = r.info;
+    return { summary: i ? `PyPI ${i.name} ${i.version}: ${i.summary ?? ''}` : `No PyPI package "${pkg}".`, data: i ? { name: i.name, version: i.version, summary: i.summary, author: i.author } : null, sourceUrl: `https://pypi.org/project/${pkg}/` };
+  },
+  homebrew: async (query) => {
+    const name = (query.trim() || 'wget').toLowerCase();
+    const r = (await safeGet(`https://formulae.brew.sh/api/formula/${q(name)}.json`)) as { name: string; desc?: string; versions?: { stable?: string } };
+    return { summary: r.name ? `Homebrew ${r.name} ${r.versions?.stable ?? ''}: ${r.desc ?? ''}` : `No Homebrew formula "${name}".`, data: { name: r.name, version: r.versions?.stable, desc: r.desc }, sourceUrl: `https://formulae.brew.sh/formula/${name}` };
+  },
+  nuget: async (query) => {
+    const r = (await safeGet(`https://azuresearch-usnc.nuget.org/query?q=${q(query || 'newtonsoft')}&take=5`)) as { data: { id: string; version: string; totalDownloads?: number }[] };
+    return { summary: `${r.data.length} NuGet (.NET) packages for "${query}". Top: ${r.data[0]?.id ?? 'none'} (${(r.data[0]?.totalDownloads ?? 0).toLocaleString()} downloads).`, data: r.data.map((p) => ({ id: p.id, version: p.version, downloads: p.totalDownloads })), sourceUrl: 'https://www.nuget.org' };
+  },
+  'go-modules': async (query) => {
+    const mod = (query.trim() || 'github.com/gin-gonic/gin').toLowerCase();
+    const r = (await safeGet(`https://proxy.golang.org/${encodeURI(mod)}/@latest`)) as { Version?: string; Time?: string };
+    return { summary: r.Version ? `Go module ${mod}: latest ${r.Version} (${r.Time?.slice(0, 10) ?? ''}).` : `No Go module "${mod}".`, data: r, sourceUrl: `https://pkg.go.dev/${mod}` };
+  },
+
+  // ---- Health (more) 💊 ----
+  rxnorm: async (query) => {
+    const r = (await safeGet(`https://rxnav.nlm.nih.gov/REST/drugs.json?name=${q(query || 'aspirin')}`)) as { drugGroup?: { conceptGroup?: { conceptProperties?: { name: string; rxcui: string }[] }[] } };
+    const props = (r.drugGroup?.conceptGroup ?? []).flatMap((g) => g.conceptProperties ?? []);
+    return { summary: props.length ? `${props.length} drug entries for "${query || 'aspirin'}". e.g. ${props.slice(0, 3).map((p) => p.name).join(', ')}.` : `No drug "${query}".`, data: props.slice(0, 8).map((p) => ({ name: p.name, rxcui: p.rxcui })), sourceUrl: 'https://rxnav.nlm.nih.gov' };
   },
 };
 
