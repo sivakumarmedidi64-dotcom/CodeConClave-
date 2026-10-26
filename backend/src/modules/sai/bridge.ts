@@ -28,9 +28,20 @@ function detect(message: string): { sourceId: string; query: string } | null {
   const m = message.toLowerCase();
   let x: RegExpMatchArray | null;
 
-  // Weather / air quality (keyless, anywhere)
-  if ((x = m.match(/\b(?:weather|temperature|forecast|how hot|how cold|climate)\b[^.?!]*?\b(?:in|at|for|of)\s+([a-z][a-z .'-]{1,38})/))) return { sourceId: 'open-meteo', query: place(x[1]!) };
-  if ((x = m.match(/\b(?:air quality|aqi|pollution|pm ?2\.?5|pm ?10|smog)\b[^.?!]*?\b(?:in|at|for|of)\s+([a-z][a-z .'-]{1,38})/))) return { sourceId: 'open-meteo-air-quality', query: place(x[1]!) };
+  // Weather — both orders: "weather in Ongole" AND "Ongole weather".
+  if (
+    (x = m.match(/\b(?:weather|temperature|forecast|how hot|how cold|climate)\b[^.?!]*?\b(?:in|at|for|of)\s+([a-z][a-z .'-]{1,38})/)) ||
+    (x = m.match(/\b([a-z][a-z .'-]{1,34}?)\s+(?:weather|temperature|forecast|climate)\b/))
+  ) {
+    return { sourceId: 'open-meteo', query: place(x[1]!) };
+  }
+  // Air quality — both orders.
+  if (
+    (x = m.match(/\b(?:air quality|aqi|pollution|pm ?2\.?5|pm ?10|smog)\b[^.?!]*?\b(?:in|at|for|of)\s+([a-z][a-z .'-]{1,38})/)) ||
+    (x = m.match(/\b([a-z][a-z .'-]{1,34}?)\s+(?:air quality|aqi|pollution)\b/))
+  ) {
+    return { sourceId: 'open-meteo-air-quality', query: place(x[1]!) };
+  }
 
   // Crypto
   if (/\b(bitcoin|btc|ethereum|eth|crypto price|coin price|price of .*(bitcoin|ethereum|crypto))\b/.test(m)) {
