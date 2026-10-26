@@ -674,7 +674,8 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
     <div className={`cc-homechat cc-homechat--normal${rows.length === 0 ? ' cc-homechat--empty' : ''}`}>
       {hero && rows.length === 0 && (
         <div className="cc-homechat__hero" data-testid="homechat-hero">
-          <h1 className="cc-homechat__hi">Hi{firstName ? ` ${firstName}` : ''}</h1>
+          <img className="cc-homechat__logo" src="/codeconclave-logo.png" alt="CodeConClave" />
+          {firstName && <h1 className="cc-homechat__hi">Hi {firstName}</h1>}
           <p className="cc-homechat__sysline" aria-live="polite">
             <span className="cc-homechat__sysline-3d">{typedLine}</span>
             <span className="cc-homechat__caret" aria-hidden="true">▌</span>
