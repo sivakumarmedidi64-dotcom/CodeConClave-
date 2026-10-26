@@ -1,0 +1,15 @@
+{
+  "name": "codeconclave-007-worker",
+  "private": true,
+  "type": "module",
+  "description": "Agent Sai Srinivasa Athreya — Cloudflare Worker edge detective",
+  "scripts": {
+    "build:backend": "npm --prefix ../backend run build",
+    "predeploy": "npm run build:backend",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}

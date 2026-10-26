@@ -1,0 +1,11 @@
+# Agent Sai Srinivasa Athreya — Cloudflare Worker (the edge detective).
+# Runs in 300+ cities. A cron warms popular data into the shared Neon case file
+# (the same sai_cache table the main app reads). One secret needed: DATABASE_URL.
+name = "codeconclave-007"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Warm a small batch every 5 minutes (rate-limit friendly).
+[triggers]
+crons = ["*/5 * * * *"]
