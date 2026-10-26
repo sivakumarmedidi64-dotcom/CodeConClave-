@@ -845,6 +845,27 @@ const CONNECTORS: Record<string, Connector> = {
     const i = r.data[0]?.intensity;
     return { summary: i ? `UK grid carbon intensity: ${i.actual ?? i.forecast} gCO₂/kWh — "${i.index}".` : 'No carbon data.', data: i ?? null, sourceUrl: 'https://carbonintensity.org.uk' };
   },
+
+  // ---- Satellite tracking (free, keyless — eyes in the sky) 🛰️ ----
+  'satellite-position': async (query) => {
+    // Live position of a satellite by its NORAD id (default 25544 = the ISS).
+    const id = /^\d+$/.test(query.trim()) ? query.trim() : '25544';
+    const r = (await safeGet(`https://api.wheretheiss.at/v1/satellites/${q(id)}`)) as { name: string; latitude: number; longitude: number; altitude: number; velocity: number; visibility?: string };
+    return { summary: `Satellite ${r.name} (#${id}) is right now at lat ${r.latitude.toFixed(2)}, lon ${r.longitude.toFixed(2)}, altitude ${Math.round(r.altitude)} km, speed ${Math.round(r.velocity).toLocaleString()} km/h${r.visibility ? ` (${r.visibility})` : ''}.`, data: { name: r.name, lat: r.latitude, lon: r.longitude, altitudeKm: r.altitude, velocityKmh: r.velocity, visibility: r.visibility }, sourceUrl: 'https://wheretheiss.at' };
+  },
+  'satellite-catalog': async (query) => {
+    // Which satellites are up there, by group (CelesTrak orbital data).
+    // Only groups small enough to fit the response cap (Starlink/active are huge).
+    const GROUPS = ['visual', 'stations', 'weather', 'noaa', 'goes', 'gps-ops', 'galileo', 'science', 'geo', 'last-30-days'];
+    const ALIAS: Record<string, string> = { iss: 'stations', 'space-station': 'stations', 'space station': 'stations', new: 'last-30-days', recent: 'last-30-days', bright: 'visual', gps: 'gps-ops' };
+    const raw = query.trim().toLowerCase();
+    const ql = ALIAS[raw] ?? raw.replace(/\s+/g, '-');
+    const group = GROUPS.find((g) => g === ql || g.includes(ql) || (ql && ql.includes(g))) || 'visual';
+    const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${q(group)}&FORMAT=json`;
+    const r = (await safeGet(url)) as { OBJECT_NAME: string; NORAD_CAT_ID?: number; MEAN_MOTION?: number }[];
+    if (!Array.isArray(r) || !r.length) throw new Error(`No satellites for group "${group}". Try: visual, stations, starlink, weather, gps, science.`);
+    return { summary: `${r.length} satellites currently tracked in the "${group}" group. e.g. ${r.slice(0, 4).map((s) => s.OBJECT_NAME).join(', ')}.`, data: r.slice(0, 12).map((s) => ({ name: s.OBJECT_NAME, noradId: s.NORAD_CAT_ID, orbitsPerDay: s.MEAN_MOTION })), sourceUrl: `https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}` };
+  },
 };
 
 /** IDs of sources Agent Sai can actually pull right now. */

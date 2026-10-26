@@ -229,6 +229,8 @@ export const SAI_SOURCES: SaiSource[] = [
   { id: 'us-weather-alerts', n: 'US Weather Alerts (NWS)', category: 'Disasters & Humanitarian', covers: 'Active US weather alerts', access: 'Keyless', priority: 'P2', keyless: true },
   { id: 'fruityvice', n: 'Fruityvice', category: 'Health & Medicine', covers: 'Fruit nutrition facts', access: 'Keyless', priority: 'P3', keyless: true },
   { id: 'carbon-intensity', n: 'Carbon Intensity (UK)', category: 'Earth & Environment', covers: 'Live grid carbon intensity', access: 'Keyless', priority: 'P3', keyless: true },
+  { id: 'satellite-position', n: 'Satellite Tracker', category: 'Science & Research', covers: 'Live position of a satellite (ISS…)', access: 'Keyless', priority: 'P2', keyless: true },
+  { id: 'satellite-catalog', n: 'Satellite Catalog (CelesTrak)', category: 'Science & Research', covers: 'What satellites are in orbit, by group', access: 'Keyless', priority: 'P2', keyless: true },
 ];
 
 export const sourceById = (id: string): SaiSource | undefined => SAI_SOURCES.find((s) => s.id === id);
