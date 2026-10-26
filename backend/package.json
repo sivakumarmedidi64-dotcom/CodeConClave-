@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
+    "detective": "node dist/workers/detective.js",
+    "detective:dev": "tsx src/workers/detective.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "npm run typecheck && npm run secret:scan",
