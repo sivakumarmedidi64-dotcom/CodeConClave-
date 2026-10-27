@@ -173,9 +173,57 @@ export async function loadResponseSoundEnabled(): Promise<boolean> {
   return readStored() ?? false;
 }
 
+// Repeat-until-seen: if the answer lands while you are looking away, keep
+// chiming the cue until you come back to the tab (then stop at once).
+const REPEAT_MS = 25000;
+let repeatTimer: number | null = null;
+let seenHandlersBound = false;
+
+function userIsLooking(): boolean {
+  try {
+    if (typeof document === 'undefined') return true;
+    return document.visibilityState === 'visible' && document.hasFocus();
+  } catch {
+    return true;
+  }
+}
+
+function stopRepeat(): void {
+  if (repeatTimer !== null) {
+    window.clearInterval(repeatTimer);
+    repeatTimer = null;
+  }
+}
+
+function bindSeenHandlersOnce(): void {
+  if (seenHandlersBound || typeof window === 'undefined') return;
+  seenHandlersBound = true;
+  const onSeen = () => {
+    if (userIsLooking()) stopRepeat();
+  };
+  document.addEventListener('visibilitychange', onSeen);
+  window.addEventListener('focus', onSeen);
+}
+
+/** After a RESPONSE_READY chime, keep replaying it until the user returns. */
+function startRepeatUntilSeen(): void {
+  stopRepeat();
+  if (typeof window === 'undefined' || typeof window.setInterval !== 'function') return;
+  if (userIsLooking()) return; // already here — one chime is enough
+  bindSeenHandlersOnce();
+  repeatTimer = window.setInterval(() => {
+    if (userIsLooking() || readStored() !== true) {
+      stopRepeat();
+      return;
+    }
+    playNow();
+  }, REPEAT_MS);
+}
+
 /** Arm the single RESPONSE_READY shot. Only a fresh user request arms it. */
 export function armResponseSound(): void {
   armed = true;
+  stopRepeat(); // a new request clears any lingering "come back" chime
 }
 
 /**
@@ -192,6 +240,7 @@ export function playResponseReadySound(): void {
   if (!ac) return;
   if (ac.state === 'running') {
     playNow();
+    startRepeatUntilSeen(); // keep chiming if the user is looking away
     return;
   }
   // Autoplay restricted: play at the first valid user interaction.
