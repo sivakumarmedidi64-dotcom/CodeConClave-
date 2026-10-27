@@ -1,7 +1,7 @@
 /**
- * Chat / Cowork (/ Agent) — one segmented switch, Claude-style: icon + label,
- * a highlight that slides to the selected mode, arrow keys move between modes.
- * Buttons keep aria-pressed so the switch reads as a toggle group.
+ * Chat / Agent — one segmented switch, Claude-style: icon + label, a highlight
+ * that slides to the selected mode, arrow keys move between modes. Buttons keep
+ * aria-pressed so the switch reads as a toggle group.
  */
 import { useRef, type KeyboardEvent } from 'react';
 import { Icon, type IconName } from './Icon';
@@ -75,10 +75,4 @@ export function ModeSwitch<T extends string>({
 }
 
 export const CHAT_MODE: ModeOption<'CHAT'> = { value: 'CHAT', label: 'Chat', icon: 'chat', hint: 'Quick answers, writing and images — one conversation with CodeConClave AI.' };
-export const COWORK_MODE: ModeOption<'COWORK'> = {
-  value: 'COWORK',
-  label: 'Cowork',
-  icon: 'users',
-  hint: 'A planned task: the specialist team (planner, coder, reviewer, tester…) works it through the pipeline.',
-};
 export const AGENT_MODE: ModeOption<'AGENT'> = { value: 'AGENT', label: 'Agent', icon: 'terminal', hint: 'Works on this computer through the Local Agent: files, terminal and browser.' };

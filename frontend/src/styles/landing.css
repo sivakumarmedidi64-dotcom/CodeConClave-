@@ -813,6 +813,25 @@
 .lp-bots .cc-bb__role {
   color: var(--lp-text-dim);
 }
+/* "Your own AI" feature cards (replaces the old bot-team row) */
+.lp-bots__item--feature {
+  width: 230px;
+  gap: 8px;
+  padding: 20px 18px;
+  border: 1px solid var(--lp-border, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
+  background: var(--lp-card, rgba(255, 255, 255, 0.03));
+}
+.lp-bots__item--feature figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lp-bots__item--feature strong {
+  color: var(--lp-text, #fff);
+  font-size: 15px;
+  font-weight: 650;
+}
 
 /* pricing */
 .lp-pricing {

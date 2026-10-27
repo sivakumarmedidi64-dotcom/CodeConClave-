@@ -30,7 +30,6 @@ const NAV_COMMANDS: { id: string; icon: IconName; label: string; hint: string; k
   { id: 'load-dna', icon: 'dna', label: 'Load DNA', hint: 'Open the DNA workspace', keywords: 'dna knowledge load', to: '/dna' },
   { id: 'search-files', icon: 'search', label: 'Search Files', hint: 'Open Files and search', keywords: 'file search', to: '/files' },
   { id: 'search-memory', icon: 'database', label: 'Search Memory', hint: 'Open Memory and search', keywords: 'memory search', to: '/memory' },
-  { id: 'start-cowork', icon: 'spark', label: 'Start Cowork', hint: 'Open Chat in Cowork mode', keywords: 'cowork brief task', to: '/chat?mode=cowork' },
   { id: 'start-task', icon: 'chart', label: 'Start Task', hint: 'Open the Tasks queue', keywords: 'task work dispatch', to: '/work' },
   { id: 'open-billing', icon: 'chart', label: 'Open Billing', hint: 'Manage your plan and payments', keywords: 'billing plan payment upgrade', to: '/settings?tab=billing' },
   { id: 'open-apikeys', icon: 'key', label: 'Open API Keys', hint: 'Create and revoke API keys', keywords: 'api key token access', to: '/settings?tab=apikeys' },

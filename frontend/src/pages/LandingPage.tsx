@@ -20,18 +20,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BrandLogo } from '../components/BrandLogo';
-import { Bot, type BotState } from '../components/Bot';
 import '../styles/landing.css';
 
-/** The bot team shown on the landing page — the same specialists as in the app. */
-const LANDING_BOTS: { kind: string; state: BotState; line: string }[] = [
-  { kind: 'PLANNER', state: 'thinking', line: 'Breaks your goal into steps' },
-  { kind: 'ARCHITECT', state: 'idle', line: 'Designs the structure' },
-  { kind: 'CODER', state: 'working', line: 'Writes the code' },
-  { kind: 'TESTER', state: 'idle', line: 'Proves it works' },
-  { kind: 'SECURITY', state: 'blocked', line: 'Stops risky steps for you' },
-  { kind: 'REVIEWER', state: 'idle', line: 'Reviews every change' },
-  { kind: 'DOCS', state: 'waiting', line: 'Writes it up' },
+/** What makes CodeConClave's AI yours — shown on the landing page. */
+const OUR_AI: { title: string; line: string }[] = [
+  { title: 'Your own tuned models', line: 'Answers come from CodeConClave’s own models — not a reseller.' },
+  { title: 'Grounded in real data', line: 'Agent Sai pulls live facts from 100+ sources, worldwide.' },
+  { title: 'Verified, with proof', line: 'Every answer can run the verification kernel and show a receipt.' },
 ];
 
 interface Plan {
@@ -50,11 +45,11 @@ const PLANS: Plan[] = [
     name: 'Solo',
     price: '₹999',
     period: 'per month',
-    tagline: 'Your own AI coworker team, on web and desktop.',
+    tagline: 'Your own AI coworker, on web and desktop.',
     features: [
       'Verified answers: every reply runs the v3 pipeline and comes with a receipt',
       'Scientific Verification Kernel: math, units, statistics, quantum and reactor physics',
-      'Chat and Cowork with the full bot team',
+      'One clean chat on your own tuned model, grounded in live data (Agent Sai)',
       'Live preview while it builds (artifacts)',
       'Edit local files from the web, with a diff and your OK',
       'Desktop app: files, terminal and browser on your machine',
@@ -80,7 +75,7 @@ const PLANS: Plan[] = [
       'Team approvals and reviewer routing',
       'Tamper-evident team audit log',
       'Higher limits: 1M tokens per session, 10M per week',
-      'Coming soon: share a Cowork session by link, team mail and spend tracking',
+      'Coming soon: share a chat by link, team mail and spend tracking',
     ],
   },
   {
@@ -296,24 +291,26 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* -------------------------------------------------------- bot team */}
+        {/* ----------------------------------------------------- our own AI */}
         <section className="lp-bots" aria-labelledby="lp-bots-title">
           <div className="lp-shell">
             <div className="lp-section__head">
-              <p className="lp-section__eyebrow">Your coworkers</p>
+              <p className="lp-section__eyebrow">Your own AI</p>
               <h2 className="lp-section__title" id="lp-bots-title">
-                Ask once. A team of bots does the work.
+                One AI that&rsquo;s truly yours.
               </h2>
               <p className="lp-section__sub">
-                Each specialist appears when your task needs them, shows you exactly what it is doing, and bursts away when its
-                part is done. The final answer lands in your chat.
+                CodeConClave answers on its own tuned models, grounded in live real-world data, and proves
+                its work — not a wrapper around someone else&rsquo;s chatbot.
               </p>
             </div>
             <div className="lp-bots__row">
-              {LANDING_BOTS.map((b) => (
-                <figure key={b.kind} className="lp-bots__item">
-                  <Bot kind={b.kind} state={b.state} size={72} />
-                  <figcaption>{b.line}</figcaption>
+              {OUR_AI.map((f) => (
+                <figure key={f.title} className="lp-bots__item lp-bots__item--feature">
+                  <figcaption>
+                    <strong>{f.title}</strong>
+                    <span>{f.line}</span>
+                  </figcaption>
                 </figure>
               ))}
             </div>
