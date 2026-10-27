@@ -146,7 +146,7 @@ describe('HomeChat', () => {
     await waitFor(() => expect(screen.queryByTestId('homechat-thinking-moon')).not.toBeInTheDocument());
   });
 
-  it('greets by name with a system line and Chat/Cowork only (Agent lives in sidebar)', async () => {
+  it('is one clean CodeConClave AI chat — no Chat/Cowork/Agent mode tabs', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -170,7 +170,7 @@ describe('HomeChat', () => {
     expect(screen.queryByTestId('homechat-agent-hint')).toBeNull();
   });
 
-  it('never sends AGENT from home: Cowork stays Cowork, Chat stays Chat', async () => {    let posted: Record<string, unknown> = {};
+  it('never sends AGENT from home — the home is always plain CHAT', async () => {    let posted: Record<string, unknown> = {};
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -199,36 +199,6 @@ describe('HomeChat', () => {
     await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
     // Home now opens in CHAT by default; the point here is that AGENT never leaks from home.
     expect(posted.mode).toBe('CHAT');
-  });
-
-  // Cowork is no longer on the home (the home is clean single-AI chat). Skipped
-  // until cowork lives on its own surface.
-  it.skip('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {
-    let posted: Record<string, unknown> = {};
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes('/local-workspace/devices')) return jsonResponse({ devices: [] });
-        if (url.includes('/api/v1/ai/models')) return jsonResponse({ models: [], defaultModel: null });
-        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
-          posted = JSON.parse(String(init.body));
-          return sseResponse(SSE_BODY);
-        }
-        return jsonResponse({ data: {} });
-      }),
-    );
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <HomeChat />
-      </MemoryRouter>,
-    );
-    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
-    await user.type(screen.getByPlaceholderText('Ask anything…'), 'rebuild auth with tests');
-    await user.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(screen.getByText('Hello from the home chat.')).toBeInTheDocument());
-    expect(posted.mode).toBe('COWORK');
   });
 
   it('travels on "go to X": navigates without spending a generation', async () => {
@@ -354,16 +324,6 @@ describe('HomeChat — incognito + follow-ups', () => {
     expect(chatBodies()[1]!.incognito).toBeUndefined();
   });
 
-  it.skip('incognito is unavailable for Cowork runs', async () => {
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <HomeChat />
-      </MemoryRouter>,
-    );
-    await user.click(screen.getByRole('button', { name: 'Cowork' }));
-    expect(screen.getByTestId('incognito-toggle')).toBeDisabled();
-  });
 });
 
 describe('HomeChat — pipeline v3 trace + receipt', () => {
@@ -459,83 +419,6 @@ describe('HomeChat — /setup', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole('dialog', { name: 'Guided setup' })).toBeInTheDocument();
-  });
-});
-
-describe.skip('HomeChat — plan first (Cowork)', () => {
-  it('sends planFirst, shows the plan, and starts the team only after approval', async () => {
-    let posted: Record<string, unknown> = {};
-    let decided: Record<string, unknown> | null = null;
-    const plan = { goal: 'rebuild auth', source: 'planner', steps: [{ order: 1, coworker: 'ARCHITECT' }, { order: 2, coworker: 'CODER' }] };
-    const body =
-      'event: delta\ndata: {"delta":"Here\'s the plan. Nothing runs until you approve it."}\n\n' +
-      `event: done\ndata: ${JSON.stringify({ messageId: null, taskId: 'tsk_p1', approvalId: 'app_p1', plan })}\n\n`;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
-          posted = JSON.parse(String(init.body));
-          return sseResponse(body);
-        }
-        if (url.includes('/approvals/app_p1/decide')) {
-          decided = JSON.parse(String(init?.body));
-          return jsonResponse({ data: { approval: { id: 'app_p1', status: 'APPROVED' } } });
-        }
-        return jsonResponse({ data: {} });
-      }),
-    );
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <HomeChat />
-      </MemoryRouter>,
-    );
-    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
-    await user.click(screen.getByRole('button', { name: 'Plan first' }));
-    await user.type(screen.getByPlaceholderText('Ask anything…'), 'rebuild auth with tests');
-    await user.click(screen.getByRole('button', { name: /send/i }));
-    const card = await screen.findByTestId('plan-approval');
-    expect(posted.planFirst).toBe(true);
-    expect(card).toHaveTextContent('Archie · Architect');
-    expect(card).toHaveTextContent('Cody · Coder');
-    await user.click(screen.getByRole('button', { name: 'Approve and start' }));
-    await waitFor(() => expect(decided).toEqual({ decision: 'APPROVE' }));
-    expect(await screen.findByText(/the team is starting/)).toBeInTheDocument();
-  });
-});
-
-describe.skip('HomeChat — Cowork always has a project', () => {
-  it('starts a "My work" project when the account has none, instead of failing', async () => {
-    let posted: Record<string, unknown> = {};
-    let createdWith: Record<string, unknown> | null = null;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes('/api/v1/projects') && init?.method === 'POST') {
-          createdWith = JSON.parse(String(init.body));
-          return jsonResponse({ data: { project: { id: 'prj_new' } } });
-        }
-        if (url.includes('/api/v1/projects')) return jsonResponse({ data: { projects: [] } });
-        if (url.includes('/api/v1/conversations/chat') && init?.method === 'POST') {
-          posted = JSON.parse(String(init.body));
-          return sseResponse(SSE_BODY);
-        }
-        return jsonResponse({ data: {} });
-      }),
-    );
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <HomeChat />
-      </MemoryRouter>,
-    );
-    await user.click(await screen.findByRole('button', { name: 'Cowork' }));
-    await user.type(screen.getByPlaceholderText('Ask anything…'), 'build a landing page');
-    await user.click(screen.getByRole('button', { name: /send/i }));
-    await waitFor(() => expect(posted.projectId).toBe('prj_new'));
-    expect(createdWith).toMatchObject({ name: 'My work' });
   });
 });
 
