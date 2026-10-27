@@ -30,7 +30,6 @@ export interface ParseOptions {
 const SLASH_COMMANDS: Record<string, { pattern: RegExp; description: string }> = {
   '/idea': { pattern: /^(?:add|create|capture)\s+(?:an?\s+)?idea\s+(.+)$/i, description: 'Capture an idea to memory' },
   '/new': { pattern: /^(?:start|create|new)\s+(?:a\s+)?(?:chat|conversation)$/i, description: 'Start new conversation' },
-  '/cowork': { pattern: /^(?:switch\s+to\s+)?(?:cowork|co-work)$/i, description: 'Switch to Cowork mode' },
   '/agent': { pattern: /^(?:switch\s+to\s+)?agent$/i, description: 'Switch to Agent mode' },
   '/chat': { pattern: /^(?:switch\s+to\s+)?chat$/i, description: 'Switch to Chat mode' },
 };

@@ -47,7 +47,6 @@ interface ChatComposerProps {
 const SLASH_COMMANDS = [
   { id: '/idea', label: '/idea <text>', hint: 'Capture as idea (saved to Memory)' },
   { id: '/new', label: '/new', hint: 'Start a new conversation' },
-  { id: '/cowork', label: '/cowork', hint: 'Switch to Cowork mode' },
   { id: '/chat', label: '/chat', hint: 'Switch to Chat mode' },
 ];
 

@@ -1,6 +1,6 @@
 /**
  * CodeConClave — Chat workspace.
- * - CHAT/COWORK mode switch (inside the workspace, not the sidebar)
+ * - CHAT / Agent mode switch (inside the workspace, not the sidebar)
  * - chat sidebar: new/search/rename/pin/archive/unarchive/delete + unread dots
  * - in-chat attachments (upload into the project, real progress, chips) — the
  *   chat API accepts attachments and fails closed on tampered/stale ids
@@ -99,12 +99,11 @@ import type { PipelineStage } from '../lib/sse';
 import { chatAsMarkdown, estimateTokens } from '../lib/chatExport';
 import { SetupWizard, isSetupCommand } from '../components/SetupWizard';
 import { reportLimitError } from '../components/UsageLimitDialog';
-import { AGENT_MODE, CHAT_MODE, COWORK_MODE, ModeSwitch } from '../components/ModeSwitch';
+import { AGENT_MODE, CHAT_MODE, ModeSwitch } from '../components/ModeSwitch';
 
 const SLASH_COMMANDS = [
   { id: '/idea', label: '/idea <text>', hint: 'Capture the text as an idea (saved to Memory)' },
   { id: '/new', label: '/new', hint: 'Start a new conversation' },
-  { id: '/cowork', label: '/cowork', hint: 'Switch to Cowork mode' },
   { id: '/agent', label: '/agent', hint: 'Switch to Agent mode (model controls this laptop)' },
   { id: '/chat', label: '/chat', hint: 'Switch to Chat mode' },
   { id: '/setup', label: '/setup', hint: 'Guided setup: pick your role, install plugins, connect tools' },
@@ -137,7 +136,7 @@ export function ChatPage() {
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [ui, setUi] = useState<UiMessage[]>([]);
-  const [mode, setMode] = useState<'CHAT' | 'COWORK' | 'AGENT'>(searchParams.get('mode') === 'cowork' ? 'COWORK' : searchParams.get('mode') === 'agent' ? 'AGENT' : 'CHAT');
+  const [mode, setMode] = useState<'CHAT' | 'AGENT'>(searchParams.get('mode') === 'agent' ? 'AGENT' : 'CHAT');
   const [imageMode, setImageMode] = useState(false);
   const [modelId, setModelId] = useState<string>();
   const [input, setInput] = useState('');
@@ -343,7 +342,7 @@ export function ChatPage() {
         const savedScroll = byKey.get(STATE_KEYS.scroll)?.top;
         const savedLastSeen = byKey.get(STATE_KEYS.lastSeen) as Record<string, number> | undefined;
         if (typeof project === 'string') setProjectId(project);
-        if (savedMode === 'CHAT' || savedMode === 'COWORK' || savedMode === 'AGENT') setMode(savedMode);
+        if (savedMode === 'CHAT' || savedMode === 'AGENT') setMode(savedMode);
         if (typeof savedModel === 'string') setModelId(savedModel);
         if (deepLinkConv) setConvId(deepLinkConv);
         else if (typeof conversation === 'string') setConvId(conversation);
@@ -393,9 +392,9 @@ export function ChatPage() {
     return () => window.removeEventListener('online', onOnline);
   }, [flushPending, refreshPendingCount]);
 
-  const changeMode = (next: 'CHAT' | 'COWORK' | 'AGENT') => {
+  const changeMode = (next: 'CHAT' | 'AGENT') => {
     setMode(next);
-    if (next === 'COWORK' || next === 'AGENT') setImageMode(false);
+    if (next === 'AGENT') setImageMode(false);
     saveState(STATE_KEYS.mode, { mode: next });
   };
 
@@ -424,11 +423,6 @@ export function ChatPage() {
       if (trimmed === '/new') {
         clearDraft();
         await createConv();
-        return true;
-      }
-      if (trimmed === '/cowork') {
-        clearDraft();
-        changeMode('COWORK');
         return true;
       }
       if (trimmed === '/agent') {
@@ -1142,11 +1136,6 @@ export function ChatPage() {
       setSetupOpen(true);
       return true;
     }
-    if (trimmed === '/cowork') {
-      clearDraft();
-      changeMode('COWORK');
-      return true;
-    }
     if (trimmed === '/agent') {
       clearDraft();
       changeMode('AGENT');
@@ -1204,7 +1193,7 @@ export function ChatPage() {
               </option>
             ))}
           </select>
-          <ModeSwitch<'CHAT' | 'COWORK' | 'AGENT'> label="Chat mode" value={mode} options={[CHAT_MODE, COWORK_MODE, AGENT_MODE]} onChange={changeMode} />
+          <ModeSwitch<'CHAT' | 'AGENT'> label="Chat mode" value={mode} options={[CHAT_MODE, AGENT_MODE]} onChange={changeMode} />
           {/* Companion presence: mirrors the real stream lifecycle, never
               decorates. Textual status stays in the status pill. */}
           <AICompanion state={companion} />
@@ -1267,9 +1256,6 @@ export function ChatPage() {
                 <BrandLogo variant="lockup" height={56} />
                 <p>Start a conversation.</p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <button className="cc-btn cc-btn--sm" onClick={() => changeMode('COWORK')}>
-                    Start Cowork
-                  </button>
                   <button className="cc-btn cc-btn--sm" onClick={() => attachRef.current?.click()}>
                     Add Files
                   </button>
@@ -1462,14 +1448,14 @@ export function ChatPage() {
               <textarea
                 className="cc-textarea"
                 rows={1}
-                aria-label={imageMode ? 'Image prompt' : mode === 'CHAT' ? 'Message CodeConClave' : 'Coworker brief'}
+                aria-label={imageMode ? 'Image prompt' : mode === 'CHAT' ? 'Message CodeConClave' : 'Agent brief'}
                 value={input}
                 placeholder={
                   imageMode
                     ? 'Describe the image to generate…'
                     : mode === 'CHAT'
-                      ? 'Message CodeConClave… (/idea, /new, /cowork, /chat)'
-                      : 'Brief a coworker (task auto-created)…'
+                      ? 'Message CodeConClave… (/idea, /new, /agent, /chat)'
+                      : 'Brief the agent (task auto-created)…'
                 }
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => void onComposerKey(e)}

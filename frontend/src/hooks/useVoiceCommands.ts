@@ -12,7 +12,7 @@ import { useToast } from '../components/Toast';
 
 export interface UseVoiceCommandsOptions {
   /** Current chat mode */
-  mode?: 'CHAT' | 'COWORK' | 'AGENT';
+  mode?: 'CHAT' | 'AGENT';
   /** Current project ID */
   projectId?: string | null;
   /** Callback to send a message */
@@ -32,7 +32,7 @@ export interface UseVoiceCommandsOptions {
   /** Callback to search memories */
   onSearchMemory?: (query: string) => void;
   /** Callback to change mode */
-  onChangeMode?: (mode: 'CHAT' | 'COWORK' | 'AGENT') => void;
+  onChangeMode?: (mode: 'CHAT' | 'AGENT') => void;
   /** Enable voice output (TTS) */
   voiceOutput?: boolean;
   /** Voice language */

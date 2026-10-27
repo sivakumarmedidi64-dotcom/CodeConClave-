@@ -1,6 +1,6 @@
 /**
  * CodeConClave — ChatPage tests (PHASE 11).
- * CHAT/COWORK switch inside the workspace, slash commands run real actions
+ * CHAT / Agent switch inside the workspace, slash commands run real actions
  * (/idea captures a memory), Esc cancels an active stream.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -52,30 +52,30 @@ beforeEach(() => {
 });
 
 describe('ChatPage — mode switch', () => {
-  it('switches between Chat and Cowork modes and persists the mode', async () => {
+  it('switches between Chat and Agent modes and persists the mode', async () => {
     const fetchFn = stubFetch(chatHandler());
     renderChat();
-    const cowork = await screen.findByRole('button', { name: 'Cowork' });
-    await userEvent.click(cowork);
-    expect(await screen.findByPlaceholderText('Brief a coworker (task auto-created)…')).toBeInTheDocument();
+    const agent = await screen.findByRole('button', { name: 'Agent' });
+    await userEvent.click(agent);
+    expect(await screen.findByPlaceholderText('Brief the agent (task auto-created)…')).toBeInTheDocument();
     await waitFor(() => {
       const put = fetchFn.mock.calls.find(([u, i]) => u === '/api/v1/workspace/state/current_mode' && i?.method === 'PUT');
       expect(put).toBeDefined();
     });
     const put = fetchFn.mock.calls.find(([u, i]) => u === '/api/v1/workspace/state/current_mode');
-    expect(JSON.parse(String(put?.[1]?.body))).toEqual({ value: { mode: 'COWORK' } });
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({ value: { mode: 'AGENT' } });
   });
 
-  it('restores Cowork mode from the URL (?mode=cowork)', async () => {
+  it('restores Agent mode from the URL (?mode=agent)', async () => {
     stubFetch(chatHandler());
     render(
-      <MemoryRouter initialEntries={['/chat?mode=cowork']}>
+      <MemoryRouter initialEntries={['/chat?mode=agent']}>
         <ToastProvider>
           <ChatPage />
         </ToastProvider>
       </MemoryRouter>,
     );
-    expect(await screen.findByPlaceholderText('Brief a coworker (task auto-created)…')).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText('Brief the agent (task auto-created)…')).toBeInTheDocument();
   });
 });
 
@@ -86,7 +86,7 @@ describe('ChatPage — slash commands', () => {
     const textarea = await screen.findByPlaceholderText(/Message CodeConClave/);
     await userEvent.type(textarea, '/');
     expect(await screen.findByText('/idea <text>')).toBeInTheDocument();
-    expect(screen.getByText('/cowork')).toBeInTheDocument();
+    expect(screen.getByText('/agent')).toBeInTheDocument();
     expect(screen.getByText('/new')).toBeInTheDocument();
   });
 
