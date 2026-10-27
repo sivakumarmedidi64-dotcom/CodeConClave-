@@ -157,7 +157,7 @@ export function ChatComposer({
               rows={1}
               aria-label={placeholder || (imageMode ? 'Image prompt' : mode === 'CHAT' ? 'Message CodeConClave' : 'Coworker brief')}
               value={input}
-              placeholder={placeholder || (imageMode ? 'Describe the image to generate…' : mode === 'CHAT' ? 'Message CodeConClave… (/idea, /new, /cowork, /chat)' : 'Brief a coworker (task auto-created)…')}
+              placeholder={placeholder || (imageMode ? 'Describe the image to generate…' : mode === 'CHAT' ? 'Message CodeConClave… (/idea, /new, /chat)' : 'Brief the agent (task auto-created)…')}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               disabled={streaming || disabled}

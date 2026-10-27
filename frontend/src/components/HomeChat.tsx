@@ -43,9 +43,6 @@ const MAX_ATTACH_CHARS = 100000;
 const NAV_TARGETS: { path: string; hash?: string; label: string; keys: string[] }[] = [
   { path: '/home', label: 'Home', keys: ['home'] },
   { path: '/chat', label: 'Chat', keys: ['chat'] },
-  { path: '/coworker', label: 'Coworker', keys: ['coworker', 'cowork'] },
-  { path: '/coworker', hash: '#email', label: 'Mail', keys: ['mail', 'email', 'inbox', 'gmail'] },
-  { path: '/coworker', hash: '#scan', label: 'Code Map', keys: ['code map', 'codemap', 'scan', 'project scan'] },
   { path: '/ideas', label: 'Ideas', keys: ['ideas', 'idea'] },
   { path: '/work', label: 'Tasks', keys: ['tasks', 'task', 'work'] },
   { path: '/approvals', label: 'Approvals', keys: ['approvals', 'approval'] },

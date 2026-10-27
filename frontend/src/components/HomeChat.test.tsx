@@ -300,9 +300,10 @@ describe('HomeChat', () => {
 describe('parseNavCommand', () => {
   it('maps destinations, hashes and remainders; rejects the rest', () => {
     expect(parseNavCommand('go to ideas tab')).toMatchObject({ path: '/ideas', label: 'Ideas', rest: '' });
-    expect(parseNavCommand('open my mail')).toMatchObject({ path: '/coworker', hash: '#email' });
-    expect(parseNavCommand('go to code map')).toMatchObject({ hash: '#scan' });
+    expect(parseNavCommand('go to projects')).toMatchObject({ path: '/projects' });
     expect(parseNavCommand('take me to approvals')).toMatchObject({ path: '/approvals' });
+    // Coworker was removed, so its old nav shortcuts no longer resolve.
+    expect(parseNavCommand('open my mail')).toBeNull();
     expect(parseNavCommand('go to ideas and draft x')).toMatchObject({ path: '/ideas', rest: 'draft x' });
     expect(parseNavCommand('hello there')).toBeNull();
     expect(parseNavCommand('go to mars')).toBeNull();

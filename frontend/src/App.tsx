@@ -51,8 +51,6 @@ const AutomationPage = lazy(() => import('./pages/AutomationPage').then(({ Autom
 const RecoveryPage = lazy(() => import('./pages/RecoveryPage').then(({ RecoveryPage }) => ({ default: RecoveryPage })));
 const ControlPage = lazy(() => import('./pages/ControlPage').then(({ ControlPage }) => ({ default: ControlPage })));
 const PipelinePage = lazy(() => import('./pages/PipelinePage').then(({ PipelinePage }) => ({ default: PipelinePage })));
-const CoworkersPage = lazy(() => import('./pages/CoworkersPage').then(({ CoworkersPage }) => ({ default: CoworkersPage })));
-const CoworkerPage = lazy(() => import('./pages/CoworkerPage').then(({ CoworkerPage }) => ({ default: CoworkerPage })));
 const TeamsPage = lazy(() => import('./pages/TeamsPage').then(({ TeamsPage }) => ({ default: TeamsPage })));
 const PluginsPage = lazy(() => import('./pages/PluginsPage').then(({ PluginsPage }) => ({ default: PluginsPage })));
 const SessionsPage = lazy(() => import('./pages/SessionsPage').then(({ SessionsPage }) => ({ default: SessionsPage })));
@@ -285,8 +283,6 @@ function Shell() {
             <Route path="/workspace" element={<WorkspacePage />} />
             <Route path="/workbench" element={<WorkbenchPage />} />
             <Route path="/workbench/:projectId" element={<WorkbenchPage />} />
-            <Route path="/coworkers" element={<CoworkersPage />} />
-            <Route path="/coworker" element={<CoworkerPage />} />
             <Route path="/teams" element={<TeamsPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
             <Route path="/skills" element={<SkillPluginsPage />} />
