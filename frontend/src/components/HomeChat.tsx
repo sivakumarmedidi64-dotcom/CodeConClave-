@@ -8,7 +8,6 @@ import { newClientId } from '../lib/continuity';
 import { parseAppAction, runAppAction } from '../lib/appActions';
 import { useAuth } from '../auth/AuthProvider';
 import { ModelChoice } from './ModelChoice';
-import { EffortChip, useEffort } from './EffortChip';
 import { ThinkingMoon } from './ThinkingMoon';
 import { ChatMarkdown } from './ChatMarkdown';
 import { UsageChip } from './UsageChip';
@@ -162,7 +161,8 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   const [homeProjectId, setHomeProjectId] = useState<string | undefined>();
   // Image generation on Home (Chat mode): toggle, or just ask "draw an image of…".
   const [imageMode, setImageMode] = useState(false);
-  const effort = useEffort();
+  // Our AI always thinks at full strength — no effort picker on the front end.
+  const effort = 'high' as const;
   // MCP tools (Chat): the chip shows only when a connected, switched-on server offers tools.
   const [mcpToolCount, setMcpToolCount] = useState(0);
   const [toolsOn, setToolsOn] = useState<boolean>(() => {
@@ -759,7 +759,6 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
           placeholder={PLACEHOLDER}
         />
         <ModelChoice value={modelId} onChange={selectModel} onRouting={handleRouting} onResidentStatus={setResidentReady} residentOnly />
-        <EffortChip />
         <button
           type="button"
           className={`cc-chipbtn${imageMode ? ' is-on' : ''}`}

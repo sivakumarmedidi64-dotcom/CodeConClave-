@@ -30,6 +30,7 @@ const ALL: PlanKey[] = ['free', 'solo', 'team', 'api', 'enterprise'];
 
 /** The few things most people use. */
 const PRIMARY_ITEMS: NavItem[] = [
+  { to: '/chats', label: 'Chats', icon: 'chat', plans: ALL }, // your past conversations
   { to: '/projects', label: 'Projects', icon: 'folder', plans: SOLO_UP },
   { to: '/agents', label: 'Agents', icon: 'layers', plans: SOLO_UP },
   { to: '/beyond', label: 'Beyond', icon: 'rocket', plans: SOLO_UP },

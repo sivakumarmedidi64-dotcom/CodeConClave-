@@ -25,7 +25,6 @@ import { uploadFileWithProgress } from '../lib/upload';
 import { armResponseSound, playResponseReadySound, loadResponseSoundEnabled } from '../lib/responseSound';
 import { useEarlyAccess } from '../lib/accessMode';
 import { ModelChoice } from '../components/ModelChoice';
-import { EffortChip, useEffort } from '../components/EffortChip';
 import { AICompanion, type CompanionState } from '../components/AICompanion';
 import { ThinkingMoon } from '../components/ThinkingMoon';
 import { FreeLimitMoon } from '../components/FreeLimitMoon';
@@ -112,7 +111,8 @@ const SLASH_COMMANDS = [
 export function ChatPage() {
   const { toast } = useToast();
   const skillCommands = useSkillCommands();
-  const effort = useEffort();
+  // Our AI always thinks at full strength — no effort picker on the front end.
+  const effort = 'high' as const;
   const [setupOpen, setSetupOpen] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -1484,7 +1484,6 @@ export function ChatPage() {
               {!convId && (
                 <IncognitoToggle on={incognito && mode === 'CHAT'} disabled={mode !== 'CHAT'} onChange={setIncognito} />
               )}
-              <EffortChip />
               {mode === 'AGENT' && <PermissionModeChip />}
             </div>
             <button

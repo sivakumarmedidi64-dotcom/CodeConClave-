@@ -26,9 +26,9 @@ let produce: ProduceSound = brandCue;
 let autoplayQueued = false;
 
 export const BRAND_CUE_URL = '/sounds/notify.mp3';
-const CUE_VOLUME = 0.55;
-const CUE_FADE_START = 2.2;
-const CUE_END = 3.0;
+const CUE_VOLUME = 0.7;
+const CUE_FADE_START = 4.0;
+const CUE_END = 4.8;
 let cueBuffer: AudioBuffer | null = null;
 let cueLoad: Promise<AudioBuffer | null> | null = null;
 
