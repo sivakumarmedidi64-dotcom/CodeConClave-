@@ -144,6 +144,27 @@ export default {
       return new Response(JSON.stringify({ ok: true, warmed, caseFileByRegion }, null, 2), { headers: { 'content-type': 'application/json' } });
     }
 
+    // /fetch?source=<id>&q=<query> — run ONE connector from the edge and write
+    // it into the shared case file. The main app calls this when its own direct
+    // fetch is rate-limited (e.g. a cloud host's shared IP gets HTTP 429); the
+    // edge runs on Cloudflare IPs that those free APIs do not throttle.
+    if (url.pathname === '/fetch' && env.DATABASE_URL) {
+      for (const k of Object.keys(env)) if (typeof env[k] === 'string') process.env[k] = env[k] as string;
+      const source = url.searchParams.get('source') ?? '';
+      const query = url.searchParams.get('q') ?? '';
+      const sql = neon(env.DATABASE_URL);
+      await ensureSchema(sql);
+      const writes = wireNeon(sql);
+      try {
+        const evidence = await runConnector(source, query);
+        await Promise.allSettled(writes);
+        return new Response(JSON.stringify({ ok: true, evidence }), { headers: { 'content-type': 'application/json' } });
+      } catch (e) {
+        await Promise.allSettled(writes);
+        return new Response(JSON.stringify({ ok: false, error: String(e).slice(0, 200) }), { status: 502, headers: { 'content-type': 'application/json' } });
+      }
+    }
+
     const body = {
       ok: true,
       agent: 'Agent Sai Srinivasa Athreya',

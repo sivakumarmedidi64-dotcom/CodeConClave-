@@ -16,7 +16,7 @@
 import { pool } from '../../shared/db.js';
 import { env } from '../../config/env.js';
 import { logger } from '../../shared/logger.js';
-import { setSaiCaseFile } from './connectors.js';
+import { setSaiCaseFile, setSaiEdgeFallback } from './connectors.js';
 import type { SaiEvidence } from './connectors.js';
 
 /** Which detective this process is. Set per deployment, e.g. SAI_REGION=india. */
@@ -130,3 +130,9 @@ setSaiCaseFile({
     void writeCaseFile(key, sourceId, query, evidence, storedAtMs, expiresMs);
   },
 });
+
+// L3 edge fallback: when THIS host's own fetch to a public API is throttled
+// (Render's shared IP gets HTTP 429 from some free APIs), retry the same pull
+// through the Cloudflare edge worker. Backend only — the Worker never imports
+// this file, so it never calls itself.
+setSaiEdgeFallback(process.env.SAI_EDGE_URL?.trim() || 'https://codeconclave-007.sivakumarmedidi64.workers.dev');

@@ -42,27 +42,65 @@ export function setSaiCaseFile(hooks: SaiCaseFile | null): void {
   caseFile = hooks;
 }
 
+// Edge fallback (L3): when THIS host's own fetch to a public API is throttled
+// (a cloud host's shared IP often gets HTTP 429), retry the same pull through
+// the Cloudflare edge worker, whose IPs those free APIs do not throttle. Only
+// the main app sets this; the worker leaves it null, so there is never a loop.
+let edgeFallbackUrl: string | null = null;
+/** Point L3 at the edge worker's /fetch (or null to disable). Main app only. */
+export function setSaiEdgeFallback(url: string | null): void {
+  edgeFallbackUrl = url ? url.replace(/\/+$/, '') : null;
+}
+
+/** Ask the edge worker to run one connector (it is not rate-limited like us). */
+async function fetchViaEdge(sourceId: string, query: string): Promise<SaiEvidence | null> {
+  if (!edgeFallbackUrl) return null;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const u = `${edgeFallbackUrl}/fetch?source=${encodeURIComponent(sourceId)}&q=${encodeURIComponent(query)}`;
+    const res = await fetch(u, { signal: ctl.signal, headers: { 'User-Agent': 'CodeConClave-AgentSai/1.0' } });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ok?: boolean; evidence?: SaiEvidence };
+    return body?.ok && body.evidence ? body.evidence : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const TIMEOUT_MS = 12_000;
 const MAX_BYTES = 4 * 1024 * 1024;
 
 /** Safe GET for a fixed public host: timeout, size cap, JSON or text. */
 async function safeGet(url: string, accept: 'json' | 'text' = 'json'): Promise<unknown> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      signal: ctl.signal,
-      redirect: 'follow',
-      headers: { 'User-Agent': 'CodeConClave-AgentSai/1.0 (contact: founder)', Accept: accept === 'json' ? 'application/json' : 'text/plain,*/*' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_BYTES) throw new Error('response too large');
-    const body = buf.toString('utf8');
-    return accept === 'json' ? JSON.parse(body) : body;
-  } finally {
-    clearTimeout(t);
+  let lastErr: unknown;
+  // One retry: cloud hosts (e.g. Render's shared egress IP) sometimes get a
+  // transient 429/timeout from free public APIs; a short second try usually
+  // succeeds, and keeps grounding reliable instead of silently falling back.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 600));
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        signal: ctl.signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'CodeConClave-AgentSai/1.0 (contact: founder)', Accept: accept === 'json' ? 'application/json' : 'text/plain,*/*' },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > MAX_BYTES) throw new Error('response too large');
+      const body = buf.toString('utf8');
+      return accept === 'json' ? JSON.parse(body) : body;
+    } catch (err) {
+      lastErr = err;
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw lastErr instanceof Error ? lastErr : new Error('request failed');
 }
 
 async function safePost(url: string, payload: unknown): Promise<unknown> {
@@ -171,9 +209,33 @@ const CONNECTORS: Record<string, Connector> = {
   coingecko: async (query) => {
     const ids = query.trim() ? query.trim().toLowerCase().replace(/\s+/g, ',') : 'bitcoin,ethereum';
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${q(ids)}&vs_currencies=usd,inr`;
-    const r = (await safeGet(url)) as Record<string, { usd: number; inr: number }>;
-    const parts = Object.entries(r).map(([k, v]) => `${k}: $${v.usd} / ₹${v.inr}`);
-    return { summary: parts.join(' · ') || `No price for "${query}".`, data: r, sourceUrl: url };
+    try {
+      const r = (await safeGet(url)) as Record<string, { usd: number; inr: number }>;
+      const parts = Object.entries(r).map(([k, v]) => `${k}: $${v.usd} / ₹${v.inr}`);
+      if (parts.length) return { summary: parts.join(' · '), data: r, sourceUrl: url };
+      throw new Error('empty');
+    } catch (err) {
+      // CoinGecko's free API throttles hard (HTTP 429) on shared/cloud IPs.
+      // Fall back to Coinbase spot (generous free limits, no key) — USD only.
+      const SYM: Record<string, string> = { bitcoin: 'BTC', btc: 'BTC', ethereum: 'ETH', eth: 'ETH', solana: 'SOL', dogecoin: 'DOGE', cardano: 'ADA', polkadot: 'DOT', litecoin: 'LTC', ripple: 'XRP', xrp: 'XRP' };
+      const parts: string[] = [];
+      const data: Record<string, { usd: number }> = {};
+      for (const name of ids.split(',')) {
+        const sym = SYM[name] ?? name.toUpperCase();
+        try {
+          const cb = (await safeGet(`https://api.coinbase.com/v2/prices/${q(sym)}-USD/spot`)) as { data?: { amount?: string } };
+          const usd = Number(cb?.data?.amount);
+          if (usd) {
+            parts.push(`${name}: $${usd.toLocaleString()}`);
+            data[name] = { usd };
+          }
+        } catch {
+          /* skip this coin */
+        }
+      }
+      if (parts.length) return { summary: parts.join(' · '), data, sourceUrl: 'https://api.coinbase.com/v2/prices' };
+      throw err instanceof Error ? err : new Error('crypto price unavailable');
+    }
   },
   'world-bank-api': async (query) => {
     const parts = (query.includes(':') ? query.split(':') : ['IN', query || 'NY.GDP.MKTP.CD']).map((s) => s.trim());
@@ -958,19 +1020,44 @@ export async function runConnector(sourceId: string, query: string, force = fals
       return { ...hit.evidence, cached: true, ageSeconds: Math.round((now - hit.storedAt) / 1000) };
     }
     // L2: the shared case file — maybe another region already caught it.
-    const shared = caseFile ? await caseFile.read(key) : null;
+    // A DB hiccup (or a case-file table that is not there yet) must NEVER
+    // block a live fetch, so a failed read just falls through to the source.
+    let shared: Awaited<ReturnType<NonNullable<typeof caseFile>['read']>> | null = null;
+    try {
+      shared = caseFile ? await caseFile.read(key) : null;
+    } catch {
+      shared = null;
+    }
     if (shared) {
       rememberL1(key, shared.evidence, shared.storedAt, shared.expires);
       return { ...shared.evidence, cached: true, ageSeconds: Math.round((now - shared.storedAt) / 1000) };
     }
   }
 
-  const { summary, data, sourceUrl } = await conn(query);
+  let fresh: { summary: string; data: unknown; sourceUrl: string };
+  try {
+    fresh = await conn(query);
+  } catch (err) {
+    // Our own fetch was throttled/blocked (e.g. HTTP 429 on a cloud host's
+    // shared IP). Retry the same pull through the edge worker; it also writes
+    // the result into the shared case file for every region.
+    const viaEdge = await fetchViaEdge(sourceId, query);
+    if (viaEdge) {
+      rememberL1(key, viaEdge, now, now + ttlMsFor(sourceId, src.category));
+      return viaEdge;
+    }
+    throw err;
+  }
+  const { summary, data, sourceUrl } = fresh;
   const evidence: SaiEvidence = { sourceId, source: src.n, query, summary, data, sourceUrl, fetchedAt: new Date(now).toISOString(), cached: false, ageSeconds: 0 };
   const expires = now + ttlMsFor(sourceId, src.category);
   rememberL1(key, evidence, now, expires);
   // Share the catch with every other region (fire-and-forget, never blocks).
-  caseFile?.write(key, sourceId, query, evidence, now, expires);
+  try {
+    caseFile?.write(key, sourceId, query, evidence, now, expires);
+  } catch {
+    /* a down case file never blocks the answer */
+  }
   return evidence;
 }
 
