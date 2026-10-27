@@ -4,7 +4,7 @@
  * renders user/assistant/system rows without leaving dead state behind.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { HomeChat, parseNavCommand, voiceErrorMessage } from './HomeChat';
@@ -43,6 +43,7 @@ beforeEach(() => {
   });
   vi.stubGlobal('fetch', fetchMock);
   localStorage.clear();
+  sessionStorage.clear(); // incognito lives in sessionStorage — clear it so it can't bleed between tests
 });
 
 afterEach(() => {
@@ -160,11 +161,12 @@ describe('HomeChat', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    expect(await screen.findByTestId('homechat-hero')).toHaveTextContent(/Hi/);
-    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cowork' })).toBeInTheDocument();
+    const hero = await screen.findByTestId('homechat-hero');
+    // The home is just "CodeConClave AI" — the logo, no mode tabs, no Agent/Cowork.
+    expect(within(hero).getByRole('img', { name: 'CodeConClave' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Chat' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cowork' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Agent' })).toBeNull();
-    // Driving lives in the sidebar now — home carries no agent pointers.
     expect(screen.queryByTestId('homechat-agent-hint')).toBeNull();
   });
 
@@ -199,7 +201,9 @@ describe('HomeChat', () => {
     expect(posted.mode).toBe('CHAT');
   });
 
-  it('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {
+  // Cowork is no longer on the home (the home is clean single-AI chat). Skipped
+  // until cowork lives on its own surface.
+  it.skip('sends mode COWORK when the Cowork tab opens the specialist pipeline', async () => {
     let posted: Record<string, unknown> = {};
     vi.stubGlobal(
       'fetch',
@@ -330,7 +334,6 @@ describe('HomeChat — incognito + follow-ups', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
     await user.click(screen.getByTestId('incognito-toggle'));
     expect(screen.getByTestId('incognito-toggle')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('incognito-banner')).toHaveTextContent(/Not saved to your history, not used for memory/);
@@ -350,7 +353,7 @@ describe('HomeChat — incognito + follow-ups', () => {
     expect(chatBodies()[1]!.incognito).toBeUndefined();
   });
 
-  it('incognito is unavailable for Cowork runs', async () => {
+  it.skip('incognito is unavailable for Cowork runs', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -393,7 +396,6 @@ describe('HomeChat — pipeline v3 trace + receipt', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'expand (x+1)^2');
     await user.click(screen.getByRole('button', { name: /send/i }));
     expect(await screen.findByText('Verified · 1/1 proof pass')).toBeInTheDocument();
@@ -426,7 +428,6 @@ describe('HomeChat — image generation', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'draw an image of a lighthouse at dusk');
     await user.click(screen.getByRole('button', { name: /send/i }));
     const img = await screen.findByAltText('Generated image');
@@ -460,7 +461,7 @@ describe('HomeChat — /setup', () => {
   });
 });
 
-describe('HomeChat — plan first (Cowork)', () => {
+describe.skip('HomeChat — plan first (Cowork)', () => {
   it('sends planFirst, shows the plan, and starts the team only after approval', async () => {
     let posted: Record<string, unknown> = {};
     let decided: Record<string, unknown> | null = null;
@@ -503,7 +504,7 @@ describe('HomeChat — plan first (Cowork)', () => {
   });
 });
 
-describe('HomeChat — Cowork always has a project', () => {
+describe.skip('HomeChat — Cowork always has a project', () => {
   it('starts a "My work" project when the account has none, instead of failing', async () => {
     let posted: Record<string, unknown> = {};
     let createdWith: Record<string, unknown> | null = null;
@@ -564,7 +565,6 @@ describe('HomeChat — MCP tools (Article 8)', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    await user.click(await screen.findByRole('button', { name: 'Chat' }));
     const tools = await screen.findByRole('button', { name: 'Tools' });
     expect(tools).toHaveAttribute('aria-pressed', 'true');
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'make a note called Launch');
@@ -597,7 +597,6 @@ describe('HomeChat — MCP tools (Article 8)', () => {
         <HomeChat />
       </MemoryRouter>,
     );
-    await user.click(await screen.findByRole('button', { name: 'Chat' }));
     expect(screen.queryByRole('button', { name: 'Tools' })).not.toBeInTheDocument();
     await user.type(screen.getByPlaceholderText('Ask anything…'), 'hi');
     await user.click(screen.getByRole('button', { name: /send/i }));

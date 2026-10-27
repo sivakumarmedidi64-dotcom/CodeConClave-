@@ -60,9 +60,9 @@ const ADMIN_ITEMS: NavItem[] = [
   { to: '/admin/ai-usage', label: 'AI Usage', icon: 'sparkle' },
 ];
 
-/** The plan bucket this user belongs to. */
-function planKey(user: User): PlanKey {
-  switch (user.planId) {
+/** Map an internal plan id to the customer-facing bucket the sidebar gates on. */
+function mapPlan(planId: string | undefined): PlanKey {
+  switch (planId) {
     case 'pro':
       return 'solo';
     case 'team':
@@ -75,6 +75,16 @@ function planKey(user: User): PlanKey {
       // Claude-style free tier: chat with a token limit, no paid features.
       return 'free';
   }
+}
+
+/**
+ * The plan bucket that decides what this user may SEE.
+ * We follow the server's authoritative *effective* plan (from /api/v1/access)
+ * when the shell has it, not the static planId on the profile — a free-id
+ * account that the backend has unlocked to Pro must see its Pro tools.
+ */
+function planKey(user: User, effectivePlan?: string): PlanKey {
+  return mapPlan(effectivePlan ?? user.planId);
 }
 
 /** Friendly plan pill label (customer names, not internal ids). */
@@ -114,7 +124,7 @@ function NavRow({ item }: { item: NavItem }) {
   );
 }
 
-export function Sidebar({ user }: { user: User }) {
+export function Sidebar({ user, effectivePlan }: { user: User; effectivePlan?: string }) {
   const isAdmin = user && ['admin', 'owner'].includes(user.rbacRole);
   // Early access: the account pill reports the access stage, never a plan tier.
   const earlyAccess = useEarlyAccess();
@@ -122,7 +132,9 @@ export function Sidebar({ user }: { user: User }) {
   const navigate = useNavigate();
   const name = user.displayName ?? user.email ?? 'Account';
 
-  const plan = planKey(user);
+  // While early access is open there is no commercial gating yet, so everyone
+  // sees every feature; once it closes, we gate on the server's effective plan.
+  const plan: PlanKey = earlyAccess ? 'enterprise' : planKey(user, effectivePlan);
   const primary = forPlan(PRIMARY_ITEMS, plan);
   const more = forPlan(MORE_ITEMS, plan);
 

@@ -52,7 +52,10 @@ export function residentRoleForTask(taskType?: string): string | undefined {
     case 'TASK_PLANNING':
       return 'Architect';
     default:
-      return undefined;
+      // Everything else answers on the founder's OWN tuned model too — "our AI"
+      // for all chat, not just coding. Gateway still checks residentReady() and
+      // falls back honestly if the resident is down or not configured.
+      return 'Coder';
   }
 }
 

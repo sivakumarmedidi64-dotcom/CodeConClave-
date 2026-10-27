@@ -23,7 +23,6 @@ import { PastedChip, UserMessageContent } from './PastedChip';
 import { PipelineBots } from './PipelineBots';
 import { MistakesNote } from './CapabilityGrid';
 import { SetupWizard, isSetupCommand } from './SetupWizard';
-import { CHAT_MODE, COWORK_MODE, ModeSwitch } from './ModeSwitch';
 import { PlanApprovalCard, asPlanSummary, type PlanSummary } from './PlanApproval';
 import { ToolApprovalCard, type ToolApproval } from './ToolApprovalCard';
 import { UsageNearLimit, reportLimitError } from './UsageLimitDialog';
@@ -32,7 +31,6 @@ import { detectPaste, serializePasted, shouldChip, type PastedItem } from '../li
 import { useIncognito } from '../lib/incognito';
 
 const MODEL_KEY = 'cc:home:model';
-const MODE_KEY = 'cc:home:chatmode';
 // A UI preference only (the Cowork review-steps toggle), never billing or access state.
 const REVIEW_STEPS_KEY = 'cc:home:review-steps-first';
 const TOOLS_KEY = 'cc:home:mcp-tools';
@@ -236,12 +234,10 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   const [residentReady, setResidentReady] = useState(false);
   const [modelId, setModelId] = useState<string | undefined>(() => localStorage.getItem(MODEL_KEY) ?? undefined);
   const [routing, setRouting] = useState<{ provider?: string; model?: string; reason?: string } | null>(null);
-  const [chatMode, setChatMode] = useState<'CHAT' | 'COWORK'>(() => {
-    // Default to a clean single-AI chat (like Claude). Cowork — the specialist
-    // team for deep work — is one click away and remembered once you pick it.
-    const saved = localStorage.getItem(MODE_KEY) as string | null;
-    return saved === 'COWORK' ? 'COWORK' : 'CHAT';
-  });
+  // The home is ONLY the clean "CodeConClave AI" chat — your own tuned model +
+  // Agent Sai's real data. Cowork (the specialist team) is a separate surface,
+  // never the home default. "Our AI" front and centre, not a bot team.
+  const [chatMode] = useState<'CHAT' | 'COWORK'>('CHAT');
   const [agentOnline, setAgentOnline] = useState<boolean | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [streaming, setStreaming] = useState(false);
@@ -302,12 +298,6 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
   const handleRouting = useCallback((r: { provider?: string; model?: string; reason?: string } | null) => {
     setRouting(r);
   }, []);
-
-  const selectMode = (next: 'CHAT' | 'COWORK') => {
-    if (next !== chatMode) convRef.current = null;
-    setChatMode(next);
-    localStorage.setItem(MODE_KEY, next);
-  };
 
   // Plain words, never internal ids: which model answers is on the receipt.
   const autoRouted = !modelId || modelId === 'codeconclave-ai';
@@ -807,14 +797,6 @@ export function HomeChat({ hero = true }: { hero?: boolean } = {}) {
           ))}
         </div>
       )}
-      <ModeSwitch<'CHAT' | 'COWORK'>
-        label="Home chat mode"
-        testId="homechat-mode"
-        value={chatMode}
-        options={[CHAT_MODE, COWORK_MODE]}
-        onChange={selectMode}
-        showHint={rows.length === 0}
-      />
       <UsageNearLimit />
       {focus && (
         <div className={`cc-focus cc-focus--${focus.id}`} data-testid="focus-morph" aria-live="polite">

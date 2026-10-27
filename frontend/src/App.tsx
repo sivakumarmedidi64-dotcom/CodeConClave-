@@ -248,7 +248,7 @@ function Shell() {
   return (
     <AccessModeProvider earlyAccess={Boolean(mode?.temporaryDemoMode)}>
       <div className={`cc-shell${collapsed ? ' cc-shell--collapsed' : ''}${drawerOpen ? ' cc-shell--drawer-open' : ''}`}>
-        <Sidebar user={user} />
+        <Sidebar user={user} effectivePlan={access?.effectivePlan} />
         {drawerOpen && <button className="cc-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-label="Close navigation" />}
         <OfflineBanner />
         <Topbar onMenuClick={toggleSidebar} />
